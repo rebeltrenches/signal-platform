@@ -1,0 +1,14 @@
+{
+  "name": "@launchpad/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@launchpad/types": "workspace:*",
+    "@launchpad/utils": "workspace:*",
+    "@launchpad/config": "workspace:*"
+  }
+}

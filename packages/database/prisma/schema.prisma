@@ -1,0 +1,483 @@
+// Multi-chain launchpad — core schema (Stage 1).
+// Financial amounts are Decimal or stored as base-unit strings, never Float
+// — spec section 24/46. Postgres NUMERIC via Prisma's Decimal is exact;
+// nothing here should ever be `Float`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Chain {
+  SOLANA
+  BASE
+  BNB
+  // Planned, not yet implemented — spec section 1:
+  ETHEREUM
+  ARBITRUM
+  AVALANCHE
+  POLYGON
+  SUI
+  TON
+}
+
+enum LaunchStatus {
+  DRAFT
+  BONDING
+  GRADUATED
+  FAILED
+}
+
+enum TxState {
+  CREATED
+  SIMULATING
+  AWAITING_SIGNATURE
+  SIGNED
+  SUBMITTED
+  CONFIRMING
+  CONFIRMED
+  FAILED
+  EXPIRED
+}
+
+enum ReportReason {
+  SCAM
+  IMPERSONATION
+  MALICIOUS_LINKS
+  MISLEADING_INFORMATION
+  EXPLOIT
+  OTHER
+}
+
+/** Master spec section 11/15: every wallet-relationship fact must carry
+ *  its evidence source — mirrors EvidenceSource in packages/types
+ *  exactly, kept in sync manually since Prisma enums can't import a TS
+ *  union. Never used to claim two wallets belong to the same person
+ *  without reliable evidence (section 14's explicit rule). */
+enum EvidenceSource {
+  BLOCKCHAIN_DERIVED
+  SIGNAL_VERIFIED
+  CREATOR_PROVIDED
+  THIRD_PARTY
+  COMMUNITY_REPORTED
+}
+
+model User {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  wallets     Wallet[]
+  watchlist   Watchlist[]
+  alerts      Alert[]
+  reports     TokenReport[]
+  messageReports MessageReport[]
+  userReports    UserReport[]
+
+  @@index([createdAt])
+}
+
+model Wallet {
+  id          String   @id @default(cuid())
+  address     String
+  chain       Chain
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  trades         Trade[]
+  createdTokens  Token[]        @relation("TokenCreator")
+  activity       WalletActivity[]
+  chatMessages   ChatMessage[]
+  reportedAs     UserReport[]         @relation("ReportedWallet")
+  relationshipsAsA WalletRelationship[] @relation("WalletRelationshipA")
+  relationshipsAsB WalletRelationship[] @relation("WalletRelationshipB")
+  notes          WalletNote[]
+
+  @@unique([address, chain])
+  @@index([chain])
+}
+
+model Token {
+  id                String       @id @default(cuid())
+  chain             Chain
+  address           String       // mint (Solana) or contract address (EVM)
+  name              String
+  symbol            String
+  decimals          Int
+  logoUrl           String?
+  description       String?
+  website           String?
+  twitter           String?
+  telegram          String?
+  discord           String?
+
+  totalSupply       Decimal      @db.Decimal(78, 0) // base units; 78 digits covers uint256
+  creatorId         String
+  creator           Wallet       @relation("TokenCreator", fields: [creatorId], references: [id])
+
+  launch            Launch?
+  taxConfig         TransactionTaxConfiguration?
+  chatRoom          ChatRoom?
+  metadata          TokenMetadata?
+
+  trades            Trade[]
+  holders           Holder[]
+  liquidityPools    LiquidityPool[]
+  walletActivity    WalletActivity[]
+  reports           TokenReport[]
+  watchlistedBy     Watchlist[]
+  alerts            Alert[]
+  // holderRewards relation removed again 2026-09-17 (final state) — no
+  // holder-rewards pool or distribution mechanism exists in the current
+  // model. 100% of the transfer fee goes to the token's own creator.
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([chain, address])
+  @@index([chain, createdAt])
+  @@index([symbol])
+}
+
+model TokenMetadata {
+  id         String  @id @default(cuid())
+  tokenId    String  @unique
+  token      Token   @relation(fields: [tokenId], references: [id])
+  // Cached, refreshable facts — never hand-edited; the indexer owns these.
+  holderCount        Int?
+  top10HolderPercent Decimal? @db.Decimal(5, 2)
+  creatorHoldingPercent Decimal? @db.Decimal(5, 2)
+  liquidityUsd       Decimal? @db.Decimal(20, 2)
+  mintAuthorityActive   Boolean?
+  freezeAuthorityActive Boolean?
+  lastIndexedAt      DateTime?
+}
+
+model Launch {
+  id                  String       @id @default(cuid())
+  tokenId             String       @unique
+  token               Token        @relation(fields: [tokenId], references: [id])
+  status              LaunchStatus @default(DRAFT)
+  bondingCurve        BondingCurve?
+  graduation          Graduation?
+  creatorAllocationBps Int
+  launchAllocationBps  Int
+  createdAt           DateTime     @default(now())
+
+  @@index([status])
+}
+
+model BondingCurve {
+  id                  String   @id @default(cuid())
+  launchId            String   @unique
+  launch              Launch   @relation(fields: [launchId], references: [id])
+  curveType           String   // e.g. 'constant-product', 'linear' — implemented Stage 8
+  graduationThreshold Decimal  @db.Decimal(30, 0)
+  currentProgress     Decimal  @db.Decimal(30, 0)
+  parameters          Json     // curve-specific config, validated in application code, not just Json.any
+}
+
+model Graduation {
+  id            String   @id @default(cuid())
+  launchId      String   @unique
+  launch        Launch   @relation(fields: [launchId], references: [id])
+  dexId         String
+  poolAddress   String?
+  graduatedAt   DateTime?
+}
+
+model TransactionTaxConfiguration {
+  id                String   @id @default(cuid())
+  tokenId           String   @unique
+  token             Token    @relation(fields: [tokenId], references: [id])
+  enabled           Boolean  @default(false)
+  totalBps          Int      @default(0)
+  // No platformBps/holderRewardBps (removed again 2026-09-17, final
+  // state — see docs/ROADMAP.md Stage 6) — there is no split. 100% of
+  // totalBps goes to the token's own creator, enforced on-chain by that
+  // creator holding withdrawWithheldAuthority themselves (SolanaAdapter.ts).
+  // Enforced again in packages/utils/src/tax.ts at write-time — this
+  // column-level check is defense in depth, not the only guard.
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Trade {
+  id              String   @id @default(cuid())
+  tokenId         String
+  token           Token    @relation(fields: [tokenId], references: [id])
+  walletId        String
+  wallet          Wallet   @relation(fields: [walletId], references: [id])
+  side            String   // 'buy' | 'sell'
+  inputAmount     Decimal  @db.Decimal(78, 0)
+  outputAmount    Decimal  @db.Decimal(78, 0)
+  taxAmount       Decimal  @db.Decimal(78, 0) @default(0)
+  priceImpactPct  Decimal? @db.Decimal(7, 4)
+  dexId           String?
+  txSignature     String?
+  txState         TxState  @default(CREATED)
+  createdAt       DateTime @default(now())
+
+  @@index([tokenId, createdAt])
+  @@index([walletId, createdAt])
+}
+
+model Transaction {
+  id            String   @id @default(cuid())
+  chain         Chain
+  signature     String   @unique
+  state         TxState  @default(CREATED)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  confirmedAt   DateTime?
+
+  @@index([chain, state])
+}
+
+model Holder {
+  id          String   @id @default(cuid())
+  tokenId     String
+  token       Token    @relation(fields: [tokenId], references: [id])
+  address     String
+  balance     Decimal  @db.Decimal(78, 0)
+  lastUpdated DateTime @default(now())
+
+  @@unique([tokenId, address])
+  @@index([tokenId, balance])
+}
+
+model LiquidityPool {
+  id             String   @id @default(cuid())
+  tokenId        String
+  token          Token    @relation(fields: [tokenId], references: [id])
+  dexId          String
+  poolAddress    String
+  liquidityUsd   Decimal? @db.Decimal(20, 2)
+  lastUpdated    DateTime @default(now())
+
+  @@unique([dexId, poolAddress])
+}
+
+model WalletActivity {
+  id          String   @id @default(cuid())
+  walletId    String
+  wallet      Wallet   @relation(fields: [walletId], references: [id])
+  tokenId     String?
+  token       Token?   @relation(fields: [tokenId], references: [id])
+  kind        String   // 'buy' | 'sell' | 'create_token' | 'large_transfer' ...
+  usdValue    Decimal? @db.Decimal(20, 2)
+  occurredAt  DateTime
+
+  @@index([walletId, occurredAt])
+  @@index([tokenId, occurredAt])
+}
+
+model Watchlist {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  tokenId     String?
+  token       Token?   @relation(fields: [tokenId], references: [id])
+  walletAddress String? // watching a wallet doesn't require it to exist in our Wallet table yet
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Alert {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  tokenId     String?
+  token       Token?   @relation(fields: [tokenId], references: [id])
+  kind        String   // 'price_move' | 'volume_move' | 'liquidity_change' | 'graduation' | ...
+  thresholdJson Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  message     String
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model TokenReport {
+  id          String        @id @default(cuid())
+  tokenId     String
+  token       Token         @relation(fields: [tokenId], references: [id])
+  reporterId  String
+  reporter    User          @relation(fields: [reporterId], references: [id])
+  reason      ReportReason
+  details     String?
+  createdAt   DateTime      @default(now())
+
+  // Spec section 20: a report never auto-flags a token as fraudulent —
+  // that requires human review, tracked via AdminUser + AuditLog.
+  reviewed    Boolean       @default(false)
+}
+
+model PlatformFee {
+  id          String   @id @default(cuid())
+  kind        String   // 'creation' | 'launch' | 'trading' | 'graduation'
+  chain       Chain
+  amount      Decimal  @db.Decimal(78, 0)
+  txSignature String?
+  collectedAt DateTime @default(now())
+}
+
+// HolderReward and HolderRewardClaim models: removed AGAIN 2026-09-17
+// (final state) — this fee model has now flipped between 100%-creator
+// and 2%/1% platform+holder multiple times in one day; see
+// docs/ROADMAP.md Stage 6 for the complete history. Current confirmed
+// state: 100% to creator, no holder-rewards pool, no split. These models
+// existed briefly (again) for the platform+holder version and are
+// removed along with that mechanism, not left testing/tracking something
+// that no longer exists.
+
+model BlockchainEvent {
+  id          String   @id @default(cuid())
+  chain       Chain
+  signature   String
+  eventType   String   // 'TaxCollected' | 'CreatorTaxWithdrawn' | ...
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@unique([chain, signature, eventType])
+  @@index([chain, eventType, processedAt])
+}
+
+model AdminUser {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  role        String   // 'admin' | 'moderator' | 'support'
+  createdAt   DateTime @default(now())
+  auditLogs   AuditLog[]
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  adminUserId String
+  adminUser   AdminUser @relation(fields: [adminUserId], references: [id])
+  action      String
+  targetType  String?
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+
+  @@index([adminUserId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Community — master spec section 16/8/20. Architecture only as of
+// 2026-09-17: no message has ever been sent through these models, no
+// server is running that could deliver one in real time. Real-time
+// delivery needs a running server (WebSocket/SSE) and real user
+// authentication (Stage 19) — neither exists yet. These models exist so
+// that work isn't blocked on schema design once that infrastructure does.
+// ---------------------------------------------------------------------------
+
+model ChatRoom {
+  id        String        @id @default(cuid())
+  kind      String        // 'main' | 'token' — the one Signal-wide room, or a per-token room
+  tokenId   String?       @unique // set when kind = 'token'; null for the main room
+  token     Token?        @relation(fields: [tokenId], references: [id])
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+}
+
+model ChatMessage {
+  id            String        @id @default(cuid())
+  roomId        String
+  room          ChatRoom      @relation(fields: [roomId], references: [id])
+  authorWalletId String
+  authorWallet  Wallet        @relation(fields: [authorWalletId], references: [id])
+  content       String
+  createdAt     DateTime      @default(now())
+  deletedAt     DateTime?     // soft-delete for moderation — never hard-delete, so a moderation
+                              // action is itself auditable rather than erasing evidence of it
+  reports       MessageReport[]
+
+  @@index([roomId, createdAt])
+}
+
+model MessageReport {
+  id          String       @id @default(cuid())
+  messageId   String
+  message     ChatMessage  @relation(fields: [messageId], references: [id])
+  reporterId  String
+  reporter    User         @relation(fields: [reporterId], references: [id])
+  reason      ReportReason
+  details     String?
+  reviewed    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+}
+
+model UserReport {
+  id             String       @id @default(cuid())
+  reportedWalletId String
+  reportedWallet Wallet       @relation("ReportedWallet", fields: [reportedWalletId], references: [id])
+  reporterId     String
+  reporter       User         @relation(fields: [reporterId], references: [id])
+  reason         ReportReason
+  details        String?
+  reviewed       Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Wallet Intelligence — master spec section 14/15 ("Signal Wallet DNA",
+// "Signal Investigation Mode", "Explain This Wallet", "Creator History").
+// Architecture only, same as Community above: no relationship here has
+// ever been populated from real data, since that needs a real indexer
+// (Stage 11) tracing actual on-chain fund flows, not invented ones.
+//
+// The hard rule this whole area exists to enforce: NEVER claim two
+// wallets belong to the same person without reliable evidence (spec
+// section 14). That's why relationshipType below is deliberately
+// factual/observational ("funded", "received_from") rather than
+// conclusory ("same_owner_as") — a relationship type describes what was
+// OBSERVED on-chain, and confidenceLevel + evidenceDescription carry
+// whatever interpretation a human (or, later, a constrained AI that
+// "must never invent evidence" per section 15) adds on top, visibly
+// separated from the observed fact itself.
+// ---------------------------------------------------------------------------
+
+model WalletRelationship {
+  id                  String         @id @default(cuid())
+  walletAId           String
+  walletA             Wallet         @relation("WalletRelationshipA", fields: [walletAId], references: [id])
+  walletBId           String
+  walletB             Wallet         @relation("WalletRelationshipB", fields: [walletBId], references: [id])
+  relationshipType    String         // 'funded' | 'received_from' | 'shared_liquidity_pool' | 'co_signed_transaction' | ...
+  evidenceSource      EvidenceSource
+  evidenceDescription String         // human-readable: what was actually observed, e.g. "Wallet A sent 12 SOL to Wallet B in tx <sig>"
+  confidenceLevel     String         // 'low' | 'medium' | 'high' — how strong the observed evidence is, never "certain"
+  observedTxSignature String?        // the real transaction this relationship is derived from, when applicable
+  discoveredAt        DateTime       @default(now())
+
+  @@index([walletAId])
+  @@index([walletBId])
+}
+
+/** "Explain This Wallet" / "Creator History" — a running, evidence-linked
+ *  note about a wallet's observed history. Never a free-text accusation;
+ *  every note must reference real evidence (a tx signature, a report id)
+ *  or it doesn't belong here. */
+model WalletNote {
+  id            String         @id @default(cuid())
+  walletId      String
+  wallet        Wallet         @relation(fields: [walletId], references: [id])
+  note          String
+  evidenceSource EvidenceSource
+  evidenceTxSignature String?
+  createdAt     DateTime       @default(now())
+
+  @@index([walletId, createdAt])
+}

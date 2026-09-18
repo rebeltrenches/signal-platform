@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@launchpad/types": ["./packages/types/src/index.ts"],
+      "@launchpad/types/*": ["./packages/types/src/*"],
+      "@launchpad/utils": ["./packages/utils/src/index.ts"],
+      "@launchpad/utils/*": ["./packages/utils/src/*"],
+      "@launchpad/config": ["./packages/config/src/index.ts"],
+      "@launchpad/config/*": ["./packages/config/src/*"]
+    }
+  },
+  "include": ["packages/**/*.ts", "apps/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

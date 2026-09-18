@@ -1,0 +1,22 @@
+{
+  "name": "multichain-launchpad",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-chain token launchpad and trading terminal (Solana, Base, BNB Chain)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --build --dry",
+    "test:utils": "tsx packages/utils/tests/tax.test.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

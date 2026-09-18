@@ -1,0 +1,11 @@
+{
+  "name": "@launchpad/blockchain",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/core/index.ts",
+  "dependencies": {
+    "@launchpad/types": "workspace:*",
+    "@solana/web3.js": "^1.95.3",
+    "@solana/spl-token": "^0.4.9"
+  }
+}

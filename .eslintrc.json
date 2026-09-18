@@ -1,0 +1,20 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/no-floating-promises": "error",
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "BinaryExpression[operator=/^[+\\-*/]$/][left.typeAnnotation.typeAnnotation.type='TSNumberKeyword']",
+        "message": "Avoid raw float arithmetic on financial values — use Decimal/BigInt helpers in packages/utils/money.ts"
+      }
+    ]
+  }
+}
