@@ -1,5 +1,5 @@
 import React from 'react';
-import { SignalCoin } from '../components/SignalCoin.js';
+import { SignalMark } from '../components/SignalMark.js';
 import { CHAIN_CONFIGS } from '@launchpad/config';
 
 const TRUST_POINTS = [
@@ -47,30 +47,6 @@ const STEPS = [
   { n: '04', title: 'Live once confirmed', body: 'Not before — a launch is never marked done until the chain says so.' },
 ];
 
-
-
-function ChainBadge({ chain }: { chain: 'solana' | 'base' | 'bnb' }) {
-  if (chain === 'solana') {
-    return (
-      <span className="chain-logo chain-logo-solana" aria-hidden="true">
-        <i /><i /><i />
-      </span>
-    );
-  }
-  if (chain === 'base') {
-    return (
-      <span className="chain-logo chain-logo-base" aria-hidden="true">
-        <b />
-      </span>
-    );
-  }
-  return (
-    <span className="chain-logo chain-logo-bnb" aria-hidden="true">
-      <b>◆</b>
-    </span>
-  );
-}
-
 const CHAIN_DOTS: Record<string, { bg: string; label: string }> = {
   solana: { bg: 'var(--chain-solana)', label: 'S' },
   base: { bg: 'var(--chain-base)', label: 'B' },
@@ -113,14 +89,11 @@ export function HomePage() {
           </div>
         </div>
         <div className="hero-emblem-side">
-          <div className="hero-side-label hero-side-label-left" aria-hidden="true">
-            <span>MORE</span><span>THAN</span><span>MEMES</span>
-            <i />
-          </div>
-          <SignalCoin size={520} />
-          <div className="hero-side-label hero-side-label-right" aria-hidden="true">
-            <span>A</span><span>BRIGHTER</span><span>TOMORROW</span><span>ON-CHAIN</span>
-            <i />
+          <div className="signal-pulse-wrap">
+            <span className="signal-pulse-ring" aria-hidden="true" />
+            <span className="signal-pulse-ring delay-1" aria-hidden="true" />
+            <span className="signal-pulse-ring delay-2" aria-hidden="true" />
+            <SignalMark size={260} glow className="signal-pulse-core" />
           </div>
         </div>
       </section>
@@ -128,21 +101,21 @@ export function HomePage() {
       <section className="container">
         <div className="chain-bar">
           <div className="chain-bar-item">
-            <ChainBadge chain="solana" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.solana.bg }}>{CHAIN_DOTS.solana.label}</span>
             <div>
               <h4>{solana.displayName}</h4>
               <p>3.00% transfer fee supported</p>
             </div>
           </div>
           <div className="chain-bar-item">
-            <ChainBadge chain="base" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.base.bg }}>{CHAIN_DOTS.base.label}</span>
             <div>
               <h4>{base.displayName}</h4>
               <p>Trading only — transfer fee not available yet</p>
             </div>
           </div>
           <div className="chain-bar-item">
-            <ChainBadge chain="bnb" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.bnb.bg }}>{CHAIN_DOTS.bnb.label}</span>
             <div>
               <h4>{bnb.displayName}</h4>
               <p>Trading only — transfer fee not available yet</p>
