@@ -1,17 +1,30 @@
 import React from 'react';
-import { SignalMark } from './SignalMark.js';
 
+/**
+ * The cinematic hero emblem, integrated from the separately-developed
+ * "V5 Duo Fix" project per an explicit, multi-round approved plan (see
+ * commit message for the full trace). This is NOT the site's brand
+ * mark — that's still SignalMark.tsx, used unmodified by Header.tsx and
+ * everywhere else the mark appears. This component exists specifically
+ * for the homepage hero's large emblem.
+ *
+ * Five elements present in the original source were removed here,
+ * confirmed against the actual V5 stylesheet (779 lines) rather than
+ * assumed: .signal-coin-orbit (.orbit-a/.orbit-b), .signal-coin-caption,
+ * and the .earth-glow span all had no matching CSS definition anywhere
+ * in that stylesheet — rendering them here would mean unstyled,
+ * visually-broken elements, not a faithful port of a working design.
+ * The unused `SignalMark` import was also removed — the original
+ * imported it but never referenced it in the render output.
+ */
 export function SignalCoin({ size = 520 }: { size?: number }) {
   const uid = `signal-coin-${size}`;
   return (
     <div className="signal-coin-stage" style={{ ['--coin-size' as string]: `${size}px` }}>
       <div className="signal-coin-aura" aria-hidden="true" />
       <div className="signal-coin-earth" aria-hidden="true">
-        <span className="earth-glow" />
         <span className="earth-lights" />
       </div>
-      <div className="signal-coin-orbit orbit-a" aria-hidden="true" />
-      <div className="signal-coin-orbit orbit-b" aria-hidden="true" />
       <svg className="signal-coin" viewBox="0 0 520 520" role="img" aria-label="Signal launchpad emblem">
         <defs>
           <radialGradient id={`${uid}-face`} cx="48%" cy="34%" r="72%">
@@ -88,9 +101,6 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
           <textPath href={`#${uid}-bottomArc`} startOffset="50%" textAnchor="middle">BUILD • TRADE • VERIFY • COMMUNITY</textPath>
         </text>
       </svg>
-      <div className="signal-coin-caption">
-        <span>REAL PROJECTS</span><span>REAL DATA</span><span>REAL COMMUNITY</span>
-      </div>
     </div>
   );
 }

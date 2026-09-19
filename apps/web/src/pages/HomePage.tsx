@@ -47,30 +47,6 @@ const STEPS = [
   { n: '04', title: 'Live once confirmed', body: 'Not before — a launch is never marked done until the chain says so.' },
 ];
 
-
-
-function ChainBadge({ chain }: { chain: 'solana' | 'base' | 'bnb' }) {
-  if (chain === 'solana') {
-    return (
-      <span className="chain-logo chain-logo-solana" aria-hidden="true">
-        <i /><i /><i />
-      </span>
-    );
-  }
-  if (chain === 'base') {
-    return (
-      <span className="chain-logo chain-logo-base" aria-hidden="true">
-        <b />
-      </span>
-    );
-  }
-  return (
-    <span className="chain-logo chain-logo-bnb" aria-hidden="true">
-      <b>◆</b>
-    </span>
-  );
-}
-
 const CHAIN_DOTS: Record<string, { bg: string; label: string }> = {
   solana: { bg: 'var(--chain-solana)', label: 'S' },
   base: { bg: 'var(--chain-base)', label: 'B' },
@@ -128,21 +104,21 @@ export function HomePage() {
       <section className="container">
         <div className="chain-bar">
           <div className="chain-bar-item">
-            <ChainBadge chain="solana" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.solana.bg }}>{CHAIN_DOTS.solana.label}</span>
             <div>
               <h4>{solana.displayName}</h4>
               <p>3.00% transfer fee supported</p>
             </div>
           </div>
           <div className="chain-bar-item">
-            <ChainBadge chain="base" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.base.bg }}>{CHAIN_DOTS.base.label}</span>
             <div>
               <h4>{base.displayName}</h4>
               <p>Trading only — transfer fee not available yet</p>
             </div>
           </div>
           <div className="chain-bar-item">
-            <ChainBadge chain="bnb" />
+            <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.bnb.bg }}>{CHAIN_DOTS.bnb.label}</span>
             <div>
               <h4>{bnb.displayName}</h4>
               <p>Trading only — transfer fee not available yet</p>
