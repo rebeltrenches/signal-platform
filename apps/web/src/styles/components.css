@@ -453,6 +453,10 @@
 .hero-eyebrow-dot { box-shadow: 0 0 12px 2px rgba(158, 96, 255, .75); }
 .hero-accent {
   background: linear-gradient(100deg, #a45cff 0%, #704cff 45%, #4f91ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 18px rgba(117, 70, 255, .26));
 }
 .hero-actions .btn-brand {
