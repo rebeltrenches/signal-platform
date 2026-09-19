@@ -21,11 +21,15 @@ export function Header({ currentPath }: { currentPath: string }) {
   return (
     <header className="topbar">
       <div className="container topbar-inner">
-        <a href="/" className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <SignalMark size={28} />
+        <a href="/" className="brand" aria-label="Signal home">
+          <span className="brand-mark brand-mark-premium" aria-hidden="true">
+            <span className="brand-orbit" />
+            <SignalMark size={30} glow />
           </span>
-          Signal
+          <span className="brand-lockup">
+            <strong>SIGNAL</strong>
+            <small>THE LAUNCHPAD · FOR WHAT'S NEXT</small>
+          </span>
         </a>
         <nav className="nav-links" aria-label="Primary">
           {NAV_ITEMS.map((item) => (
