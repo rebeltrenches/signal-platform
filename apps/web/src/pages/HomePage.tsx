@@ -30,13 +30,17 @@ export function HomePage() {
   return (
     <>
       <section className="hero container-narrow">
-        <div className="signal-pulse-wrap" style={{ width: 168, height: 168, margin: '0 auto 32px auto' }}>
+        <span className="hero-eyebrow">
+          <span className="hero-eyebrow-dot" aria-hidden="true" />
+          Multi-chain token infrastructure
+        </span>
+        <div className="signal-pulse-wrap" style={{ width: 188, height: 188, margin: '28px auto 32px auto' }}>
           <span className="signal-pulse-ring" aria-hidden="true" />
           <span className="signal-pulse-ring delay-1" aria-hidden="true" />
           <span className="signal-pulse-ring delay-2" aria-hidden="true" />
-          <SignalMark size={120} glow className="signal-pulse-core" />
+          <SignalMark size={132} glow className="signal-pulse-core" />
         </div>
-        <h1>Launch a token you can actually explain.</h1>
+        <h1>Launch a token you can actually <span className="hero-accent">explain</span>.</h1>
         <p>
           A multi-chain launchpad built around one idea: show what's true,
           not what's reassuring. Facts over scores, real state over
@@ -64,7 +68,9 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="container" style={{ marginTop: 88, marginBottom: 40 }}>
+      <div className="section-divider" role="presentation" />
+
+      <section className="container" style={{ marginTop: 72, marginBottom: 40 }}>
         <h2 style={{ font: 'var(--text-h1)', textAlign: 'center', marginBottom: 8 }}>How a launch works</h2>
         <p style={{ textAlign: 'center', color: 'var(--ink-dim)', maxWidth: '48ch', margin: '0 auto' }}>
           Four steps. Nothing hidden between them.

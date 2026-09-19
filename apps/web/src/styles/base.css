@@ -7,14 +7,18 @@ body {
   -webkit-font-smoothing: antialiased;
   position: relative;
 }
-/* Atmosphere — restrained, concentrated near the top of the page (the
-   hero) rather than a uniform glow everywhere, so it reads as depth
-   behind the content instead of competing with it. A fixed pseudo-
-   element rather than a body background-image: avoids iOS's known
+/* Atmosphere — bigger and more immersive than a single small glow, but
+   still concentrated toward the top of the page (the hero) rather than
+   uniform everywhere, so it reads as depth behind the content instead
+   of competing with it further down. A fixed pseudo-element rather
+   than a body background-image: avoids iOS's known
    background-attachment:fixed jank, and keeps this out of the way of
    any component that legitimately sets its own background. Purely
-   decorative (aria-hidden equivalent: no content, no interaction) —
-   pointer-events disabled so it can never intercept a click. */
+   decorative — pointer-events disabled so it can never intercept a
+   click. Three soft radial glows (wider spread than Phase 6's single
+   pair) plus a faint, sparse star field for the "deep space / digital
+   atmosphere" the brief asks for — stars are a tiled radial-gradient
+   dot pattern, not an image, so this stays lightweight. */
 body::before {
   content: "";
   position: fixed;
@@ -22,13 +26,11 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(680px 460px at 78% 0%, var(--glow-purple), transparent 65%),
-    radial-gradient(620px 420px at 8% 8%, var(--glow-blue), transparent 60%),
+    radial-gradient(900px 620px at 82% -5%, var(--glow-purple), transparent 62%),
+    radial-gradient(760px 560px at 4% 4%, var(--glow-blue), transparent 58%),
+    radial-gradient(640px 480px at 50% 8%, var(--glow-purple), transparent 70%),
     linear-gradient(var(--bg), var(--bg));
 }
-/* A very faint technical grid — the "subtle technical lines" the brief
-   asks for. Kept to the first ~900px (the hero/nav band) via a mask so
-   it never tiles across an entire long page. */
 body::after {
   content: "";
   position: fixed;
@@ -36,11 +38,17 @@ body::after {
   z-index: -1;
   pointer-events: none;
   background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.5), transparent),
+    radial-gradient(1px 1px at 65% 15%, rgba(255, 255, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 85% 45%, rgba(255, 255, 255, 0.35), transparent),
+    radial-gradient(1px 1px at 35% 60%, rgba(255, 255, 255, 0.3), transparent),
+    radial-gradient(1px 1px at 92% 8%, rgba(255, 255, 255, 0.45), transparent),
+    radial-gradient(1px 1px at 8% 70%, rgba(255, 255, 255, 0.3), transparent),
     linear-gradient(rgba(139, 92, 246, 0.05) 1px, transparent 1px),
     linear-gradient(90deg, rgba(139, 92, 246, 0.05) 1px, transparent 1px);
-  background-size: 56px 56px;
-  -webkit-mask-image: linear-gradient(to bottom, black, transparent 900px);
-  mask-image: linear-gradient(to bottom, black, transparent 900px);
+  background-size: 200px 200px, 240px 240px, 180px 180px, 220px 220px, 260px 260px, 190px 190px, 56px 56px, 56px 56px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 1100px);
+  mask-image: linear-gradient(to bottom, black, transparent 1100px);
 }
 :root[data-theme="light"] body::before,
 :root[data-theme="light"] body::after {

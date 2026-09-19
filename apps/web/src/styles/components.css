@@ -49,7 +49,10 @@
 
 /* ---- Hero ---- */
 .hero { padding: 96px 0 72px 0; text-align: center; }
+.hero-eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: var(--radius-full); border: 1px solid var(--line-strong); background: var(--surface-translucent); font: var(--text-micro); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); }
+.hero-eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-hover); box-shadow: 0 0 8px 1px var(--glow-purple); }
 .hero h1 { font: var(--text-display); letter-spacing: -0.02em; margin: 0 auto 20px auto; max-width: 15ch; }
+.hero-accent { background: linear-gradient(100deg, var(--brand-hover), var(--brand-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero p { font-size: 1.05rem; color: var(--ink-dim); max-width: 52ch; margin: 0 auto 32px auto; line-height: 1.6; }
 .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 
@@ -173,7 +176,7 @@
    JS — plays automatically, loops softly, never draws the eye away from
    the headline next to it. Disabled entirely under prefers-reduced-motion
    (see tokens.css). */
-.signal-pulse-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.signal-pulse-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
 /* A static glow "corona" behind the mark — always present, independent
    of the animated rings, so the hero mark has real premium presence
    even with prefers-reduced-motion (checked below) or between pulses. */
@@ -303,3 +306,8 @@
 @media (max-width: 640px) {
   .chat-room { height: 420px; }
 }
+
+/* A soft light "seam" between major homepage sections, instead of a
+   plain flat rule or nothing — reinforces depth without a background
+   box or extra content. Purely decorative. */
+.section-divider { height: 1px; margin: 0 auto; max-width: 720px; background: linear-gradient(90deg, transparent, var(--line-strong) 30%, var(--line-strong) 70%, transparent); }
