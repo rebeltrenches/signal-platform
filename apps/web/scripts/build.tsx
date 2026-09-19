@@ -54,7 +54,7 @@ const routes: RouteDef[] = [
     embeddedJson: { chainConfigs: CHAIN_CONFIGS, defaultTaxConfig: DEFAULT_TAX_CONFIG },
   },
   { path: 'explore', title: 'Explore', element: <ExplorePage />, clientScripts: ['/client/explore.js'] },
-  { path: 'token/example', title: 'Token', element: <TokenDetailPage />, clientScripts: ['/client/token-detail.js'] },
+  { path: 'token/example', title: 'Token', element: <TokenDetailPage />, clientScripts: ['/client/token-detail.js', '/client/chat.js'] },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {
     path: 'dashboard',
@@ -65,7 +65,7 @@ const routes: RouteDef[] = [
   },
   { path: 'security', title: 'Security', element: <SecurityPage /> },
   { path: 'transparency', title: 'Transparency', element: <TransparencyPage /> },
-  { path: 'community', title: 'Community', element: <CommunityPage /> },
+  { path: 'community', title: 'Community', element: <CommunityPage />, clientScripts: ['/client/chat.js'] },
 ];
 
 function currentPathFor(routePath: string): string {

@@ -60,7 +60,7 @@ export function SecurityPage() {
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>Current status</h2>
         <div className="empty-state" style={{ textAlign: 'left', padding: 20 }}>
-          <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7 }}>
+          <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7, maxWidth: 'none', margin: 0 }}>
             This platform is at an early build stage. No contracts have been
             deployed to any network, including testnet. No professional
             audit has happened yet — one is planned before any real funds

@@ -3,6 +3,7 @@ import type { DataPoint } from '@launchpad/types';
 import { sourcedUnavailable } from '@launchpad/types';
 import { DataValue } from '../components/DataUnavailable.js';
 import { SourcedRow, SourceTag } from '../components/SourcedValue.js';
+import { ChatRoom } from '../components/ChatRoom.js';
 
 const TABS = ['Overview', 'Chart', 'Trades', 'Holders', 'Signal Check', 'Creator', 'Transactions', 'Community'];
 
@@ -158,9 +159,26 @@ export function TokenDetailPage() {
         </div>
 
         <div data-panel="Community" hidden>
-          <div className="empty-state">
-            <h3>Coming Soon</h3>
-            <p>Real-time community chat needs a running server and real user accounts — Stage 19 (auth) and Phase 8 of the wider build. Not faked here.</p>
+          {/* This page is a static layout template — it can't know a real
+              mint address at server-render time (no dynamic per-address
+              routing here; see the file header). token-detail.js reads
+              ?mint= from the URL at runtime: if present, it reconfigures
+              the ChatRoom below to that token's real room and mounts it;
+              otherwise it stays hidden and the "no token selected" state
+              shows instead. Reuses the exact same component as the main
+              community room, so the two can't drift apart visually. */}
+          <div data-token-chat-unselected>
+            <div className="empty-state">
+              <h3>No token selected</h3>
+              <p>
+                Open this tab from an actual token — for example a token you've launched, from{' '}
+                <a href="/dashboard" style={{ color: 'var(--brand)' }}>your Dashboard</a> — to see and
+                join that token's own chatroom.
+              </p>
+            </div>
+          </div>
+          <div data-token-chat-mount hidden>
+            <ChatRoom endpoint="" roomId="" label="this token's room" />
           </div>
         </div>
       </div>

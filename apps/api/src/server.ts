@@ -3,6 +3,7 @@ import { Router, notImplemented } from './router.js';
 import { getHealth, getHealthDatabase } from './routes/health.js';
 import { listChains } from './routes/chains.js';
 import { previewTax } from './routes/tax.js';
+import { getMainMessages, postMainMessage, getTokenMessages, postTokenMessage, reportChatMessage, deleteChatMessage, checkModeratorStatus } from './routes/chat.js';
 
 const router = new Router();
 
@@ -11,6 +12,18 @@ router.register('GET', '/health', getHealth);
 router.register('GET', '/health/database', getHealthDatabase);
 router.register('GET', '/api/v1/chains', listChains);
 router.register('POST', '/api/v1/tax/preview', previewTax);
+
+// --- Chat (real, in-memory — see apps/api/src/chat/store.ts's own
+// header for exactly what "real" means here and what its honest limits
+// are: genuinely stored/validated/rate-limited/signature-verified, but
+// in-process memory, not a database; polling, not a WebSocket push) ---
+router.register('GET', '/api/v1/chat/main/messages', getMainMessages);
+router.register('POST', '/api/v1/chat/main/messages', postMainMessage);
+router.register('GET', '/api/v1/chat/token/:address/messages', getTokenMessages);
+router.register('POST', '/api/v1/chat/token/:address/messages', postTokenMessage);
+router.register('POST', '/api/v1/chat/messages/:messageId/report', reportChatMessage);
+router.register('DELETE', '/api/v1/chat/messages/:messageId', deleteChatMessage);
+router.register('GET', '/api/v1/chat/is-moderator', checkModeratorStatus);
 
 // --- documented in the spec, honestly stubbed until their stage lands --
 router.register('GET', '/api/v1/tokens/:chain/:address', notImplemented('Stage 11 — indexer', 'Needs live indexed token data.'));

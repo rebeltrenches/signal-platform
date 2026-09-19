@@ -1,10 +1,50 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--ink);
   font: var(--text-body);
   -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+/* Atmosphere — restrained, concentrated near the top of the page (the
+   hero) rather than a uniform glow everywhere, so it reads as depth
+   behind the content instead of competing with it. A fixed pseudo-
+   element rather than a body background-image: avoids iOS's known
+   background-attachment:fixed jank, and keeps this out of the way of
+   any component that legitimately sets its own background. Purely
+   decorative (aria-hidden equivalent: no content, no interaction) —
+   pointer-events disabled so it can never intercept a click. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(680px 460px at 78% 0%, var(--glow-purple), transparent 65%),
+    radial-gradient(620px 420px at 8% 8%, var(--glow-blue), transparent 60%),
+    linear-gradient(var(--bg), var(--bg));
+}
+/* A very faint technical grid — the "subtle technical lines" the brief
+   asks for. Kept to the first ~900px (the hero/nav band) via a mask so
+   it never tiles across an entire long page. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(139, 92, 246, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(139, 92, 246, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent 900px);
+  mask-image: linear-gradient(to bottom, black, transparent 900px);
+}
+:root[data-theme="light"] body::before,
+:root[data-theme="light"] body::after {
+  display: none;
 }
 h1, h2, h3, p, figure { margin: 0; }
 a { color: inherit; }

@@ -59,7 +59,10 @@
         return `
       <div class="card" style="margin-bottom:10px;" data-launch-card="${escapeHtml(l.mint)}">
         <div class="review-row"><span class="k">${escapeHtml(l.name)} (${escapeHtml(l.symbol)})</span>
-          <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" style="color:var(--brand)">View on Explorer</a>
+          <span style="display:flex; gap:14px;">
+            <a href="/token/example?mint=${encodeURIComponent(l.mint)}#community" style="color:var(--brand)">Chat</a>
+            <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" style="color:var(--brand)">View on Explorer</a>
+          </span>
         </div>
         <div class="review-row"><span class="k" style="font-family:monospace;font-size:11px">${escapeHtml(l.mint)}</span><span class="v" style="color:var(--ink-faint)">${new Date(l.launchedAt).toLocaleString()}</span></div>
         ${collectButton ? `<div class="review-row"><span class="k" style="color:var(--ink-faint)">Accumulated Transfer Fee</span>${collectButton}</div><div data-collect-status style="font-size:0.8125rem;color:var(--ink-dim);margin-top:6px;"></div>` : ''}

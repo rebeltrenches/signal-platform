@@ -30,11 +30,11 @@ export function HomePage() {
   return (
     <>
       <section className="hero container-narrow">
-        <div className="signal-pulse-wrap" style={{ width: 112, height: 112, margin: '0 auto 32px auto' }}>
+        <div className="signal-pulse-wrap" style={{ width: 168, height: 168, margin: '0 auto 32px auto' }}>
           <span className="signal-pulse-ring" aria-hidden="true" />
           <span className="signal-pulse-ring delay-1" aria-hidden="true" />
           <span className="signal-pulse-ring delay-2" aria-hidden="true" />
-          <SignalMark size={80} className="signal-pulse-core" />
+          <SignalMark size={120} glow className="signal-pulse-core" />
         </div>
         <h1>Launch a token you can actually explain.</h1>
         <p>
