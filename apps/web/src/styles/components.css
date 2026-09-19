@@ -376,3 +376,37 @@
 @media (min-width: 861px) and (max-width: 1080px) {
   .approach-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ---- Security page expansion: reuses .hero-eyebrow, .approach-grid/
+   .approach-card, .section-divider, .card, and .review-row from the
+   rest of V4 rather than inventing a parallel visual language; these
+   are the few genuinely new patterns this page needs. ---- */
+.security-hero { text-align: center; padding: 56px 0 40px 0; }
+.security-hero h1 { font: var(--text-display); font-size: clamp(1.9rem, 4vw, 2.75rem); letter-spacing: -0.02em; max-width: 22ch; margin: 18px auto 14px auto; }
+.security-hero p { color: var(--ink-dim); font-size: 1.05rem; max-width: 52ch; margin: 0 auto; line-height: 1.6; }
+
+.icon-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 24px; }
+.icon-list-item { display: flex; align-items: flex-start; gap: 12px; padding: 4px 0; }
+.icon-list-item .icon { width: 26px; height: 26px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.icon-list-item p { color: var(--ink-dim); font: var(--text-small); line-height: 1.55; margin: 0; }
+@media (max-width: 700px) { .icon-list { grid-template-columns: 1fr; } }
+
+.authority-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.authority-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 20px 22px; }
+.authority-card h3 { font-size: 0.95rem; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.authority-card h3 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--brand-hover); box-shadow: 0 0 6px 1px var(--glow-purple); flex-shrink: 0; }
+.authority-card p { color: var(--ink-dim); font: var(--text-small); line-height: 1.55; }
+@media (max-width: 700px) { .authority-grid { grid-template-columns: 1fr; } }
+
+.status-card { position: relative; background: var(--surface); border: var(--glow-border); border-radius: var(--radius-lg); padding: 28px 26px; overflow: hidden; }
+.status-card::before { content: ""; position: absolute; inset: 0; z-index: 0; background: radial-gradient(420px 220px at 90% 0%, var(--glow-purple), transparent 70%); pointer-events: none; }
+.status-card-inner { position: relative; z-index: 1; }
+.status-card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.status-card li { display: flex; align-items: flex-start; gap: 10px; color: var(--ink-dim); font: var(--text-small); line-height: 1.55; }
+.status-card li .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); margin-top: 7px; flex-shrink: 0; }
+
+.security-section { margin: 56px 0; }
+.security-section-head { margin-bottom: 24px; }
+.security-section-head .kicker { display: block; font: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase; color: var(--brand-hover); margin-bottom: 8px; }
+.security-section-head h2 { font: var(--text-h1); font-size: 1.5rem; margin-bottom: 8px; }
+.security-section-head p { color: var(--ink-dim); font: var(--text-small); max-width: 62ch; line-height: 1.6; }

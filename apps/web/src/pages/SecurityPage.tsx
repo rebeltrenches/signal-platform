@@ -1,72 +1,315 @@
 import React from 'react';
 
 /** Spec section 33. Content mirrors docs/SECURITY.md — one real source of
- *  truth, two presentations (engineer-facing markdown, user-facing page). */
+ *  truth, two presentations (engineer-facing markdown, user-facing page).
+ *
+ *  Expanded per an explicit content brief: every added claim is checked
+ *  against the actual implementation (SolanaAdapter.ts's authority
+ *  assignment, packages/types' DEFAULT_TAX_CONFIG, the chat backend's
+ *  real signature/rate-limit/moderation logic) rather than written as
+ *  generic trust-page copy. No new claims of audits, certifications,
+ *  partnerships, deployed contracts, or guarantees — where the honest
+ *  answer is "not yet" or "not implemented," that's what's said. */
+
+const ICONS = {
+  shield: <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" strokeLinejoin="round" strokeLinecap="round" />,
+  key: <path d="M15 7a4 4 0 10-4 4l-6 6v2h2l1-1h2v-2h2l1.5-1.5" strokeLinejoin="round" strokeLinecap="round" />,
+  wallet: <path d="M3 7a2 2 0 012-2h11a2 2 0 012 2v1h1a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7zM16 12h.01" strokeLinecap="round" />,
+  eye: <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z M12 14.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" strokeLinejoin="round" strokeLinecap="round" />,
+  check: <path d="M5 12l4 4L19 6" strokeLinecap="round" strokeLinejoin="round" />,
+  x: <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />,
+  alert: <path d="M12 3l9 16H3l9-16z M12 10v4M12 17h.01" strokeLinejoin="round" strokeLinecap="round" />,
+  doc: <path d="M6 3h8l4 4v14H6V3z M14 3v4h4 M9 12h6 M9 15h6 M9 9h2" strokeLinejoin="round" strokeLinecap="round" />,
+  link: <path d="M10 14a4 4 0 005.66 0l2-2a4 4 0 00-5.66-5.66l-1 1 M14 10a4 4 0 00-5.66 0l-2 2a4 4 0 005.66 5.66l1-1" strokeLinecap="round" strokeLinejoin="round" />,
+};
+
+function Icon({ d, size = 15 }: { d: React.ReactNode; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--brand-hover)" strokeWidth="1.8">
+      {d}
+    </svg>
+  );
+}
+
+const WALLET_POINTS = [
+  'Signal never asks for a seed phrase or private key, in the app or anywhere else.',
+  "Every wallet action is signed by the user's own connected wallet — Phantom for Solana, or an EVM wallet for Base and BNB.",
+  'Signal does not custody user funds at any point in the launch or trading flow.',
+  'Always read a wallet prompt before approving it — check the network, the destination, and the amount.',
+  'Hardware wallets can be used wherever the connected wallet software supports them.',
+  "Signal does not generate, store, or have access to a user's private key, on any chain.",
+];
+
+const LAUNCH_VERIFY_POINTS = [
+  'The token mint address itself, once a launch confirms',
+  'Mint authority — who can mint additional supply',
+  'Freeze authority — who can freeze a holder\u2019s token account',
+  'Total supply and decimals as configured at launch',
+  "The creator wallet that holds the token's authorities",
+  'Transfer-fee configuration, where the chain supports it',
+  'Token metadata as provided at creation',
+  'Other on-chain state relevant to that specific mint',
+];
+
+const AUTHORITIES = [
+  {
+    title: 'Mint authority',
+    body: 'Controls whether more of the token can ever be minted. If held by the creator, supply is not fixed until this authority is revoked or renounced — verify its current state on-chain rather than assuming.',
+  },
+  {
+    title: 'Freeze authority',
+    body: "Controls whether a specific holder's token account can be frozen, blocking transfers from it. Its presence and holder matter for understanding what could restrict a token's transferability later.",
+  },
+  {
+    title: 'Transfer-fee configuration authority',
+    body: 'Controls the transfer-fee parameters on Token-2022 mints. On Signal, this is assigned to the connecting creator wallet at launch — never to a Signal-controlled address.',
+  },
+  {
+    title: 'Withdraw-withheld authority',
+    body: 'Controls who can withdraw the transfer fee that Token-2022 withholds during transfers. On Signal, this is also assigned to the creator wallet — the same wallet, not a separate one Signal holds.',
+  },
+];
+
+const NOT_DO_POINTS: Array<{ text: string; icon: React.ReactNode }> = [
+  { text: "We don't hold your seed phrase.", icon: ICONS.x },
+  { text: "We don't hold your private key.", icon: ICONS.x },
+  { text: "We don't custody your funds.", icon: ICONS.x },
+  { text: "We don't guarantee token performance.", icon: ICONS.x },
+  { text: 'We don\u2019t label a token "safe" based on a proprietary score.', icon: ICONS.x },
+  { text: "We don't hide material on-chain facts.", icon: ICONS.x },
+];
+
+const PROOF_EXAMPLES = [
+  'Holder concentration', 'Liquidity', 'Mint authority', 'Freeze authority',
+  'Total supply', 'Creator wallet', 'Transfer-fee configuration', 'Other available on-chain data',
+];
+
+const SIGNING_TIPS = [
+  'Check that the wallet address you\u2019re signing with is actually the one you intended to use.',
+  "Check the network — a signature meant for one chain should never be approved on another.",
+  'Read what the transaction actually does before approving it, not just the amount.',
+  'Never approve a transaction whose effect you don\u2019t understand.',
+  'Never share a seed phrase or private key with anyone or anything — Signal will never ask for one.',
+  'Be cautious of links or sites claiming to be Signal that you didn\u2019t navigate to directly.',
+  'If a prompt looks unexpected in any way, reject it and check first.',
+];
+
+const PRINCIPLES = [
+  { title: 'Verify, don\u2019t assume.', body: 'Every material fact here links back to something you can check yourself, on-chain.' },
+  { title: 'Your keys, your control.', body: 'Signal never holds a key or a seed phrase — every signature is yours alone.' },
+  { title: 'Facts over scores.', body: 'Mint authority, freeze authority, holders, liquidity — shown as data, never as a verdict.' },
+  { title: 'Transparency over promises.', body: 'What isn\u2019t built yet is labeled as such, not implied to already exist.' },
+];
+
 export function SecurityPage() {
   return (
-    <div className="container-narrow" style={{ paddingTop: 40, paddingBottom: 80 }}>
-      <h1 style={{ font: 'var(--text-h1)', marginBottom: 8 }}>Security</h1>
-      <p style={{ color: 'var(--ink-dim)', marginBottom: 40 }}>
-        What's actually true today, not a generic trust page.
-      </p>
+    <div style={{ paddingBottom: 80 }}>
+      <div className="container-narrow security-hero">
+        <span className="hero-eyebrow">
+          <span className="hero-eyebrow-dot" aria-hidden="true" />
+          Security &amp; Transparency
+        </span>
+        <h1>Security starts with what you can verify.</h1>
+        <p>Signal is designed to make the important on-chain facts visible before you interact with a token.</p>
+      </div>
 
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>Wallets and keys</h2>
-        <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7 }}>
-          This platform never asks for a seed phrase or private key. Every
-          action that moves funds or changes on-chain state is signed in
-          your own wallet — Phantom, or an EVM wallet for Base and BNB.
-          Nothing here can act on your behalf without that signature.
-        </p>
-      </section>
+      <div className="container-narrow">
+        {/* ---- 2. Wallet & key security ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Wallet &amp; key security</span>
+            <h2>Your wallet stays yours.</h2>
+          </div>
+          <div className="icon-list">
+            {WALLET_POINTS.map((p) => (
+              <div className="icon-list-item" key={p}>
+                <span className="icon"><Icon d={ICONS.wallet} /></span>
+                <p>{p}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>The transfer fee</h2>
-        <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7 }}>
-          On Solana, the 3% transfer fee is enforced by Token-2022's own
-          TransferFeeConfig extension — an existing, audited feature of the
-          base program, not custom code written for this platform. 100% of
-          the fee goes to the token's own creator, who holds the withdraw
-          authority themselves — there is no Signal platform fee and no
-          holder-rewards pool taken out of it. On Base and BNB Chain, no
-          transfer fee exists yet: writing one would mean a custom
-          contract, and we're not shipping that without an independent
-          audit first.
-        </p>
-      </section>
+        <div className="section-divider" role="presentation" />
 
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>Creator key security</h2>
-        <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7 }}>
-          Since the creator holds mint authority, transfer-fee-config authority, and
-          withdraw-withheld authority on their own wallet, that wallet's security is
-          entirely the creator's own responsibility — no different from holding any
-          Solana wallet with real value in it. Hardware wallet for real funds, never
-          share a private key, generate fresh keys per project. Signal has nothing to
-          store, protect, or lose here — it never sees, requests, or holds any key for
-          this mechanism.
-        </p>
-      </section>
+        {/* ---- 3. Token launch security ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Token launch security</span>
+            <h2>What you can verify about a launch.</h2>
+            <p>Signal shows these facts directly; you can also independently verify every one of them on a block explorer before ever signing a transaction.</p>
+          </div>
+          <div className="icon-list">
+            {LAUNCH_VERIFY_POINTS.map((p) => (
+              <div className="icon-list-item" key={p}>
+                <span className="icon"><Icon d={ICONS.eye} /></span>
+                <p>{p}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>What "Proof Before You Buy" actually shows</h2>
-        <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7 }}>
-          Mint authority, freeze authority, holder concentration, and
-          liquidity — shown as facts. Never converted into a "safe" verdict
-          or a numeric score. What you do with those facts is your call.
-        </p>
-      </section>
+        <div className="section-divider" role="presentation" />
 
-      <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>Current status</h2>
-        <div className="empty-state" style={{ textAlign: 'left', padding: 20 }}>
-          <p style={{ color: 'var(--ink-dim)', lineHeight: 1.7, maxWidth: 'none', margin: 0 }}>
-            This platform is at an early build stage. No contracts have been
-            deployed to any network, including testnet. No professional
-            audit has happened yet — one is planned before any real funds
-            are ever at risk. Nothing on this site currently moves real
-            money.
+        {/* ---- 4. Transfer fee ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">The transfer fee</span>
+            <h2>3.00% Transfer Fee, 100% to the creator.</h2>
+          </div>
+          <div className="card">
+            <div className="review-row"><span className="k">Transfer Fee</span><span className="v">3.00%</span></div>
+            <div className="review-row"><span className="k">Goes to</span><span className="v">The token's own creator — 100%</span></div>
+            <div className="review-row"><span className="k">Signal platform fee</span><span className="v">None</span></div>
+            <div className="review-row"><span className="k">Holder rewards</span><span className="v">0%</span></div>
+            <div className="review-row"><span className="k">Enforced by</span><span className="v">Solana Token-2022's TransferFeeConfig extension</span></div>
+            <div className="review-row"><span className="k">Base &amp; BNB Chain</span><span className="v">Do not use this transfer-fee mechanism</span></div>
+          </div>
+          <p style={{ color: 'var(--ink-faint)', font: 'var(--text-small)', marginTop: 14, lineHeight: 1.6 }}>
+            Signal uses a 3.00% Transfer Fee on supported Solana launches. The fee is enforced through Solana
+            Token-2022's TransferFeeConfig extension. 100% of the configured Transfer Fee is directed to the
+            token creator. Signal does not take a platform fee. Holder rewards are currently 0%. Base and BNB
+            currently do not use this transfer-fee mechanism.
           </p>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 5. Creator authorities ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Creator authorities</span>
+            <h2>Four authorities worth understanding.</h2>
+            <p>These determine what can and can't be changed about a token after launch. Verify the current holder of each directly on-chain rather than assuming from this page alone.</p>
+          </div>
+          <div className="authority-grid">
+            {AUTHORITIES.map((a) => (
+              <div className="authority-card" key={a.title}>
+                <h3><span className="dot" aria-hidden="true" />{a.title}</h3>
+                <p>{a.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 6. What Signal does not do ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">What Signal does not do</span>
+            <h2>Said plainly, not buried in a footnote.</h2>
+          </div>
+          <div className="icon-list">
+            {NOT_DO_POINTS.map((n) => (
+              <div className="icon-list-item" key={n.text}>
+                <span className="icon"><Icon d={n.icon} /></span>
+                <p>{n.text}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 7. Proof before you buy ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Proof before you buy</span>
+            <h2>Facts, shown as facts — not a "safe" score.</h2>
+            <p>Signal exposes the on-chain facts that matter rather than compressing them into a misleading safety verdict. You still make your own decision about what "safe enough" means for you.</p>
+          </div>
+          <div className="icon-list">
+            {PROOF_EXAMPLES.map((p) => (
+              <div className="icon-list-item" key={p}>
+                <span className="icon"><Icon d={ICONS.doc} /></span>
+                <p>{p}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 8. Smart contract / code transparency ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Code transparency</span>
+            <h2>What's actually running underneath.</h2>
+          </div>
+          <div className="icon-list">
+            <div className="icon-list-item">
+              <span className="icon"><Icon d={ICONS.link} /></span>
+              <p>Solana launches use Token-2022's established, existing functionality where applicable — Signal does not fork or modify the token program itself.</p>
+            </div>
+            <div className="icon-list-item">
+              <span className="icon"><Icon d={ICONS.alert} /></span>
+              <p>Using an established protocol does not mean using Signal removes all risk. Signal itself has not undergone a professional security audit.</p>
+            </div>
+            <div className="icon-list-item">
+              <span className="icon"><Icon d={ICONS.shield} /></span>
+              <p>Base and BNB Chain functionality is currently limited to what's actually implemented — trading-only, with no transfer-fee mechanism live yet.</p>
+            </div>
+            <div className="icon-list-item">
+              <span className="icon"><Icon d={ICONS.x} /></span>
+              <p>No audit, certification, or partnership is claimed anywhere on this site unless it has actually happened.</p>
+            </div>
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 9. User signing safety ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">User signing safety</span>
+            <h2>Before you approve anything.</h2>
+          </div>
+          <div className="icon-list">
+            {SIGNING_TIPS.map((t) => (
+              <div className="icon-list-item" key={t}>
+                <span className="icon"><Icon d={ICONS.check} /></span>
+                <p>{t}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+
+        {/* ---- 10. Current security status ---- */}
+        <section className="security-section">
+          <div className="security-section-head">
+            <span className="kicker">Current status</span>
+            <h2>Where this platform actually is today.</h2>
+          </div>
+          <div className="status-card">
+            <div className="status-card-inner">
+              <ul>
+                <li><span className="dot" aria-hidden="true" />Signal is currently in an early build stage.</li>
+                <li><span className="dot" aria-hidden="true" />No Signal contracts have been deployed to production networks unless explicitly stated on this page.</li>
+                <li><span className="dot" aria-hidden="true" />Features and supported networks may change as the platform develops.</li>
+                <li><span className="dot" aria-hidden="true" />Always verify the current on-chain state before signing.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <div className="section-divider" role="presentation" />
+      </div>
+
+      {/* ---- 11. Security principles ---- */}
+      <section className="container" style={{ marginTop: 56 }}>
+        <span className="section-eyebrow">Security principles</span>
+        <h2 style={{ font: 'var(--text-h1)', textAlign: 'center', marginBottom: 8 }}>What this page won't change.</h2>
+        <div className="approach-grid">
+          {PRINCIPLES.map((p) => (
+            <div className="approach-card" key={p.title}>
+              <div className="icon" aria-hidden="true"><Icon d={ICONS.shield} size={18} /></div>
+              <h3>{p.title}</h3>
+              <p>{p.body}</p>
+            </div>
+          ))}
         </div>
       </section>
     </div>
