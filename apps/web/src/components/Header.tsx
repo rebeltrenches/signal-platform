@@ -23,9 +23,9 @@ export function Header({ currentPath }: { currentPath: string }) {
       <div className="container topbar-inner">
         <a href="/" className="brand">
           <span className="brand-mark" aria-hidden="true">
-            <SignalMark size={28} />
+            <SignalMark size={34} />
           </span>
-          Signal
+          <span className="brand-wordmark">SIGNAL</span>
         </a>
         <nav className="nav-links" aria-label="Primary">
           {NAV_ITEMS.map((item) => (

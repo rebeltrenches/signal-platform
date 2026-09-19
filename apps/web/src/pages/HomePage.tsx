@@ -3,168 +3,118 @@ import { SignalMark } from '../components/SignalMark.js';
 
 const APPROACH = [
   {
-    eyebrow: 'ON-CHAIN FACTS',
-    title: 'See what the chain actually says.',
-    body: 'Mint authority, holder concentration, liquidity and other important facts are presented from the underlying state — not reduced to a mystery score.',
-    icon: <path d="M4 6.5L12 3l8 3.5v11L12 21l-8-3.5v-11z M4 6.5L12 10l8-3.5 M12 10v11" strokeLinecap="round" strokeLinejoin="round" />,
+    title: 'On-chain facts',
+    body: 'Mint authority, freeze authority, holder data, liquidity and more — read directly from the chain.',
+    icon: 'search',
   },
   {
-    eyebrow: 'CLEAR INFORMATION',
-    title: 'Understand before you act.',
-    body: 'Signal is designed to show sources and context so you can make your own decision instead of being handed a reassuring label.',
-    icon: <path d="M12 4v16 M7 8h10 M7 12h7 M7 16h5" strokeLinecap="round" strokeLinejoin="round" />,
+    title: 'Clear information',
+    body: 'Every fact shows its source. No hidden interpretation, no misleading scores.',
+    icon: 'doc',
   },
   {
-    eyebrow: 'YOUR KEYS, YOUR CONTROL',
-    title: 'Your wallet stays yours.',
-    body: 'Connect and sign with your own wallet. Signal does not ask for seed phrases or private keys.',
-    icon: <path d="M7 11V8a5 5 0 0110 0v3 M5 11h14v9H5v-9z M12 15v2" strokeLinecap="round" strokeLinejoin="round" />,
+    title: 'Your keys, your control',
+    body: 'You always sign in your own wallet. Signal never asks for your seed phrase or private key.',
+    icon: 'shield',
   },
   {
-    eyebrow: 'A STRONGER COMMUNITY',
-    title: 'Share what you can verify.',
-    body: 'Community discussion, reporting and token-specific chat give people a place to compare information and surface useful facts.',
-    icon: <path d="M5 6h14v10H9l-4 4V6z M8 10h8 M8 13h5" strokeLinecap="round" strokeLinejoin="round" />,
+    title: 'A stronger community',
+    body: 'Community reports, discussions, and real transparency — all in one place.',
+    icon: 'users',
   },
 ];
 
-const CHAINS = [
-  { name: 'Solana', detail: '3.00% transfer fee', state: 'LIVE', className: 'solana' },
-  { name: 'Base', detail: 'Launch support', state: 'SUPPORTED', className: 'base' },
-  { name: 'BNB Chain', detail: 'Launch support', state: 'SUPPORTED', className: 'bnb' },
-];
+function FeatureIcon({ type }: { type: string }) {
+  const paths: Record<string, React.ReactNode> = {
+    search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="M16 16l5 5" /></>,
+    doc: <><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v5h4M9 13h6M9 16h5" /></>,
+    shield: <><path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" /><path d="M9 12l2 2 4-4" /></>,
+    users: <><circle cx="9" cy="9" r="3.5" /><circle cx="17" cy="10" r="2.7" /><path d="M2.8 20c.6-3.4 2.8-5.2 6.2-5.2s5.6 1.8 6.2 5.2M15 15.2c3.5-.1 5.4 1.5 6.2 4.8" /></>,
+  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
+}
+
+function SignalCoin() {
+  return (
+    <div className="signal-coin" aria-hidden="true">
+      <img src="/assets/signal-logo-full.png" alt="" />
+    </div>
+  );
+}
+
+function ChainIcon({ chain }: { chain: 'solana' | 'base' | 'bnb' }) {
+  if (chain === 'base') return <span className="chain-icon chain-icon-base">—</span>;
+  if (chain === 'bnb') return <span className="chain-icon chain-icon-bnb">◆</span>;
+  return <span className="chain-icon chain-icon-sol">S</span>;
+}
 
 export function HomePage() {
   return (
-    <>
-      <section className="v3-hero">
-        <div className="v3-hero-grid">
-          <div className="v3-hero-copy">
-            <div className="v3-kicker">
-              <span className="v3-kicker-dot" aria-hidden="true" />
-              Multi-chain token infrastructure
-            </div>
-
-            <h1>
-              Launch a token
-              <br />
-              you can actually <span>explain.</span>
-            </h1>
-
-            <p>
-              A multi-chain launchpad built around one idea: show what&apos;s true,
-              not what&apos;s reassuring. Facts over scores, real state over
-              placeholders.
-            </p>
-
-            <div className="v3-hero-actions">
-              <a href="/create" className="btn btn-brand btn-lg">Create a token <span aria-hidden="true">→</span></a>
+    <main className="signal-home">
+      <section className="hero-v4">
+        <div className="hero-v4-space" aria-hidden="true" />
+        <div className="hero-v4-earth" aria-hidden="true"><span className="earth-lights" /></div>
+        <div className="hero-v4-inner container">
+          <div className="hero-v4-copy">
+            <span className="hero-v4-eyebrow"><span className="hero-v4-eyebrow-dot" />Multi-chain launchpad</span>
+            <h1>Launch a token<br />you can actually<br /><span>explain.</span></h1>
+            <p>Signal is a multi-chain launchpad built around one idea: show what's true, not what's reassuring. Facts over scores, real state over placeholders.</p>
+            <div className="hero-v4-actions">
+              <a href="/create" className="btn btn-brand btn-lg">Create a token <b>→</b></a>
               <a href="/explore" className="btn btn-ghost btn-lg">Explore launches</a>
             </div>
-
-            <div className="v3-proof-row">
-              <div><span className="v3-proof-icon">✦</span><span>Transparent by design</span></div>
-              <div><span className="v3-proof-icon">◈</span><span>Facts, not scores</span></div>
-              <div><span className="v3-proof-icon">⌁</span><span>Community driven</span></div>
+            <div className="hero-trust-row">
+              <div><span className="trust-icon"><FeatureIcon type="shield" /></span><span>Transparent<br />by design</span></div>
+              <div><span className="trust-icon"><FeatureIcon type="doc" /></span><span>Facts, not<br />safety scores</span></div>
+              <div><span className="trust-icon"><FeatureIcon type="users" /></span><span>Community<br />driven</span></div>
             </div>
           </div>
-
-          <div className="v3-hero-art" aria-hidden="true">
-            <div className="v3-nebula v3-nebula-a" />
-            <div className="v3-nebula v3-nebula-b" />
-            <div className="v3-stars" />
-            <div className="v3-orbit v3-orbit-a" />
-            <div className="v3-orbit v3-orbit-b" />
-
-            <div className="v3-coin">
-              <div className="v3-coin-rim v3-coin-rim-back" />
-              <div className="v3-coin-face">
-                <div className="v3-coin-grid" />
-                <div className="v3-coin-glow" />
-                <div className="v3-coin-mark">
-                  <SignalMark size={205} glow />
-                </div>
-                <div className="v3-coin-label">SIGNAL</div>
-              </div>
-              <div className="v3-coin-rim v3-coin-rim-front" />
-            </div>
-
-            <div className="v3-planet">
-              <div className="v3-planet-glow" />
-              <div className="v3-planet-surface" />
-              <div className="v3-planet-grid" />
-            </div>
+          <div className="hero-v4-visual">
+            <div className="hero-side-note hero-side-note-top">MORE<br />THAN<br />MEMES<span /></div>
+            <SignalCoin />
+            <div className="hero-side-note hero-side-note-bottom">A<br />BRIGHTER<br />TOMORROW<br />ON-CHAIN<span /></div>
           </div>
         </div>
       </section>
 
-      <section className="container v3-chain-wrap" aria-label="Supported chains">
-        <div className="v3-chain-panel">
-          {CHAINS.map((chain) => (
-            <div className={`v3-chain ${chain.className}`} key={chain.name}>
-              <div className="v3-chain-mark" aria-hidden="true">{chain.name === 'Solana' ? '≋' : chain.name === 'Base' ? '◒' : '◆'}</div>
-              <div>
-                <strong>{chain.name}</strong>
-                <span>{chain.detail}</span>
-              </div>
-              <em>{chain.state}</em>
-            </div>
-          ))}
-          <div className="v3-chain-more">
-            <span>+</span>
-            <div><strong>More chains</strong><span>coming soon</span></div>
-            <b aria-hidden="true">→</b>
-          </div>
+      <section className="chain-bar-wrap container" aria-label="Supported chains">
+        <div className="chain-bar">
+          <div className="chain-item"><ChainIcon chain="solana" /><div><strong>Solana</strong><small>3.00% transfer fee<br />supported</small></div></div>
+          <div className="chain-item"><ChainIcon chain="base" /><div><strong>Base</strong><small>Trading only<br />(for now)</small></div></div>
+          <div className="chain-item"><ChainIcon chain="bnb" /><div><strong>BNB Chain</strong><small>Trading only<br />(for now)</small></div></div>
+          <div className="chain-more"><span>MORE CHAINS<br />COMING SOON</span><b>›</b></div>
         </div>
       </section>
 
-      <section className="container v3-approach">
-        <div className="v3-section-heading">
-          <div className="v3-section-kicker">OUR APPROACH</div>
-          <h2>Built for a more transparent crypto economy.</h2>
-          <p>Signal gives you the facts that matter, directly from the blockchain — so you can make your own decisions with confidence.</p>
-        </div>
-
-        <div className="v3-approach-grid">
-          {APPROACH.map((item, index) => (
-            <article className="v3-approach-card" key={item.eyebrow}>
-              <div className="v3-card-number">0{index + 1}</div>
-              <div className="v3-card-icon" aria-hidden="true">
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.45">
-                  {item.icon}
-                </svg>
-              </div>
-              <div className="v3-card-eyebrow">{item.eyebrow}</div>
+      <section className="approach-v4 container">
+        <span className="section-eyebrow">Our approach</span>
+        <h2>Built for a more transparent crypto economy.</h2>
+        <p className="approach-lead">Signal gives you the facts that matter, directly from the blockchain — so you can make your own decisions with confidence.</p>
+        <div className="approach-grid">
+          {APPROACH.map((item) => (
+            <article className="approach-card" key={item.title}>
+              <span className="approach-icon"><FeatureIcon type={item.icon} /></span>
               <h3>{item.title}</h3>
               <p>{item.body}</p>
-              <div className="v3-card-line" />
             </article>
           ))}
         </div>
       </section>
 
-      <section className="container v3-future">
-        <div className="v3-future-art" aria-hidden="true">
-          <div className="v3-mountain v3-mountain-back" />
-          <div className="v3-mountain v3-mountain-mid" />
-          <div className="v3-mountain v3-mountain-front" />
-          <div className="v3-future-haze" />
-          <div className="v3-future-stars" />
-        </div>
-        <div className="v3-future-content">
-          <div className="v3-section-kicker">A CLEARER FUTURE</div>
-          <h2>Better information<br /><span>builds a safer tomorrow.</span></h2>
-          <p>Explore real on-chain information, understand what you&apos;re signing, and join a community built around transparency.</p>
-          <div className="v3-hero-actions">
-            <a href="/explore" className="btn btn-brand btn-lg">Explore launches <span aria-hidden="true">→</span></a>
-            <a href="/transparency" className="btn btn-ghost btn-lg">Learn more</a>
+      <section className="future-v4 container">
+        <div className="future-v4-bg" aria-hidden="true" />
+        <div className="future-v4-copy">
+          <span className="section-eyebrow">A clearer future</span>
+          <h2>Better information<br />builds a safer tomorrow.</h2>
+          <p>Join a growing community that values transparency, education and real data.</p>
+          <div className="hero-v4-actions">
+            <a href="/explore" className="btn btn-brand">Explore launches <b>→</b></a>
+            <a href="/transparency" className="btn btn-ghost">Learn more</a>
           </div>
         </div>
+        <div className="future-v4-note">SAME CHAINS<br />HIGHER STANDARDS<br />BRIGHTER OPPORTUNITIES<span /></div>
+        <div className="future-v4-signature">Signal <span>→</span><small>MORE THAN A LAUNCHPAD<br />A CLEARER TOMORROW</small></div>
       </section>
-
-      <section className="container v3-final-space" aria-hidden="true">
-        <div className="v3-final-line" />
-      </section>
-    </>
+    </main>
   );
 }
