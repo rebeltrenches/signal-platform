@@ -85,7 +85,7 @@ export function createServer() {
 
 // Only actually listen when this file is run directly (`tsx src/server.ts`),
 // not when imported by a test.
-if (import.meta.url === `file://${process.argv[1]}`) {
+async function startServer() {
   await initializeChatStorage();
   await initializeTokenStorage();
   await initializeWatchlistStorage();
@@ -93,5 +93,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   createServer().listen(PORT, () => {
     console.log(`api listening on http://localhost:${PORT}`);
+  });
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  startServer().catch((err) => {
+    console.error('Failed to start API:', err);
+    process.exit(1);
   });
 }
