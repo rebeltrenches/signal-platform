@@ -9,7 +9,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // `url` intentionally NOT here — Prisma 7 removed support for this
+  // property in schema.prisma (error P1012 if present). The connection
+  // URL now lives in packages/database/prisma7.config.ts instead,
+  // reading the same DATABASE_URL environment variable. Nothing about
+  // the actual data models below this line has changed.
 }
 
 enum Chain {
