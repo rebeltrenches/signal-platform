@@ -3,22 +3,33 @@
  * launch-config form must go through — no other file should compute a
  * fee split by hand.
  *
- * CONFIRMED MODEL (2026-09-17, final state after multiple reversals —
- * see docs/ROADMAP.md Stage 6 for the full history): 100% of the 3%
- * Transfer Fee goes to the token's own creator. No Signal platform fee.
- * No holder-rewards pool. No automatic distribution. splitCollectedFee(),
+ * CONFIRMED MODEL (updated — see docs/ARCHITECTURE.md for the full
+ * decision history, including the earlier 100%-to-creator model this
+ * superseded): 100% of the 1% Signal Fee on transfers goes to the
+ * Signal platform wallet (getPlatformWalletAddress(), @launchpad/config)
+ * — not the token's creator, who now receives 0% of this fee. No
+ * holder-rewards pool. No automatic distribution. splitCollectedFee(),
  * which existed to divide an already-collected amount between a
  * platform wallet and a rewards pool, does not exist — there is nothing
- * to split.
+ * to split; the entire fee goes to the one platform wallet.
+ *
+ * This module computes the TRANSFER fee only. The separate, one-time
+ * Launch Fee (charged at token creation, calculated from the real
+ * rent-exemption payment — see packages/types' LAUNCH_FEE_BPS and
+ * SolanaAdapter.ts's buildCreateTokenTransaction) is a different
+ * mechanism with a different trigger and a different calculation base;
+ * computeLaunchFeeFromPayment below handles that one specifically,
+ * kept in this same module since both are "fee math" but clearly
+ * separated so the two are never confused for one another.
  *
  * Everything here is integer (bigint) arithmetic. Spec section 46 bans
  * floating point for financial calculations, for a real reason: a naive
- * `amount * 0.03` in JS floats will silently drift on large enough numbers
+ * `amount * 0.01` in JS floats will silently drift on large enough numbers
  * and can be exploited at the rounding edges. bigint + basis points avoids
  * that entire class of bug.
  */
 import type { TaxConfig, BasisPoints } from '@launchpad/types';
-import { PROTOCOL_MAX_TAX_BPS } from '@launchpad/types';
+import { PROTOCOL_MAX_TAX_BPS, LAUNCH_FEE_BPS } from '@launchpad/types';
 
 export class InvalidTaxConfigError extends Error {}
 
@@ -44,21 +55,23 @@ export function validateTaxConfig(config: TaxConfig): void {
 export interface TaxSplit {
   grossAmount: bigint;
   totalTax: bigint;
-  /** 100% of totalTax — the token's own creator, per the confirmed
-   *  model. Kept as its own named field (rather than only exposing
-   *  totalTax) so the UI can label this specifically as "the Transfer
-   *  Fee, which goes entirely to the creator." */
-  creatorTax: bigint;
+  /** 100% of totalTax — the Signal platform wallet, per the confirmed
+   *  model. Named `platformTax` (previously `creatorTax`, when the
+   *  entire fee went to the token's creator instead) so call sites and
+   *  UI code can label this specifically as "the Signal Fee, which
+   *  goes entirely to the Signal platform wallet" without implying the
+   *  creator receives any of it. */
+  platformTax: bigint;
   netAmount: bigint;
 }
 
 /**
- * Splits a TRADE amount into net proceeds + the Transfer Fee, in base
+ * Splits a TRADE amount into net proceeds + the Signal Fee, in base
  * units. Under the confirmed model this isn't really a "split" (there's
  * only one destination), but the shape is kept so call sites and UI code
  * have a stable, explicit place to read "how much fee", "how much goes
- * to the creator" (currently identical), and "how much is left" —
- * without hand-rolling percentage math anywhere else.
+ * to the Signal platform wallet" (currently identical to totalTax), and
+ * "how much is left" — without hand-rolling percentage math anywhere else.
  */
 export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSplit {
   if (grossAmount < 0n) {
@@ -67,17 +80,36 @@ export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSpli
   validateTaxConfig(config);
 
   if (!config.enabled || config.totalBps === 0) {
-    return { grossAmount, totalTax: 0n, creatorTax: 0n, netAmount: grossAmount };
+    return { grossAmount, totalTax: 0n, platformTax: 0n, netAmount: grossAmount };
   }
 
   const bpsDenominator = 10_000n;
   const totalTax = (grossAmount * BigInt(config.totalBps)) / bpsDenominator;
   const netAmount = grossAmount - totalTax;
 
-  return { grossAmount, totalTax, creatorTax: totalTax, netAmount };
+  return { grossAmount, totalTax, platformTax: totalTax, netAmount };
 }
 
-/** Basis points as a human string, e.g. 300 -> "3.00%". Display only — never compute with this. */
+/**
+ * The separate, one-time Launch Fee: 1% (LAUNCH_FEE_BPS) of the
+ * creator's actual real launch/creation payment — the rent-exemption
+ * lamports the creator is really paying to create the mint account,
+ * never token supply or an assumed market value (neither is a real
+ * payment being made). `actualPaymentLamports` should be the exact,
+ * live-computed value from the chain at launch time (see
+ * SolanaAdapter.ts), not a rounded or assumed figure. Returns the fee
+ * amount only, in the same lamports unit — 100% of it goes to the
+ * Signal platform wallet, same as the transfer fee, with no further
+ * split.
+ */
+export function computeLaunchFeeFromPayment(actualPaymentLamports: bigint): bigint {
+  if (actualPaymentLamports < 0n) {
+    throw new InvalidTaxConfigError('actualPaymentLamports cannot be negative.');
+  }
+  return (actualPaymentLamports * BigInt(LAUNCH_FEE_BPS)) / 10_000n;
+}
+
+/** Basis points as a human string, e.g. 100 -> "1.00%". Display only — never compute with this. */
 export function bpsToDisplay(bps: BasisPoints): string {
   return `${(bps / 100).toFixed(2)}%`;
 }

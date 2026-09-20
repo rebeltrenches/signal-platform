@@ -13,29 +13,50 @@ correct for Stage 1. It becomes a running thing across Stages 2–13, and it
 becomes a *safe* thing to put real money behind only after Stage 19
 (security hardening) and a professional audit — see `SECURITY.md`.
 
-## Decisions confirmed for this build (2026-09-17)
+## Decisions confirmed for this build (updated 2026-09-19 — see ADR-0011)
 
-- **Transfer Fee: 3% total, 100% to the token's own creator.** No
-  Signal platform fee. No holder-rewards pool. No split. This is the
-  FINAL confirmed state — see ADR-0010 below. ADR-0004 through ADR-0009
-  are kept only as history of a fee model that flip-flopped multiple
-  times in one day before landing here; none of their intermediate
-  states are current.
+- **Signal Fee: 1% total on applicable Solana token transfers, 100% to
+  the Signal platform wallet** (`SIGNAL_PLATFORM_WALLET`,
+  `packages/config/src/platform-wallet.ts`). The token's creator
+  receives 0% of this fee. No holder-rewards pool. This supersedes the
+  100%-to-creator model below (ADR-0010), which itself superseded an
+  earlier platform/holder model — see ADR-0011 for the full reasoning.
   Encoded in `packages/types/src/index.ts` as `DEFAULT_TAX_CONFIG`
-  (`{enabled, totalBps}` — no split fields) and tested in
+  (`{enabled, totalBps}`, now `totalBps: 100`) and tested in
   `packages/utils/tests/tax.test.ts`.
-- **Terminology (2026-09-17):** the product says "Transfer Fee"
-  everywhere a person would read it — UI copy and documentation prose —
-  instead of "Tax." This is display-only: internal code identifiers
-  (`TaxConfig`, `computeTaxSplit`, `creatorTax`, the
-  `TransactionTaxConfiguration` model, the `/api/v1/tax/preview` route,
-  `.env` variable names) are unchanged on purpose — renaming those is an
-  architecture change, not a terminology one, and wasn't asked for.
-- **ADR-0010 (2026-09-17) — FINAL: confirmed 100%-to-creator, no
+- **Launch Fee: a separate, one-time 1% fee** (`LAUNCH_FEE_BPS`,
+  `packages/types`), calculated from the creator's actual real launch
+  payment when one exists — not from supply or an assumed market
+  value. No base launch payment has ever been defined in this product,
+  so this fee is not currently charged anywhere; the formula
+  (`computeLaunchFeeFromPayment`, `packages/utils/src/tax.ts`) is real
+  and tested, ready for when one is defined as an actual product
+  decision. See ADR-0011.
+- **Terminology (2026-09-19):** the product now says "Signal Fee" (for
+  the transfer fee) and "Launch Fee" (for the creation-time fee)
+  everywhere a person would read it, replacing "Transfer Fee"/"Creator
+  Fee." As with the 2026-09-17 terminology decision below, this is
+  display-only in spirit, but this round DID rename the corresponding
+  internal identifier where it directly named the old, now-incorrect
+  recipient: `creatorTax` is now `platformTax`
+  (`packages/utils/src/tax.ts`) — leaving a field named `creatorTax`
+  holding the platform's revenue would misrepresent the architecture
+  worse than renaming it. Other identifiers (`TaxConfig`,
+  `computeTaxSplit`, the `/api/v1/tax/preview` route) are unchanged.
+- **Terminology (2026-09-17, historical):** the product said "Transfer
+  Fee" everywhere a person would read it instead of "Tax." This is
+  display-only: internal code identifiers (`TaxConfig`,
+  `computeTaxSplit`, the `TransactionTaxConfiguration` model, the
+  `/api/v1/tax/preview` route, `.env` variable names) were left
+  unchanged on purpose at the time — renaming those was judged an
+  architecture change, not a terminology one. (`creatorTax` was one
+  such identifier; it no longer exists — see the 2026-09-19 entry
+  above for why that one specifically was renamed this round.)
+- ~~ADR-0010 (2026-09-17) — FINAL: confirmed 100%-to-creator, no
   platform/holder split, after the fee model changed four times in one
-  day.** Full sequence, for the record: (1) 2% platform / 1% holder →
+  day.~~ **Superseded by ADR-0011 (2026-09-19).** Full sequence, for the record: (1) 2% platform / 1% holder →
   (2) 100% creator → (3) 2% platform / 1% holder again → (4) 100%
-  creator again, now explicitly stated as final. Concretely, state (3)'s
+  creator again, then explicitly stated as final. Concretely, state (3)'s
   additions were removed once more: `packages/types`' `TaxConfig` lost
   `platformBps`/`holderRewardBps` again; `packages/utils/src/tax.ts`
   lost `platformTax`/`holderRewardTax`/`splitCollectedFee()` again;
@@ -54,6 +75,28 @@ becomes a *safe* thing to put real money behind only after Stage 19
   been executed under any version of this fee model, on any network.**
   See `docs/ROADMAP.md`'s Stage 6 for the complete history, kept in full
   for anyone who needs to understand how this happened.
+- **ADR-0011 (2026-09-19) — a fifth reversal: 1% Signal Fee + 1% Launch
+  Fee, 100% to a real Signal platform wallet, explicitly instructed
+  this time rather than arrived at through back-and-forth.** Unlike
+  ADR-0004 through ADR-0010's same-day flip-flopping, this change came
+  as an explicit, direct instruction with a real wallet address
+  (`FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19`) two days later, not
+  another reversal-of-a-reversal. Concretely: `SolanaAdapter.ts`'s
+  `transferFeeConfigAuthority`/`withdrawWithheldAuthority` now route to
+  `getPlatformWalletAddress()` (`packages/config`) instead of the
+  launcher; `launch-solana.js` mirrors this via a build-time-injected
+  `window.SIGNAL_PLATFORM_WALLET` (never hardcoded in client source);
+  `collect-fees.js`/`dashboard.js`'s collection-authorization gate was
+  fixed to check the platform wallet instead of the token's creator — a
+  real bug that would have silently confused creators (an unreachable
+  "Collect Fees" button that could never actually succeed) had it not
+  been caught during this change. An initial attempt to derive the
+  Launch Fee from the mint's rent-exemption cost was corrected after
+  clarification that rent is a normal network fee, not a real launch
+  payment — no base launch payment has ever been defined in this
+  product, and none was invented to have something to apply 1% to.
+  **Zero real transactions have ever been executed under any version of
+  this fee model, on any network** — same as every ADR before this one.
 - ~~ADR-0009 (2026-09-17) — reverted ADR-0006/0007 back to the
   platform/holder model.~~ **Superseded by ADR-0010.** This was state
   (3) above — kept for history only.
@@ -135,7 +178,7 @@ becomes a *safe* thing to put real money behind only after Stage 19
     sequences only resolve inside real string literals, not raw JSX
     children (fixed, swept for recurrences).
 - **ADR-0003 — EVM chains launch without a transfer-fee mechanism.**
-  Solana's 3% transfer fee comes from Token-2022's `TransferFeeConfig`
+  Solana's Signal Fee comes from Token-2022's `TransferFeeConfig`
   extension: an existing, audited, Solana-Labs-maintained feature — no custom contract needed, no
   new attack surface. Base and BNB Chain have no equivalent built into the
   ERC-20 standard; achieving the same tax there means *writing* a custom
@@ -214,12 +257,12 @@ genuinely don't have this yet" as a distinct rendering case from "the
 value is zero" — you cannot accidentally render `0` for a holder count
 you failed to fetch.
 
-## Rounding policy (Transfer Fee math)
+## Rounding policy (Signal Fee math)
 
 All fee math is integer basis-points arithmetic on `bigint`, never
 floats (`packages/utils/src/tax.ts`). There's no split to round between
-(ADR-0010, final state) — `creatorTax` equals `totalTax` exactly, and
-`creatorTax + netAmount` is asserted to equal `grossAmount` for every
+(ADR-0011, current state) — `platformTax` equals `totalTax` exactly, and
+`platformTax + netAmount` is asserted to equal `grossAmount` for every
 input, verified for edge-case amounts in the test suite (including 1, 3,
 7, and very large values). No rounding remainder ever needs a "which
 side does the dust go to" policy — there's only one side.

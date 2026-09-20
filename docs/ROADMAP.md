@@ -46,23 +46,24 @@ tested — per the spec's own rule (section 44/45), not skipped here.
 
 ## Stage 6 — acceptance criteria (defined 2026-09-17; decisions resolved AND implemented 2026-09-17; execution not yet approved)
 
-**READ THIS FIRST — the fee model changed four times total on 2026-09-17
-before landing on a final, explicitly-confirmed state. Current, confirmed
-state, as of the latest change (ADR-0010 in docs/ARCHITECTURE.md):**
-- 3% total Transfer Fee (terminology: "Transfer Fee," not "Tax," in all
-  UI/docs — code identifiers unchanged, see docs/ARCHITECTURE.md)
-- 100% of that 3% goes to the token's own creator
-- **NO** 2% Signal platform fee
-- **NO** 1% holder-rewards allocation
-- `SolanaAdapter.ts` uses the single-authority model
-  (`mintAuthority` = `transferFeeConfigAuthority` = `withdrawWithheldAuthority`,
-  all the launcher's wallet). `SolanaFeeOperations.ts`, the platform
-  wallet config, the `HolderReward`/`HolderRewardClaim` schema models,
-  and `apps/worker`'s script do not exist — deleted, not deprecated.
-- `apps/web/src/client/launch-solana.js` sets the launcher as both fee
-  authorities, matching `SolanaAdapter.ts` exactly — there is no
-  separate fee-authority code path left anywhere that could route a fee
-  to a different wallet.
+**READ THIS FIRST — the fee model changed four times total on 2026-09-17,
+then a fifth time on 2026-09-19 (Decision 4 below / ADR-0011 in
+docs/ARCHITECTURE.md). Current, confirmed state, as of the latest change:**
+- 1% Signal Fee on applicable token transfers, 100% to the Signal
+  platform wallet (`SIGNAL_PLATFORM_WALLET`) — the creator receives 0%
+- A separate, one-time 1% Launch Fee, real and tested but not
+  currently charged (no base launch payment has ever been defined)
+- **NO** holder-rewards allocation
+- `SolanaAdapter.ts`'s `transferFeeConfigAuthority`/
+  `withdrawWithheldAuthority` are the Signal platform wallet;
+  `mintAuthority` remains the launcher's own wallet
+- `apps/web/src/client/launch-solana.js` mirrors this via a
+  build-time-injected `window.SIGNAL_PLATFORM_WALLET`, never hardcoded
+
+The four-reversal-in-one-day history below (Decisions 2 and 3,
+2026-09-17) describes what was true THEN — preserved as history, not
+edited, since it genuinely happened and understanding it matters. It is
+**not** the current state; see Decision 4 below for that.
 - Sections below this note that describe a 2%/1% platform+holder split
   are from an intermediate state and are superseded by the above — kept
   as history, not current status. Full four-state sequence: (1) 2%
@@ -230,6 +231,41 @@ signing, wallet-submission, or network-targeting logic** — the fixes
 above are corrections to leftover UI/doc inconsistencies and an
 unrelated asset addition, not progress on Stage 6's actual acceptance
 criteria.
+
+### Decision 4 — 1% Signal Fee + 1% Launch Fee, 100% to a real Signal platform wallet: RESOLVED and IMPLEMENTED (2026-09-19, two days after Decision 3)
+
+**Final model:** a 1% Signal Fee on applicable Solana token transfers,
+100% to the Signal platform wallet
+(`FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19`, configured via
+`SIGNAL_PLATFORM_WALLET`). The token's creator receives 0% of this fee
+— a full reversal of Decision 3 above, not a coexistence with it.
+Separately, a one-time 1% Launch Fee, calculated from the creator's
+real launch payment when one exists (never supply or an assumed
+market value) — not currently charged, since no base launch payment
+has ever existed in this product. No holder-rewards pool, unchanged
+from Decision 3. Unlike Decisions 2/3's same-day back-and-forth, this
+arrived as one explicit, direct instruction with a real wallet address,
+not another reversal-of-a-reversal — see ADR-0011 in
+docs/ARCHITECTURE.md for the full reasoning and exact code changes.
+
+**A real bug caught during this change, not just a terminology
+update:** `collect-fees.js` and `dashboard.js` were still gating fee
+collection on "does the connected wallet match the token's *creator*"
+— correct under Decision 3, silently wrong under Decision 4, since only
+the platform wallet can actually withdraw now. Fixed to check against
+the platform wallet instead.
+
+**An initial mistake, corrected before this was reported done:** a
+first attempt derived the Launch Fee from the mint's real
+rent-exemption cost, treating that as "the launch payment." Corrected
+after direct clarification that rent is a normal network fee, kept
+separate from the Signal Fee model by design — not a real launch
+payment Signal itself defines. No number was invented to replace it;
+the formula stands ready, unused, until a real base payment exists.
+
+**Zero real transactions have ever been executed under any version of
+this fee model, on any network** — same as every decision before this
+one.
 
 ## Stage 4 completion report — Frontend skeleton
 

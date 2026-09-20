@@ -39,8 +39,9 @@ holding that role instead of a single keypair — worth doing before real
 money is involved, and out of scope for Stage 1 to implement, but
 flagged here so it isn't forgotten at Stage 6.
 
-**Update (2026-09-17, final state after multiple reversals in one day):**
-this authority briefly moved to a fixed Signal platform wallet (splitting
+**Update (2026-09-17, historical — see the 2026-09-19 update below for
+the current state):** this authority briefly moved to a fixed Signal
+platform wallet (splitting
 the fee 2% platform / 1% holder-reward pool), twice, before being
 confirmed back to the original model: 100% to the token's own creator,
 who holds `transferFeeConfigAuthority` and `withdrawWithheldAuthority`,
@@ -48,6 +49,19 @@ same wallet as `mintAuthority`. `SolanaFeeOperations.ts`, the
 platform-wallet config, and the worker script that implemented the
 platform/holder version have been deleted, not just deprecated. See
 docs/ROADMAP.md Stage 6 for the complete back-and-forth history.
+
+**Update (2026-09-19, current state — see ADR-0011 in
+docs/ARCHITECTURE.md):** `transferFeeConfigAuthority` and
+`withdrawWithheldAuthority` now belong to a real Signal platform wallet
+(`SIGNAL_PLATFORM_WALLET`) again — not the reversal-of-a-reversal
+version from 2026-09-17 above, but a direct, explicit instruction with
+a real wallet address, two days later. `mintAuthority` remains the
+creator's own wallet; only the two fee authorities changed. The token's
+creator now receives 0% of the Signal Fee — 100% goes to the platform
+wallet. A separate, one-time 1% Launch Fee also exists as real, tested
+logic (`computeLaunchFeeFromPayment`) but is not currently charged
+anywhere, since no base launch payment has ever been defined in this
+product for it to apply to.
 
 ## Creator key security — what actually applies now
 
@@ -83,7 +97,12 @@ platform-specific risk this project introduced.
 ## Known gaps at Stage 1 (expected — not yet built)
 
 - No authentication system yet (Stage 3/19).
-- No rate limiting yet (Stage 19).
+- No rate limiting yet (Stage 19). **Update, still true when this list
+  itself was written "at Stage 1" above but stale since**: chat now has
+  real, server-enforced per-wallet rate limiting (see
+  `apps/api/src/chat/MemoryChatRepository.ts`/`PrismaChatRepository.ts`).
+  What's still genuinely missing is rate limiting *outside* chat —
+  `/api/v1/tokens/register` and the tax-preview endpoint have none yet.
 - No input validation middleware yet — `packages/security` is an empty
   package waiting for Stage 19's Zod schemas.
 - No contracts exist yet to audit (Stage 6/7, audit before mainnet per

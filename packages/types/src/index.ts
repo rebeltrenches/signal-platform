@@ -60,36 +60,30 @@ export const PROTOCOL_MAX_TAX_BPS: BasisPoints = 1000; // 10% hard ceiling, enfo
  *  irrelevant here — this is whole tokens, before decimals scaling. */
 export const MINIMUM_TOKEN_SUPPLY = 100_000_000;
 
-/** SUPERSEDED 2026-09-17 (see docs/ROADMAP.md Stage 6, Decision 3): there
- *  is no platform/holder split anymore. The entire fee goes to the
- *  token's own creator — no separate `platformBps`/`holderRewardBps`
- *  fields, because there is nothing to split. Kept as a single
- *  `totalBps` because that's what's actually true now; a config shaped
- *  like a split (even with one side pinned to zero) would misrepresent
- *  the architecture, which the instruction for this change explicitly
- *  warned against ("do not merely change text"). */
+/** SUPERSEDED again (see docs/ROADMAP.md for the full history of this
+ *  type's changes) — confirmed final: a 1% Signal Fee, 100% of which
+ *  goes to the Signal platform wallet configured via
+ *  SIGNAL_PLATFORM_WALLET (see packages/config/src/index.ts and
+ *  docs/ARCHITECTURE.md's fee-model decision). There is still no
+ *  split — the entire fee goes to one recipient, same single-`totalBps`
+ *  shape as before; only which wallet that recipient is has changed.
+ *  The two near-duplicate TaxConfig declarations and layered "SUPERSEDED/
+ *  CONFIRMED" comments that used to sit here (one per historical
+ *  reversal, never cleaned up) are consolidated into this single
+ *  declaration during this change. */
 export interface TaxConfig {
   enabled: boolean;
   totalBps: BasisPoints;
 }
 
-/** CONFIRMED 2026-09-17 (final state, after multiple reversals — see
- *  docs/ROADMAP.md Stage 6 for the full history): 100% of the 3%
- *  Transfer Fee goes to the token's own creator. No Signal platform fee.
- *  No holder-rewards pool. No split — the shape below reflects that
- *  directly rather than pretending there's a split with one side pinned
- *  to zero. */
-export interface TaxConfig {
-  enabled: boolean;
-  totalBps: BasisPoints;
-}
-
-/** Today's actual default, confirmed 2026-09-17: 3% total Transfer Fee,
- *  100% to the token's own creator. No Signal platform fee. No
- *  holder-rewards pool. No automatic holder distribution. */
+/** Today's actual default: 1% Signal Fee (previously 3%, previously
+ *  100% to the token's creator — see docs/ARCHITECTURE.md for the
+ *  full decision history). 100% of this fee now goes to the Signal
+ *  platform wallet (SIGNAL_PLATFORM_WALLET), not the token's creator.
+ *  No holder-rewards pool, no split beyond this single recipient. */
 export const DEFAULT_TAX_CONFIG: TaxConfig = {
   enabled: true,
-  totalBps: 300,
+  totalBps: 100,
 };
 
 /** EVM chains (Base, BNB) do not get a transfer-fee mechanism yet — see
@@ -99,6 +93,22 @@ export const DISABLED_TAX_CONFIG: TaxConfig = {
   enabled: false,
   totalBps: 0,
 };
+
+/** The 1% Launch Fee (see docs/ARCHITECTURE.md's fee-model decision) —
+ *  a SEPARATE fee from the Signal Fee above, charged once at token
+ *  creation, calculated from the creator's actual real launch/creation
+ *  payment (the computed rent-exemption cost for the new mint account,
+ *  in lamports) — never from token supply or an assumed market value,
+ *  since neither is a real payment the creator is actually making.
+ *  100% of this fee also goes to the Signal platform wallet
+ *  (getPlatformWalletAddress(), @launchpad/config). Kept as its own
+ *  named constant rather than folded into TaxConfig/DEFAULT_TAX_CONFIG
+ *  above, since the two fees have different triggers (every applicable
+ *  transfer, vs. once at creation) and different calculation bases
+ *  (transfer amount, vs. the real SOL cost of the creation transaction
+ *  itself) — conflating them into one config would misrepresent that
+ *  they are two distinct mechanisms. */
+export const LAUNCH_FEE_BPS: BasisPoints = 100;
 
 // ---------------------------------------------------------------------------
 // Token / Launch
