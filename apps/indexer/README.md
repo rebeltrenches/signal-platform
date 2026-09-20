@@ -33,3 +33,17 @@ snapshots, so replay does not create duplicate holder rows.
 
 The continuous runner awaits each complete cycle before sleeping for the next
 interval, so slow RPC/database cycles cannot overlap.
+
+
+## Operations and observability
+
+The runner records cycle state in PostgreSQL (`IndexerRunState`), including
+last start/completion/failure, attempted/refreshed/failed counts, and the last
+cycle-level error. The API exposes this read-only at `GET /health/indexer`.
+
+A temporary holder RPC failure is not represented as an empty holder list:
+`SolanaAdapter.getTopHolders` propagates the failure so the indexer skips the
+write and preserves the last known-good holder snapshot.
+
+SIGTERM/SIGINT stop new cycles; the current operation is allowed to finish and
+the Prisma client is disconnected before process exit.
