@@ -9,6 +9,11 @@ import { getAuthChallenge, postAuthSession, getAuthSession } from './routes/auth
 import { getWatchlist, postWatchlistItem, deleteWatchlistItem } from './routes/watchlist.js';
 import { getAlerts, postAlert, deleteAlert } from './routes/alerts.js';
 
+import { initializeStorage as initializeChatStorage } from './chat/store.js';
+import { initializeStorage as initializeTokenStorage } from './tokens/tokenStore.js';
+import { initializeStorage as initializeWatchlistStorage } from './watchlist/watchlistStore.js';
+import { initializeStorage as initializeAlertStorage } from './alerts/alertStore.js';
+
 const router = new Router();
 
 // --- real, working ----------------------------------------------------
@@ -17,10 +22,7 @@ router.register('GET', '/health/database', getHealthDatabase);
 router.register('GET', '/api/v1/chains', listChains);
 router.register('POST', '/api/v1/tax/preview', previewTax);
 
-// --- Chat (real, in-memory — see apps/api/src/chat/store.ts's own
-// header for exactly what "real" means here and what its honest limits
-// are: genuinely stored/validated/rate-limited/signature-verified, but
-// in-process memory, not a database; polling, not a WebSocket push) ---
+// --- Chat -------------------------------------------------------------
 router.register('GET', '/api/v1/chat/main/messages', getMainMessages);
 router.register('POST', '/api/v1/chat/main/messages', postMainMessage);
 router.register('GET', '/api/v1/chat/token/:address/messages', getTokenMessages);
@@ -50,16 +52,12 @@ router.register('GET', '/api/v1/auth/challenge', getAuthChallenge);
 router.register('POST', '/api/v1/auth/session', postAuthSession);
 router.register('GET', '/api/v1/auth/session', getAuthSession);
 
-// --- Watchlist: real, session-authenticated CRUD (unblocks the
-// Stage-15 stub that explicitly waited on Stage 19 auth, which now
-// exists). See routes/watchlist.ts for the authorization model. ---
+// --- Watchlist: real, session-authenticated CRUD ----------------------
 router.register('GET', '/api/v1/watchlist', getWatchlist);
 router.register('POST', '/api/v1/watchlist', postWatchlistItem);
 router.register('DELETE', '/api/v1/watchlist/:itemId', deleteWatchlistItem);
 
-// --- Alerts: real, session-authenticated CONFIGURATION CRUD only.
-// See routes/alerts.ts and alerts/AlertRepository.ts for why
-// triggering/scheduling/notifications are explicitly out of scope. ---
+// --- Alerts: real, session-authenticated CONFIGURATION CRUD only. -----
 router.register('GET', '/api/v1/alerts', getAlerts);
 router.register('POST', '/api/v1/alerts', postAlert);
 router.register('DELETE', '/api/v1/alerts/:alertId', deleteAlert);
@@ -88,6 +86,11 @@ export function createServer() {
 // Only actually listen when this file is run directly (`tsx src/server.ts`),
 // not when imported by a test.
 if (import.meta.url === `file://${process.argv[1]}`) {
+  await initializeChatStorage();
+  await initializeTokenStorage();
+  await initializeWatchlistStorage();
+  await initializeAlertStorage();
+
   createServer().listen(PORT, () => {
     console.log(`api listening on http://localhost:${PORT}`);
   });
