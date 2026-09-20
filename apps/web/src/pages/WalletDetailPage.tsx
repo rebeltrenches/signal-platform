@@ -39,11 +39,22 @@ export function WalletDetailPage() {
           <EmptyState title="No indexed trades yet" body="Populated from WalletActivity — Stage 11." />
         </div>
         <div data-panel="Created tokens" hidden>
-          <EmptyState title="No launches indexed for this wallet yet" body="Tokens created by this wallet, once indexed." />
+          {/* Real list renders here (wallet-detail.js) — the empty
+              state below stays default until real data actually loads,
+              reusing the exact same GET /api/v1/tokens/mine endpoint
+              Dashboard's "Your launches" already uses since Stage 2.
+              No new backend code. Holdings/Trades panels are untouched
+              — genuinely still blocked on Stage 11/live RPC. */}
+          <div id="wallet-created-tokens-list"></div>
+          <div id="wallet-created-tokens-empty">
+            <EmptyState title="No launches indexed for this wallet yet" body="Tokens created by this wallet, once indexed." />
+          </div>
         </div>
         <div data-panel="Signal Passport" hidden>
           <div className="card">
-            <SourcedRow label="Tokens launched" data={sourcedUnavailable('blockchain-derived')} format={(v: number) => String(v)} />
+            <div id="wallet-tokens-launched-row">
+              <SourcedRow label="Tokens launched" data={sourcedUnavailable('blockchain-derived')} format={(v: number) => String(v)} />
+            </div>
             <SourcedRow label="First observed activity" data={sourcedUnavailable('blockchain-derived')} format={(v: string) => v} />
           </div>
           <h3 style={{ font: 'var(--text-h2)', fontSize: '1rem', margin: '20px 0 10px 0' }}>Wallet relationships</h3>
