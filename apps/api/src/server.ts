@@ -8,11 +8,13 @@ import { registerTokenRoute, getTokenRoute, listMyTokensRoute, listRecentTokensR
 import { getAuthChallenge, postAuthSession, getAuthSession } from './routes/auth.js';
 import { getWatchlist, postWatchlistItem, deleteWatchlistItem } from './routes/watchlist.js';
 import { getAlerts, postAlert, deleteAlert } from './routes/alerts.js';
+import { listLaunchesRoute, getLaunchRoute, getLaunchByTokenRoute } from './routes/launches.js';
 
 import { initializeStorage as initializeChatStorage } from './chat/store.js';
 import { initializeStorage as initializeTokenStorage } from './tokens/tokenStore.js';
 import { initializeStorage as initializeWatchlistStorage } from './watchlist/watchlistStore.js';
 import { initializeStorage as initializeAlertStorage } from './alerts/alertStore.js';
+import { initializeStorage as initializeLaunchStorage } from './launches/launchStore.js';
 
 const router = new Router();
 
@@ -63,7 +65,10 @@ router.register('POST', '/api/v1/alerts', postAlert);
 router.register('DELETE', '/api/v1/alerts/:alertId', deleteAlert);
 
 // --- documented in the spec, honestly stubbed until their stage lands --
-router.register('GET', '/api/v1/launches', notImplemented('Stage 8 — bonding curve'));
+// --- Stage 8 launch records: public read-only discovery. Mutations stay disabled until creator ownership and economic rules are finalized. ---
+router.register('GET', '/api/v1/launches', listLaunchesRoute);
+router.register('GET', '/api/v1/launches/token/:tokenId', getLaunchByTokenRoute);
+router.register('GET', '/api/v1/launches/:launchId', getLaunchRoute);
 router.register('GET', '/api/v1/trades', notImplemented('Stage 9 — trading'));
 router.register('GET', '/api/v1/holders', notImplemented('Stage 11 — indexer'));
 router.register('GET', '/api/v1/wallets/:chain/:address', notImplemented('Stage 14 — whale tracking'));
@@ -90,6 +95,7 @@ async function startServer() {
   await initializeTokenStorage();
   await initializeWatchlistStorage();
   await initializeAlertStorage();
+  await initializeLaunchStorage();
 
   createServer().listen(PORT, () => {
     console.log(`api listening on http://localhost:${PORT}`);
