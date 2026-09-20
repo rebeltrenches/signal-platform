@@ -3,6 +3,7 @@ import { PrismaTokenRepository } from '../../api/src/tokens/PrismaTokenRepositor
 import { getSharedPrismaClient } from '../../api/src/db/prismaClient.js';
 import { PrismaCheckpointStore } from './CheckpointStore.js';
 import { SolanaTokenRefreshWorker } from './SolanaTokenRefreshWorker.js';
+import { PrismaIndexerStatusStore } from './IndexerStatusStore.js';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
 if (!rpcUrl) throw new Error('SOLANA_RPC_URL is required.');
@@ -19,13 +20,26 @@ const worker = new SolanaTokenRefreshWorker(
   repository,
   new PrismaCheckpointStore(prisma),
 );
+const status = new PrismaIndexerStatusStore(prisma);
+const statusKey = 'solana-token-refresh';
 
 async function runCycle(): Promise<void> {
-  let result;
-  do {
-    result = await worker.runPage();
-    console.log('[indexer] page complete', result);
-  } while (result.nextCursor);
+  const totals = { attempted: 0, refreshed: 0, failed: 0 };
+  await status.markStarted(statusKey);
+  try {
+    let result;
+    do {
+      result = await worker.runPage();
+      totals.attempted += result.attempted;
+      totals.refreshed += result.refreshed;
+      totals.failed += result.failed;
+      console.log('[indexer] page complete', result);
+    } while (result.nextCursor);
+    await status.markCompleted(statusKey, totals);
+  } catch (error) {
+    await status.markFailed(statusKey, error, totals);
+    throw error;
+  }
 }
 
 let shuttingDown = false;
