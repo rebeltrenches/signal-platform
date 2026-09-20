@@ -20,6 +20,21 @@ const worker = new SolanaTokenRefreshWorker(
   new PrismaCheckpointStore(prisma),
 );
 
+let shuttingDown = false;
+
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[indexer] ${signal} received; stopping after current operation`);
+  if (typeof prisma.$disconnect === 'function') {
+    await prisma.$disconnect();
+  }
+  process.exit(0);
+}
+
+process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
+process.once('SIGINT', () => { void shutdown('SIGINT'); });
+
 async function runCycle(): Promise<void> {
   let result;
   do {
@@ -33,8 +48,9 @@ await runCycle();
 if (!process.argv.includes('--once')) {
   // Await each cycle before sleeping so a slow RPC/database cycle can
   // never overlap the next one.
-  for (;;) {
+  while (!shuttingDown) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    if (shuttingDown) break;
     try {
       await runCycle();
     } catch (error) {
