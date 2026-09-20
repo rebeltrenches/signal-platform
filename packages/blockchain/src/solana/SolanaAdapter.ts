@@ -163,8 +163,12 @@ export class SolanaAdapter implements BlockchainAdapter {
           percentOfSupply: totalSupply > 0n ? Number((acc.amount * 10000n) / totalSupply) / 100 : 0,
         }));
       return holders;
-    } catch {
-      return [];
+    } catch (error) {
+      // An empty array is a valid holder snapshot, so it must never also
+      // mean "the RPC failed". Propagate read failures to the indexer so
+      // saveIndexedData is not called and the last known-good holder
+      // snapshot remains intact.
+      throw error;
     }
   }
 
