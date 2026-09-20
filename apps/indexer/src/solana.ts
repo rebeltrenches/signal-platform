@@ -1,7 +1,7 @@
 import { SolanaAdapter } from '../../../packages/blockchain/src/solana/SolanaAdapter.js';
 import { PrismaTokenRepository } from '../../api/src/tokens/PrismaTokenRepository.js';
 import { getSharedPrismaClient } from '../../api/src/db/prismaClient.js';
-import { MemoryCheckpointStore } from './CheckpointStore.js';
+import { PrismaCheckpointStore } from './CheckpointStore.js';
 import { SolanaTokenRefreshWorker } from './SolanaTokenRefreshWorker.js';
 
 const rpcUrl = process.env.SOLANA_RPC_URL;
@@ -17,7 +17,7 @@ const repository = new PrismaTokenRepository(prisma);
 const worker = new SolanaTokenRefreshWorker(
   new SolanaAdapter({ rpcUrl }),
   repository,
-  new MemoryCheckpointStore(),
+  new PrismaCheckpointStore(prisma),
 );
 
 async function runCycle(): Promise<void> {
@@ -31,7 +31,14 @@ async function runCycle(): Promise<void> {
 await runCycle();
 
 if (!process.argv.includes('--once')) {
-  setInterval(() => {
-    void runCycle().catch((error) => console.error('[indexer] cycle failed', error));
-  }, intervalMs);
+  // Await each cycle before sleeping so a slow RPC/database cycle can
+  // never overlap the next one.
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    try {
+      await runCycle();
+    } catch (error) {
+      console.error('[indexer] cycle failed', error);
+    }
+  }
 }
