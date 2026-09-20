@@ -1,0 +1,14 @@
+{
+  "name": "@launchpad/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@launchpad/blockchain": "workspace:*",
+    "@prisma/client": "^7.10.0",
+    "@prisma/adapter-pg": "^7.10.0"
+  },
+  "scripts": {
+    "solana:once": "tsx src/solana.ts --once",
+    "solana": "tsx src/solana.ts"
+  }
+}
