@@ -59,7 +59,7 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
             <feGaussianBlur stdDeviation="2.2" />
           </filter>
           <path id={`${uid}-topArc`} d="M 105 260 A 155 155 0 0 1 415 260" />
-          <path id={`${uid}-bottomArc`} d="M 415 260 A 155 155 0 0 1 105 260" />
+          <path id={`${uid}-bottomArc`} d="M 105 260 A 155 155 0 0 0 415 260" />
         </defs>
 
         <circle cx="260" cy="260" r="232" fill="#05050c" stroke={`url(#${uid}-edge)`} strokeWidth="7" opacity=".96" />
@@ -92,13 +92,11 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
         <text x="260" y="366" textAnchor="middle" fill="#ffffff" fontSize="31" fontWeight="800" letterSpacing="6">SIGNAL</text>
         <text x="260" y="393" textAnchor="middle" fill="#ddd6ff" fontSize="11" letterSpacing="4">THE LAUNCHPAD</text>
         <text x="260" y="412" textAnchor="middle" fill="#ddd6ff" fontSize="10" letterSpacing="3">FOR WHAT'S NEXT</text>
-        <text x="260" y="438" textAnchor="middle" fill="#b86cff" fontSize="8" letterSpacing="2">REAL PROJECTS   •   REAL DATA   •   REAL COMMUNITY</text>
-
         <text fill="#f7f4ff" fontSize="12" fontWeight="700" letterSpacing="4">
           <textPath href={`#${uid}-topArc`} startOffset="50%" textAnchor="middle">SIGNAL</textPath>
         </text>
         <text fill="#bdb4d7" fontSize="9" letterSpacing="2.4">
-          <textPath href={`#${uid}-bottomArc`} startOffset="50%" textAnchor="middle">BUILD • TRADE • VERIFY • COMMUNITY</textPath>
+          <textPath href={`#${uid}-bottomArc`} startOffset="50%" textAnchor="middle">PROJECTS • REAL DATA • REAL COMMUNITY</textPath>
         </text>
       </svg>
     </div>
