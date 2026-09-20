@@ -1,6 +1,7 @@
 import { MemoryTokenRepository } from './MemoryTokenRepository.js';
 import { PrismaTokenRepository } from './PrismaTokenRepository.js';
 import type { TokenRepository } from './TokenRepository.js';
+export { TokenValidationError } from './TokenRepository.js';
 import { getSharedPrismaClient } from '../db/prismaClient.js';
 
 let activeRepository: TokenRepository = new MemoryTokenRepository();
