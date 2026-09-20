@@ -9,6 +9,7 @@
   "dependencies": {
     "@launchpad/types": "workspace:*",
     "@launchpad/utils": "workspace:*",
-    "@launchpad/config": "workspace:*"
+    "@launchpad/config": "workspace:*",
+    "@prisma/client": "^7.10.0"
   }
 }
