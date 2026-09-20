@@ -531,3 +531,37 @@
   .hero-side-label-left { left: -2px; top: 46px; }
   .hero-side-label-right { right: -2px; top: 58px; }
 }
+
+
+/* ---- Signal Trace — evidence-first investigation workspace ---- */
+.trace-shell { border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); box-shadow: var(--shadow-md), 0 0 42px -24px var(--glow-purple); }
+.trace-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 24px 26px; border-bottom: 1px solid var(--line); background: linear-gradient(120deg, var(--surface-2), var(--surface)); }
+.trace-head h2 { font: var(--text-h1); margin: 4px 0 7px; }
+.trace-head p { color: var(--ink-dim); font: var(--text-small); line-height: 1.55; max-width: 68ch; }
+.trace-kicker { font: var(--text-micro); color: var(--brand-hover); text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
+.trace-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 310px; min-height: 470px; }
+.trace-canvas { position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 470px; background: radial-gradient(circle at 50% 48%, var(--brand-dim), transparent 32%), var(--bg); }
+.trace-grid { position: absolute; inset: 0; opacity: .38; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 38px 38px; mask-image: radial-gradient(circle at center, #000 25%, transparent 78%); }
+.trace-canvas::before, .trace-canvas::after { content: ""; position: absolute; width: 180px; height: 1px; background: linear-gradient(90deg, transparent, var(--brand-hover), transparent); opacity: .35; transform-origin: center; }
+.trace-canvas::before { transform: rotate(28deg); }
+.trace-canvas::after { transform: rotate(-32deg); }
+.trace-empty-node { position: absolute; top: 43%; left: 50%; transform: translate(-50%,-50%); width: 92px; height: 92px; display: grid; place-items: center; }
+.trace-node-ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid rgba(139,92,246,.55); box-shadow: 0 0 32px var(--glow-purple), inset 0 0 24px var(--brand-dim); }
+.trace-node-ring::before { content: ""; position: absolute; inset: 10px; border-radius: 50%; border: 1px solid var(--line-strong); }
+.trace-node-core { position: relative; z-index: 1; width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; font-weight: 900; font-size: 1.15rem; box-shadow: 0 0 24px var(--glow-purple); }
+.trace-empty-copy { position: absolute; top: calc(43% + 68px); left: 50%; transform: translateX(-50%); width: min(420px, 80%); text-align: center; display: flex; flex-direction: column; gap: 5px; }
+.trace-empty-copy strong { font-size: .95rem; }
+.trace-empty-copy span { color: var(--ink-faint); font: var(--text-small); line-height: 1.5; }
+.trace-evidence { border-left: 1px solid var(--line); padding: 24px 22px; background: var(--surface-translucent); }
+.trace-evidence h3 { font: var(--text-h2); margin: 8px 0 7px; }
+.trace-evidence > p { color: var(--ink-dim); font: var(--text-small); line-height: 1.55; margin-bottom: 22px; }
+.trace-evidence-row { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); font: var(--text-micro); }
+.trace-evidence-row span { color: var(--ink-faint); }
+.trace-evidence-row strong { color: var(--ink-dim); font-weight: 600; }
+.trace-rule { margin-top: 20px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--ink-faint); font: var(--text-micro); line-height: 1.5; }
+@media (max-width: 780px) {
+  .trace-head { flex-direction: column; }
+  .trace-workspace { grid-template-columns: 1fr; }
+  .trace-canvas { min-height: 390px; }
+  .trace-evidence { border-left: none; border-top: 1px solid var(--line); }
+}
