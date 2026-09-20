@@ -5,7 +5,7 @@ import { DataValue } from '../components/DataUnavailable.js';
 import { SourcedRow, SourceTag } from '../components/SourcedValue.js';
 import { ChatRoom } from '../components/ChatRoom.js';
 
-const TABS = ['Overview', 'Chart', 'Trades', 'Holders', 'Signal Check', 'Creator', 'Transactions', 'Community'];
+const TABS = ['Overview', 'Chart', 'Trades', 'Holders', 'Signal Check', 'Signal Trace', 'Creator', 'Transactions', 'Community'];
 
 const unavailable: DataPoint<never> = { status: 'unavailable' };
 
@@ -141,6 +141,41 @@ export function TokenDetailPage() {
             These are facts, not a verdict. Signal never labels a token "safe" or assigns a
             safety score — see <a href="/security" style={{ color: 'var(--brand)' }}>Security</a> and{' '}
             <a href="/transparency" style={{ color: 'var(--brand)' }}>Transparency Center</a>.
+          </div>
+        </div>
+
+        <div data-panel="Signal Trace" hidden>
+          <div className="trace-shell">
+            <div className="trace-head">
+              <div>
+                <span className="trace-kicker">Wallet Intelligence</span>
+                <h2>Signal Trace</h2>
+                <p>Follow observable wallet relationships, funding paths and project history — with evidence attached to every connection.</p>
+              </div>
+              <span className="badge badge-placeholder">Awaiting indexed evidence</span>
+            </div>
+            <div className="trace-workspace">
+              <div className="trace-canvas" aria-label="Signal Trace relationship map">
+                <div className="trace-grid" aria-hidden="true" />
+                <div className="trace-empty-node" aria-hidden="true">
+                  <span className="trace-node-ring" />
+                  <span className="trace-node-core">S</span>
+                </div>
+                <div className="trace-empty-copy">
+                  <strong>No indexed relationships yet</strong>
+                  <span>Connections will appear only when Signal has blockchain-derived evidence.</span>
+                </div>
+              </div>
+              <aside className="trace-evidence">
+                <span className="trace-kicker">Evidence panel</span>
+                <h3>Select a connection</h3>
+                <p>Wallets, transactions, funding relationships and previous projects will be explained here when real indexed evidence is available.</p>
+                <div className="trace-evidence-row"><span>Source</span><strong>Unavailable</strong></div>
+                <div className="trace-evidence-row"><span>Evidence level</span><strong>Unavailable</strong></div>
+                <div className="trace-evidence-row"><span>Transaction</span><strong>Unavailable</strong></div>
+                <div className="trace-rule">A wallet connection does not prove common ownership or malicious behaviour.</div>
+              </aside>
+            </div>
           </div>
         </div>
 
