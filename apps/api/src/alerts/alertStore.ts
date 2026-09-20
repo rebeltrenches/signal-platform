@@ -1,39 +1,59 @@
-/**
- * The active alert repository, chosen by CHAT_STORAGE (the same
- * variable every other store facade in this project reads). Same
- * defaulting and loud-throw-rather-than-silent-fallback behavior as
- * every other store.ts in this project.
- */
-import type { AlertRepository, CreateAlertInput } from './AlertRepository.js';
+import type {
+  AlertRepository,
+  CreateAlertInput,
+} from './AlertRepository.js';
 import { MemoryAlertRepository } from './MemoryAlertRepository.js';
+import { PrismaAlertRepository } from './PrismaAlertRepository.js';
+import { getSharedPrismaClient } from '../db/prismaClient.js';
 
-export { AlertValidationError, AlertUnauthorizedError, ALERT_KINDS } from './AlertRepository.js';
-export type { AlertRecord, CreateAlertInput, AlertKind } from './AlertRepository.js';
+export {
+  AlertValidationError,
+  AlertUnauthorizedError,
+  ALERT_KINDS,
+} from './AlertRepository.js';
+
+export type {
+  AlertRecord,
+  CreateAlertInput,
+  AlertKind,
+} from './AlertRepository.js';
 
 let activeRepository: AlertRepository = new MemoryAlertRepository();
+let databaseReady = false;
+
+export async function initializeStorage(): Promise<void> {
+  if (process.env.CHAT_STORAGE !== 'database') {
+    return;
+  }
+
+  const prisma = await getSharedPrismaClient();
+  activeRepository = new PrismaAlertRepository(prisma);
+  databaseReady = true;
+}
 
 function resolveRepository(): AlertRepository {
-  if (process.env.CHAT_STORAGE === 'database') {
+  if (process.env.CHAT_STORAGE === 'database' && !databaseReady) {
     throw new Error(
-      'CHAT_STORAGE=database is set, but no real Prisma client is wired in for alerts. ' +
-      'PrismaAlertRepository exists and is tested against a mock, but has never run ' +
-      'against a real Postgres instance — see docs/BACKEND-DEPLOYMENT.md.'
+      'Database alert storage requested but initializeStorage() has not completed.',
     );
   }
+
   return activeRepository;
 }
 
-export function createAlert(ownerWalletAddress: string, input: CreateAlertInput) {
-  return resolveRepository().createAlert(ownerWalletAddress, input);
-}
-export function listAlerts(ownerWalletAddress: string) {
-  return resolveRepository().listAlerts(ownerWalletAddress);
-}
-export function removeAlert(ownerWalletAddress: string, alertId: string) {
-  return resolveRepository().removeAlert(ownerWalletAddress, alertId);
+export function listAlerts(walletAddress: string) {
+  return resolveRepository().listAlerts(walletAddress);
 }
 
-/** Test-only. Never called from any real route handler. */
+export function createAlert(input: CreateAlertInput) {
+  return resolveRepository().createAlert(input);
+}
+
+export function deleteAlert(alertId: string, walletAddress: string) {
+  return resolveRepository().deleteAlert(alertId, walletAddress);
+}
+
 export function __resetForTests(): void {
   activeRepository = new MemoryAlertRepository();
+  databaseReady = false;
 }
