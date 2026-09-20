@@ -97,6 +97,45 @@ becomes a *safe* thing to put real money behind only after Stage 19
   product, and none was invented to have something to apply 1% to.
   **Zero real transactions have ever been executed under any version of
   this fee model, on any network** — same as every ADR before this one.
+- **ADR-0012 (2026-09-20) — real Watchlist/Alert configuration, then a
+  run of four small stages wiring existing backend capability to UI
+  surfaces that had never used it.** Five real, tested commits, in
+  order:
+  1. Watchlist (real, database-backed, session-authenticated CRUD,
+     with the existing localStorage cache preserved as an offline-first
+     layer and synced rather than replaced) and Alert configuration
+     (create/list/delete settings only — deliberately no threshold
+     checking, scheduler, or notification delivery, none of which
+     exist).
+  2. Token search (`GET /api/v1/search`, simple substring matching)
+     and Explore's "New" tab wired to real registered-token data —
+     the roadmap's own Stage 12 stub, resolved using only Stage 2's
+     existing registration, no new infrastructure.
+  3. Dashboard's "Your launches" wired to the existing, already-tested
+     `GET /api/v1/tokens/mine` for real cross-device sync — zero new
+     backend code, since that endpoint has existed since Stage 2.
+  4. The same "is this actually registered on Signal" check
+     (`GET /api/v1/tokens/:chain/:address`) applied to Watchlist
+     entries and to two specific fields on WalletDetailPage (Created
+     tokens, Passport's launch count) — each a narrow, honest fix, not
+     a redesign of either page.
+  Common thread across all four: no new backend routes or repository
+  methods were needed for any of them except Watchlist/Alert's own —
+  the capability already existed and had already been tested; only the
+  UI wiring was missing. Each was verified with a real, executed
+  Playwright test, not just a unit test, including one genuine
+  regression found and fixed correctly during this run (chat-e2e.test.py
+  failing 18/19 after TokenDetailPage's own real lookup started
+  producing a real, honest 404 in a test context that had never
+  registered the address it checks — fixed by registering it for real
+  in that test's own setup, not by weakening what the test checks for).
+  After this run, the pattern was checked exhaustively across every
+  page and found genuinely exhausted — what remains in the API stub
+  list (`/api/v1/launches`, `/trades`, `/holders`, `/wallets`,
+  `/creators`, `/analytics`, `/rewards`) is either blocked on real
+  infrastructure this sandbox has never had (a live RPC endpoint, a
+  real DEX SDK, a persistent worker) or would mean deciding to build a
+  genuinely new feature area, which this ADR does not do.
 - ~~ADR-0009 (2026-09-17) — reverted ADR-0006/0007 back to the
   platform/holder model.~~ **Superseded by ADR-0010.** This was state
   (3) above — kept for history only.

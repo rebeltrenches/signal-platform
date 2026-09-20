@@ -267,6 +267,42 @@ the formula stands ready, unused, until a real base payment exists.
 this fee model, on any network** — same as every decision before this
 one.
 
+### Decision 5 — real Watchlist/Alert configuration, then four small stages wiring existing backend capability to unused UI surfaces (2026-09-20)
+
+Five real, tested, separately-committed stages, in order — see
+docs/ARCHITECTURE.md's ADR-0012 for the full detail:
+
+1. Real, database-backed Watchlist (session-authenticated, existing
+   localStorage kept as an offline-first cache and synced rather than
+   replaced) + Alert configuration (create/list/delete only —
+   deliberately no threshold checking, scheduler, or notifications).
+2. Token search + Explore's "New" tab wired to real registered-token
+   data — resolves the roadmap's own Stage 12 stub using only Stage
+   2's existing registration.
+3. Dashboard's "Your launches" wired to the existing
+   `GET /api/v1/tokens/mine` for real cross-device sync.
+4. The same registration-status check applied to Watchlist entries and
+   two fields on WalletDetailPage (Created tokens, Passport's launch
+   count).
+
+None of the last three needed any new backend code — the capability
+already existed and had already been tested from Stage 2 onward; only
+the UI wiring was missing. Each was verified with a real, executed
+Playwright test. One genuine regression was found and fixed correctly
+during this run: `chat-e2e.test.py` failed 18/19 after
+TokenDetailPage's real lookup started producing a real, honest 404 in
+a test context that had never registered the address it checks — fixed
+by registering it for real in that test's own setup, not by weakening
+the check.
+
+**After this run, the same pattern was checked exhaustively across
+every remaining page and found genuinely exhausted.** What's left in
+the API stub list (`launches`, `trades`, `holders`, `wallets`,
+`creators`, `analytics`, `rewards`) is either blocked on real
+infrastructure this sandbox has never had, or would mean deciding to
+build a genuinely new feature area — a decision this entry does not
+make.
+
 ## Stage 4 completion report — Frontend skeleton
 
 **COMPLETED:**

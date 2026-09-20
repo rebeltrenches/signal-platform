@@ -96,7 +96,15 @@ platform-specific risk this project introduced.
 
 ## Known gaps at Stage 1 (expected — not yet built)
 
-- No authentication system yet (Stage 3/19).
+- No authentication system yet (Stage 3/19). **Update, stale since**:
+  real sign-in-with-wallet sessions now exist
+  (`apps/api/src/auth/AuthSession.ts`), reusing chat's own proven
+  signature verification. Genuinely used by real routes — Watchlist
+  and Alert configuration are both session-authenticated, identity
+  coming only from a verified token, never a client-supplied field.
+  Token discovery/search (`GET /api/v1/tokens`, `/search`) is
+  deliberately public and unauthenticated by design, not an oversight
+  — it's read-only catalog data, not per-user data.
 - No rate limiting yet (Stage 19). **Update, still true when this list
   itself was written "at Stage 1" above but stale since**: chat now has
   real, server-enforced per-wallet rate limiting (see
