@@ -5,13 +5,14 @@ import { DEFAULT_TAX_CONFIG, type TaxConfig } from '@launchpad/types';
 /**
  * Real computation, not a stub — wired directly to the same
  * computeTaxSplit() that has 9 passing tests. Lets the frontend (or you,
- * with curl) preview the exact Transfer Fee breakdown for an amount
+ * with curl) preview the exact Signal Fee breakdown for an amount
  * before any wallet ever gets a signing prompt, per spec section 7's
  * "always show fee before confirmation" requirement.
  *
- * Model (confirmed 2026-09-17, final state): 100% of the Transfer Fee
- * goes to the token's own creator — no platform fee, no holder-reward
- * split. `creatorTax` and `totalTax` are equal in this response.
+ * Model (updated — see docs/ARCHITECTURE.md for the full decision
+ * history): 100% of the 1% Signal Fee goes to the Signal platform
+ * wallet — the token's creator receives none of it. `platformTax` and
+ * `totalTax` are equal in this response.
  */
 export const previewTax: Handler = (req) => {
   const body = (req.body ?? {}) as { amount?: string; taxConfig?: Partial<TaxConfig> };
@@ -32,7 +33,7 @@ export const previewTax: Handler = (req) => {
       body: {
         grossAmount: split.grossAmount,
         totalTax: split.totalTax,
-        creatorTax: split.creatorTax, // 100% of totalTax — the token's own creator
+        platformTax: split.platformTax, // 100% of totalTax — the Signal platform wallet, not the creator
         netAmount: split.netAmount,
         config,
       },

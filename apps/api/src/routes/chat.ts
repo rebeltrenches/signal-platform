@@ -98,57 +98,67 @@ function errorToResponse(err: unknown): { status: number; body: unknown } {
   if (err instanceof RateLimitError) return { status: 429, body: { error: 'RATE_LIMITED', message: err.message } };
   if (err instanceof UnauthorizedError) return { status: 403, body: { error: 'UNAUTHORIZED', message: err.message } };
   if (err instanceof ValidationError) return { status: 400, body: { error: 'VALIDATION_ERROR', message: err.message } };
-  throw err;
+  // Anything else (a real database error once CHAT_STORAGE=database is
+  // actually wired to a live Postgres, a network failure, etc.) is a
+  // genuine 500 — but its raw message is never handed back to the
+  // caller. A connection string, a table name, a driver's internal
+  // wording are implementation detail, not something an API consumer
+  // should see or depend on. Logged server-side for whoever operates
+  // this, not silently swallowed.
+  console.error('[chat] unexpected error:', err);
+  return { status: 500, body: { error: 'INTERNAL_ERROR', message: 'Something went wrong handling this chat request.' } };
 }
 
-export const getMainMessages: Handler = (req) => {
-  const room = getMainRoom();
+export const getMainMessages: Handler = async (req) => {
+  const room = await getMainRoom();
   const since = req.query.get('since') ?? undefined;
-  return { status: 200, body: { room: { id: room.id, kind: room.kind }, messages: listMessages(room.id, since).map(serializeMessage) } };
+  const messages = await listMessages(room.id, since);
+  return { status: 200, body: { room: { id: room.id, kind: room.kind }, messages: messages.map(serializeMessage) } };
 };
 
-export const postMainMessage: Handler = (req) => {
+export const postMainMessage: Handler = async (req) => {
   try {
-    const room = getMainRoom();
+    const room = await getMainRoom();
     const body = (req.body ?? {}) as Record<string, unknown>;
     const content = typeof body.content === 'string' ? body.content : '';
     const { walletAddress } = verifyWriteRequest(req.body, room.id, 'post', content);
-    const message = postMessage(room.id, walletAddress, escapeHtml(content));
+    const message = await postMessage(room.id, walletAddress, escapeHtml(content));
     return { status: 201, body: { message: serializeMessage(message) } };
   } catch (err) {
     return errorToResponse(err);
   }
 };
 
-export const getTokenMessages: Handler = (req) => {
+export const getTokenMessages: Handler = async (req) => {
   const tokenAddress = req.params.address!;
-  const room = getOrCreateTokenRoom(tokenAddress);
+  const room = await getOrCreateTokenRoom(tokenAddress);
   const since = req.query.get('since') ?? undefined;
-  return { status: 200, body: { room: { id: room.id, kind: room.kind, tokenAddress: room.tokenAddress }, messages: listMessages(room.id, since).map(serializeMessage) } };
+  const messages = await listMessages(room.id, since);
+  return { status: 200, body: { room: { id: room.id, kind: room.kind, tokenAddress: room.tokenAddress }, messages: messages.map(serializeMessage) } };
 };
 
-export const postTokenMessage: Handler = (req) => {
+export const postTokenMessage: Handler = async (req) => {
   try {
     const tokenAddress = req.params.address!;
-    const room = getOrCreateTokenRoom(tokenAddress);
+    const room = await getOrCreateTokenRoom(tokenAddress);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const content = typeof body.content === 'string' ? body.content : '';
     const { walletAddress } = verifyWriteRequest(req.body, room.id, 'post', content);
-    const message = postMessage(room.id, walletAddress, escapeHtml(content));
+    const message = await postMessage(room.id, walletAddress, escapeHtml(content));
     return { status: 201, body: { message: serializeMessage(message) } };
   } catch (err) {
     return errorToResponse(err);
   }
 };
 
-export const reportChatMessage: Handler = (req) => {
+export const reportChatMessage: Handler = async (req) => {
   try {
     const messageId = req.params.messageId!;
     // The message id is already globally unique, so it — not a room id —
     // is what actually needs to be bound into the signature here; "msg"
     // is a fixed, documented scope segment, not a real room reference.
     const { walletAddress } = verifyWriteRequest(req.body, 'msg', 'report', messageId);
-    const message = reportMessage(messageId, walletAddress);
+    const message = await reportMessage(messageId, walletAddress);
     return { status: 200, body: { message: serializeMessage(message) } };
   } catch (err) {
     return errorToResponse(err);
@@ -166,7 +176,7 @@ export const checkModeratorStatus: Handler = (req) => {
   return { status: 200, body: { isModerator: isModerator(walletAddress) } };
 };
 
-export const deleteChatMessage: Handler = (req) => {
+export const deleteChatMessage: Handler = async (req) => {
   try {
     const messageId = req.params.messageId!;
     // DELETE requests are not guaranteed to carry a parsed body — the
@@ -186,7 +196,7 @@ export const deleteChatMessage: Handler = (req) => {
     if (!isModerator(walletAddress)) {
       return { status: 403, body: { error: 'UNAUTHORIZED', message: 'Only an authorized moderator can remove a message.' } };
     }
-    const message = deleteMessage(messageId, walletAddress);
+    const message = await deleteMessage(messageId, walletAddress);
     return { status: 200, body: { message: serializeMessage(message) } };
   } catch (err) {
     return errorToResponse(err);
