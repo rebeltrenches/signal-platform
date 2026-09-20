@@ -55,6 +55,35 @@ export function CreatePage() {
             );
           })}
         </div>
+
+        {/* Optional, informational only — never gates "Continue". Base
+            and BNB adapters aren't implemented yet (adapterImplemented:
+            false in packages/config), so completing this wizard still
+            can't produce a real launch on either chain regardless of
+            wallet connection. This exists so a person can verify they
+            have a compatible EVM wallet ahead of that work landing, not
+            to imply it already has. Hidden by default; shown per-chain
+            by evm-wallet.js reacting to the existing chain-selection
+            clicks above — wizard.js's own validation/navigation logic
+            is untouched. */}
+        <div id="evm-connect-base" className="card" style={{ marginTop: 16, padding: 16 }} hidden>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <p style={{ margin: 0, color: 'var(--ink-dim)', font: 'var(--text-small)' }}>
+              Base launches aren't available yet — connecting now just confirms you have a compatible wallet.
+            </p>
+            <button type="button" className="btn btn-ghost" data-evm-connect="base">Connect Base wallet</button>
+          </div>
+          <p data-evm-status="base" className="hint" style={{ marginTop: 8 }}></p>
+        </div>
+        <div id="evm-connect-bnb" className="card" style={{ marginTop: 16, padding: 16 }} hidden>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <p style={{ margin: 0, color: 'var(--ink-dim)', font: 'var(--text-small)' }}>
+              BNB Chain launches aren't available yet — connecting now just confirms you have a compatible wallet.
+            </p>
+            <button type="button" className="btn btn-ghost" data-evm-connect="bnb">Connect BNB wallet</button>
+          </div>
+          <p data-evm-status="bnb" className="hint" style={{ marginTop: 8 }}></p>
+        </div>
         <div style={{ marginTop: 28, display: 'flex', justifyContent: 'flex-end' }}>
           <button type="button" className="btn btn-brand" data-action="next" disabled>Continue</button>
         </div>
@@ -111,13 +140,14 @@ export function CreatePage() {
                 <span style={{ font: 'var(--text-h2)' }}>{totalPct}</span>
                 <span className="hint" style={{ textTransform: 'none' }}>Transfer Fee — fixed, not adjustable per launch</span>
               </div>
-              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Creator</span><span className="v">You — 100% of the Transfer Fee</span></div>
-              <div className="review-row"><span className="k">Signal platform fee</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
+              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Signal platform wallet</span><span className="v">100% of the Signal Fee</span></div>
+              <div className="review-row"><span className="k">You (the creator)</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of the Signal Fee</span></div>
               <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
               <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
-                100% of the {totalPct} Transfer Fee goes to you, the token's creator — not to Signal, and not
-                to a holder-rewards pool. Enforced by Solana's Token-2022 program itself (you hold the
-                withdraw authority), capped protocol-wide at {bpsToDisplay(PROTOCOL_MAX_TAX_BPS)}. See{' '}
+                100% of the {totalPct} Signal Fee goes to the Signal platform wallet — not to you, the
+                creator, and not to a holder-rewards pool. Enforced by Solana's Token-2022 program itself
+                (the platform wallet holds the withdraw authority, not you), capped protocol-wide at{' '}
+                {bpsToDisplay(PROTOCOL_MAX_TAX_BPS)}. See{' '}
                 <a href="/security" style={{ color: 'var(--brand)' }}>Security</a> for exactly how collection works.
               </p>
             </div>
@@ -139,8 +169,8 @@ export function CreatePage() {
           <div className="review-row"><span className="k">Symbol</span><span className="v" id="rv-symbol">—</span></div>
           <div className="review-row"><span className="k">Total supply</span><span className="v" id="rv-supply">—</span></div>
           <div className="review-row"><span className="k">Decimals</span><span className="v" id="rv-decimals">—</span></div>
-          <div className="review-row"><span className="k">Transfer Fee</span><span className="v" id="rv-creator-fee">—</span></div>
-          <div className="review-row"><span className="k">Signal platform fee</span><span className="v" id="rv-platform-fee">—</span></div>
+          <div className="review-row"><span className="k">Signal Fee</span><span className="v" id="rv-creator-fee">—</span></div>
+          <div className="review-row"><span className="k">Signal platform wallet receives</span><span className="v" id="rv-platform-fee">—</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" id="rv-holder-reward">—</span></div>
           <div className="review-row"><span className="k">Creator wallet</span><span className="v" id="rv-creator-wallet-live" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>Not connected</span></div>
         </div>
@@ -187,7 +217,7 @@ export function CreatePage() {
             </button>
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
-              <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 3% transfer fee</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 1% Signal Fee</span><span className="v" data-state>Not started</span></div>
               <div className="review-row" data-launch-step="supply"><span className="k">2. Mint total supply</span><span className="v" data-state>Not started</span></div>
             </div>
             <div id="launch-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>

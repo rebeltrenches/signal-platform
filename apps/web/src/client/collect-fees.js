@@ -8,15 +8,17 @@
 // mirrors SolanaAdapter.buildCreateTokenTransaction. Never executed
 // against a real network from this sandbox — no internet access here.
 //
-// Model, unchanged: 3% total Transfer Fee, 100% to the connected
-// creator wallet. No Signal fee, no holder-rewards pool, no split — this
-// file introduces no new destination of any kind. The ONLY wallet that
-// can ever receive anything here is whichever wallet is connected when
-// "Collect Fees" is clicked, and only for a mint whose recorded
-// creatorAddress already matches that wallet (enforced in dashboard.js,
-// which decides whether the button exists at all).
+// Model, updated: 1% Signal Fee on transfers, 100% to the Signal
+// platform wallet (window.SIGNAL_PLATFORM_WALLET) — not the creator,
+// who now receives none of it. The ONLY wallet that can ever receive
+// anything here is the Signal platform wallet itself; this file
+// enforces that the connected wallet actually IS the platform wallet
+// before building or signing anything (enforced twice — once here,
+// once in dashboard.js, which decides whether the button exists at
+// all).
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
+import { getPlatformWalletAddress } from "./api-config.js";
 
 const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 const HARVEST_BATCH_SIZE = 20; // matches SolanaAdapter.ts exactly
@@ -81,7 +83,7 @@ class CollectFeesFlow {
    *    confirmed withdrawal.
    * Throws on any real failure — never swallowed into a false success.
    */
-  async collect(mintAddress, creatorPubkey, decimals, onStepState) {
+  async collect(mintAddress, platformWallet, decimals, onStepState) {
     const mint = new web3.PublicKey(mintAddress);
 
     const accountsWithFees = await this.scanWithheldAccounts(mint);
@@ -98,30 +100,30 @@ class CollectFeesFlow {
         splToken.createHarvestWithheldTokensToMintInstruction(mint, batch, splToken.TOKEN_2022_PROGRAM_ID)
       );
       harvestTx.recentBlockhash = blockhash;
-      harvestTx.feePayer = creatorPubkey;
+      harvestTx.feePayer = platformWallet;
       const sig = await this.signSubmitConfirm(harvestTx, (s) => onStepState("harvest", s));
       signatures.push(sig);
     }
 
-    const ata = splToken.getAssociatedTokenAddressSync(mint, creatorPubkey, false, splToken.TOKEN_2022_PROGRAM_ID);
+    const ata = splToken.getAssociatedTokenAddressSync(mint, platformWallet, false, splToken.TOKEN_2022_PROGRAM_ID);
     const withdrawTx = new web3.Transaction().add(
       splToken.createAssociatedTokenAccountIdempotentInstruction(
-        creatorPubkey,
+        platformWallet,
         ata,
-        creatorPubkey,
+        platformWallet,
         mint,
         splToken.TOKEN_2022_PROGRAM_ID
       ),
       splToken.createWithdrawWithheldTokensFromMintInstruction(
         mint,
         ata,
-        creatorPubkey,
+        platformWallet,
         [],
         splToken.TOKEN_2022_PROGRAM_ID
       )
     );
     withdrawTx.recentBlockhash = blockhash;
-    withdrawTx.feePayer = creatorPubkey;
+    withdrawTx.feePayer = platformWallet;
     const withdrawSig = await this.signSubmitConfirm(withdrawTx, (s) => onStepState("withdraw", s));
     signatures.push(withdrawSig);
 
@@ -157,26 +159,29 @@ class CollectFeesFlow {
 
     try {
       const resp = await window.solana.connect();
-      const creatorPubkey = new web3.PublicKey(resp.publicKey.toString());
+      const connectedPubkey = new web3.PublicKey(resp.publicKey.toString());
+      const platformWalletStr = getPlatformWalletAddress();
 
       // Authorization is enforced twice, deliberately: dashboard.js
-      // already only renders this button for a matching creatorAddress,
-      // and this is the second, independent check right before signing
-      // — if the connected wallet has changed since the button was
-      // rendered, this catches it rather than trusting stale DOM state.
-      const launches = JSON.parse(localStorage.getItem('signal_real_launches_v1') || '[]');
-      const record = launches.find((l) => l.mint === mintAddress);
-      if (!record || record.creatorAddress !== creatorPubkey.toBase58()) {
+      // already only renders this button when the connected wallet is
+      // the Signal platform wallet, and this is the second,
+      // independent check right before signing — if the connected
+      // wallet has changed since the button was rendered, this catches
+      // it rather than trusting stale DOM state. Checked against the
+      // PLATFORM wallet, not any creator record — only the platform
+      // wallet holds withdrawWithheldAuthority under the current fee
+      // model, so it's the only wallet this can ever be for.
+      if (!platformWalletStr || connectedPubkey.toBase58() !== platformWalletStr) {
         btn.textContent = originalLabel;
         btn.disabled = false;
-        if (statusEl) statusEl.textContent = 'This wallet did not launch this token — nothing to collect.';
+        if (statusEl) statusEl.textContent = 'Only the Signal platform wallet can collect this fee — nothing to do with this wallet.';
         return;
       }
 
       const connection = new web3.Connection(MAINNET_RPC, 'confirmed');
       const flow = new CollectFeesFlow(connection, window.solana);
 
-      const result = await flow.collect(mintAddress, creatorPubkey, decimals, (step, state) => {
+      const result = await flow.collect(mintAddress, connectedPubkey, decimals, (step, state) => {
         btn.textContent = step === 'harvest' ? `Harvesting (${state})…` : `Withdrawing (${state})…`;
       });
 

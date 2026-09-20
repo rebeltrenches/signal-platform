@@ -18,6 +18,18 @@
 //    verify.ts for why this exists at all when other features in this
 //    app don't need it.
 (function () {
+  // Configurable API origin: when apps/api is hosted separately from
+  // this static frontend (see docs/SECURITY.md and the architecture
+  // notes on why a separate host is the real production path for
+  // this), a build can set window.SIGNAL_API_BASE_URL and every call
+  // below targets that origin instead. Unset (the default, and the
+  // only way this has ever actually run) means today's exact behavior
+  // — a relative path, same-origin request.
+  function apiUrl(path) {
+    const base = window.SIGNAL_API_BASE_URL;
+    return base ? `${base.replace(/\/$/, '')}${path}` : path;
+  }
+
   const POLL_INTERVAL_MS = 4000;
   const MAX_MESSAGE_LENGTH = 500;
 
@@ -66,7 +78,7 @@
    *  JSX so it matches that page's exact layout — this class only fills
    *  in behavior). */
   function mountChatRoom(root) {
-    const endpoint = root.getAttribute('data-chat-endpoint');
+    const endpoint = apiUrl(root.getAttribute('data-chat-endpoint'));
     const roomIdForSigning = root.getAttribute('data-chat-room-id');
     const listEl = root.querySelector('[data-chat-messages]');
     const emptyEl = root.querySelector('[data-chat-empty]');
@@ -219,7 +231,7 @@
           const canonical = `signal-chat|msg|report|${messageId}|${timestamp}`;
           const signature = await signPayload(canonical);
           if (!signature) throw new Error('sign failed');
-          const res = await fetch(`/api/v1/chat/messages/${messageId}/report`, {
+          const res = await fetch(apiUrl(`/api/v1/chat/messages/${messageId}/report`), {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ walletAddress: window.launchpadWallet.address, signature, timestamp }),
@@ -239,7 +251,7 @@
           const signature = await signPayload(canonical);
           if (!signature) throw new Error('sign failed');
           const qs = new URLSearchParams({ walletAddress: window.launchpadWallet.address, signature, timestamp: String(timestamp) });
-          const res = await fetch(`/api/v1/chat/messages/${messageId}?${qs}`, { method: 'DELETE' });
+          const res = await fetch(apiUrl(`/api/v1/chat/messages/${messageId}?${qs}`), { method: 'DELETE' });
           if (res.ok) {
             const data = await res.json();
             const idx = knownMessages.findIndex((m) => m.id === messageId);
@@ -262,7 +274,7 @@
       // offered at all; the actual authorization happens again, for
       // real, on the server when it's clicked (see deleteChatMessage).
       try {
-        const res = await fetch(`/api/v1/chat/is-moderator?walletAddress=${encodeURIComponent(window.launchpadWallet.address)}`);
+        const res = await fetch(apiUrl(`/api/v1/chat/is-moderator?walletAddress=${encodeURIComponent(window.launchpadWallet.address)}`));
         const data = await res.json();
         window.__signalIsModerator = data.isModerator === true;
       } catch {

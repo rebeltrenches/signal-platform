@@ -3,12 +3,17 @@
 // reads and displays — it never writes an entry itself, so there's no
 // path for a fake launch to appear here.
 //
-// "Collect Fees" is shown ONLY when the entry's recorded creatorAddress
-// matches the currently connected wallet — an entry from a token this
-// browser happens to have a LOCAL RECORD of, launched by some OTHER
-// wallet, never gets a collect button. The actual click handling lives
-// in collect-fees.js (separate file, separate concern); this file only
-// decides whether the button should exist at all.
+// "Collect Fees" is shown ONLY when the CONNECTED wallet matches the
+// Signal platform wallet (window.SIGNAL_PLATFORM_WALLET, injected at
+// build time) — not when it matches the token's creator. Under the
+// current fee model, 100% of the Signal Fee goes to the platform
+// wallet, so only its own holder can ever actually collect anything;
+// showing this button to an ordinary creator (who will never be able
+// to successfully sign the real withdrawal, since they don't hold
+// withdrawWithheldAuthority) would be misleading UI, not just an
+// unreachable one. The actual click handling lives in collect-fees.js
+// (separate file, separate concern); this file only decides whether
+// the button should exist at all.
 (function () {
   const emptyEl = document.getElementById('launches-empty');
   const listEl = document.getElementById('launches-list');
@@ -17,17 +22,33 @@
 
   const LAUNCHES_KEY = 'signal_real_launches_v1';
 
+  function apiPath(path) {
+    const base = window.SIGNAL_API_BASE_URL;
+    return base ? `${base.replace(/\/$/, '')}${path}` : path;
+  }
+
+  function loadLocal() {
+    try {
+      return JSON.parse(localStorage.getItem(LAUNCHES_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+  function saveLocal(launches) {
+    try {
+      localStorage.setItem(LAUNCHES_KEY, JSON.stringify(launches));
+    } catch {
+      // storage unavailable — sync still works for this page view, it
+      // just won't persist locally; never fake success
+    }
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function render() {
-    let launches = [];
-    try {
-      launches = JSON.parse(localStorage.getItem(LAUNCHES_KEY) || '[]');
-    } catch {
-      launches = [];
-    }
+    const launches = loadLocal();
 
     if (countEl) {
       // A real count of what's actually recorded, nothing more — hidden
@@ -49,11 +70,12 @@
       .slice()
       .reverse()
       .map((l) => {
-        const isOwnLaunch = connectedAddress && l.creatorAddress && l.creatorAddress === connectedAddress;
-        // Entries recorded before this feature existed have no
-        // creatorAddress at all — never show the action for those
-        // either; an absent value is not a match, on purpose.
-        const collectButton = isOwnLaunch
+        const isPlatformWallet = connectedAddress && window.SIGNAL_PLATFORM_WALLET && connectedAddress === window.SIGNAL_PLATFORM_WALLET;
+        // Only the Signal platform wallet's own holder can actually
+        // collect anything now — an ordinary creator, even for their
+        // own launch, never gets this button (they hold no withdraw
+        // authority under the current fee model).
+        const collectButton = isPlatformWallet
           ? `<button class="btn btn-ghost" data-collect-mint="${escapeHtml(l.mint)}" data-decimals="${escapeHtml(String(l.decimals ?? 6))}" style="padding:4px 12px;">Collect Fees</button>`
           : '';
         return `
@@ -75,5 +97,52 @@
   // Re-render on wallet connect/disconnect so the right set of buttons
   // appears without needing a page reload.
   document.addEventListener('launchpad:wallet-connected', render);
+
+  /** Real cross-device sync: merges what the backend knows this
+   *  wallet registered (GET /api/v1/tokens/mine — real, tested,
+   *  unauthenticated by its own existing design, no session needed)
+   *  into the local cache. Never replaces the local list outright —
+   *  only ADDS backend entries this browser doesn't already have,
+   *  matched by mint/address — so a local-only entry (e.g. one whose
+   *  own registration call happened to fail at launch time) is never
+   *  silently lost. Does not touch launch-solana.js's own registration
+   *  logic at all; this only reads what's already there. */
+  async function syncWithBackend() {
+    const connectedAddress = window.launchpadWallet && window.launchpadWallet.address;
+    if (!connectedAddress) return;
+
+    let backendTokens;
+    try {
+      const res = await fetch(apiPath(`/api/v1/tokens/mine?creatorWalletAddress=${encodeURIComponent(connectedAddress)}`));
+      if (!res.ok) return; // real fetch, real failure — leave the existing local list exactly as it is
+      backendTokens = (await res.json()).tokens;
+    } catch {
+      return; // network/backend unreachable — same: leave local data untouched, never assume anything
+    }
+    if (!backendTokens || backendTokens.length === 0) return;
+
+    const local = loadLocal();
+    const knownMints = new Set(local.map((l) => l.mint));
+    let addedAny = false;
+    for (const t of backendTokens) {
+      if (knownMints.has(t.address)) continue; // already have it locally — don't duplicate
+      local.push({
+        name: t.name,
+        symbol: t.symbol,
+        mint: t.address,
+        creatorAddress: t.creatorWalletAddress,
+        decimals: t.decimals,
+        launchedAt: t.createdAt,
+      });
+      addedAny = true;
+    }
+    if (addedAny) {
+      saveLocal(local);
+      render();
+    }
+  }
+
+  syncWithBackend();
+  document.addEventListener('launchpad:wallet-connected', syncWithBackend);
 })();
 

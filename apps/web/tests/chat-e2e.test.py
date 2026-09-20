@@ -23,6 +23,9 @@ import os
 import http.server
 import socketserver
 import threading
+import json
+import urllib.request
+import urllib.error
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from playwright.sync_api import sync_playwright
@@ -252,6 +255,31 @@ def main():
 
             # ---- Case 7: token room, scoped correctly ----
             mint = "E2EMint1111111111111111111111111111111"
+            # A real registration for the literal address this test
+            # visits ("example", from /token/example — not to be
+            # confused with `mint` above, which selects the chat room
+            # via a query param, a separate thing). Without this, the
+            # page's own real "Launched on Signal" lookup (TokenDetailPage)
+            # honestly 404s for an address nothing ever registered — a
+            # real, correct answer, but a real HTTP error the browser
+            # logs to the console regardless of how the page handles it.
+            # Registering it for real here, rather than loosening the
+            # console-error check below, keeps that check's ability to
+            # catch a genuinely unexpected error fully intact, and makes
+            # this scenario more realistic besides — a real user's token
+            # page normally does correspond to something registered.
+            try:
+                req = urllib.request.Request(
+                    f"http://localhost:{API_PORT}/api/v1/tokens/register",
+                    data=json.dumps({
+                        "chain": "solana", "address": "example", "name": "E2E Example Token",
+                        "symbol": "E2E", "decimals": 6, "creatorWalletAddress": "E2ETestCreator",
+                    }).encode("utf-8"),
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                urllib.request.urlopen(req)
+            except urllib.error.HTTPError:
+                pass  # already registered from a prior run in the same process — fine, idempotent either way
             page3 = browser.new_page(viewport={"width": 1280, "height": 900})
             page3.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
             carol = make_wallet()

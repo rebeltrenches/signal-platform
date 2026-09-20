@@ -49,12 +49,13 @@ export function TransparencyPage() {
       </section>
 
       <section style={{ marginBottom: 36 }}>
-        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>The transfer fee, transparently</h2>
+        <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>The Signal Fee, transparently</h2>
         <div className="card">
-          <div className="review-row"><span className="k">Total Transfer Fee</span><span className="v">3%</span></div>
-          <div className="review-row"><span className="k">Creator</span><span className="v">100% → the token's own creator</span></div>
-          <div className="review-row"><span className="k">Signal platform fee</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
+          <div className="review-row"><span className="k">Signal Fee (on applicable transfers)</span><span className="v">1%</span></div>
+          <div className="review-row"><span className="k">Signal platform wallet</span><span className="v">100% → the Signal platform wallet</span></div>
+          <div className="review-row"><span className="k">Creator share</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% — none</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
+          <div className="review-row"><span className="k">Launch Fee (one-time, at creation)</span><span className="v">1% of the actual launch payment, when one exists — not charged today</span></div>
         </div>
       </section>
 

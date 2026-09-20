@@ -100,7 +100,9 @@ export function DashboardPage() {
             <div id="launches-list"></div>
           </div>
 
-          {/* ---- Watchlist: real, persistent add/remove ---- */}
+          {/* ---- Watchlist: real, persistent add/remove, with real
+              cross-device sync once signed in (see auth-client.js /
+              watchlist.js) ---- */}
           <div>
             <div className="section-head">
               <h2>Watchlist</h2>
@@ -110,10 +112,48 @@ export function DashboardPage() {
               <input className="input" id="watchlistInput" placeholder="Token name or address to track" />
               <button className="btn btn-brand" id="watchlistAddBtn" type="button">Add</button>
             </div>
+            <div className="field-row" style={{ marginBottom: 12, justifyContent: 'space-between' }}>
+              <span id="watchlist-sync-status" className="hint">Saved to this browser only.</span>
+              <button className="btn btn-ghost" id="watchlistSyncBtn" type="button" style={{ padding: '4px 12px' }}>Sync across devices</button>
+            </div>
             <div id="watchlist-empty">
-              <EmptyState icon={ICONS.star} title="Your watchlist is empty" body="Add a token above — saved to this browser. A watchlist that syncs across devices needs an account system, Stage 19." />
+              <EmptyState icon={ICONS.star} title="Your watchlist is empty" body="Add a token above — saved to this browser, and to your account if you're signed in." />
             </div>
             <div id="watchlist-list"></div>
+          </div>
+
+          {/* ---- Alerts: configuration only. No triggering, no
+              notifications — see alerts/AlertRepository.ts. Requires
+              being signed in (session), since an alert has no useful
+              local-only form the way a watchlist entry does. ---- */}
+          <div>
+            <div className="section-head">
+              <h2>Alerts</h2>
+              <span className="count-badge" id="alerts-count" hidden>0</span>
+            </div>
+            <p className="hint" style={{ marginBottom: 12 }}>Configuration only — Signal doesn't check thresholds or send notifications yet.</p>
+            <div id="alerts-signed-out">
+              <EmptyState icon={ICONS.bell} title="Sign in to configure alerts" body="Alerts are tied to your account, not this browser." />
+              <button className="btn btn-ghost" id="alertsSignInBtn" type="button" style={{ marginTop: 12 }}>Sign in</button>
+            </div>
+            <div id="alerts-signed-in" hidden>
+              <div className="field-row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+                <input className="input" id="alertTokenAddress" placeholder="Registered token address" style={{ flex: '2 1 220px' }} />
+                <select className="input" id="alertKind" style={{ flex: '1 1 140px' }}>
+                  <option value="price_move">Price move</option>
+                  <option value="volume_move">Volume move</option>
+                  <option value="liquidity_change">Liquidity change</option>
+                  <option value="graduation">Graduation</option>
+                </select>
+                <input className="input" id="alertThreshold" type="number" placeholder="Threshold %" style={{ flex: '0 1 120px' }} />
+                <button className="btn btn-brand" id="alertAddBtn" type="button">Add</button>
+              </div>
+              <p id="alerts-status" className="hint"></p>
+              <div id="alerts-empty">
+                <EmptyState icon={ICONS.bell} title="No alerts configured" body="Add one above for any token you've registered on Signal." />
+              </div>
+              <div id="alerts-list"></div>
+            </div>
           </div>
         </div>
 

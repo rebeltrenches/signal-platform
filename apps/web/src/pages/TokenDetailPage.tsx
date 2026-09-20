@@ -34,7 +34,7 @@ export function TokenDetailPage() {
             <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <DataValue point={unavailable} format={() => ''} />
               <span className="badge">Solana</span>
-              <span className="badge badge-placeholder" title="Whether this token was created through Signal, or discovered from elsewhere — master spec section 23">
+              <span className="badge badge-placeholder" id="signal-launch-badge" title="Whether this token was created through Signal, or discovered from elsewhere — master spec section 23">
                 Launched on Signal: Unavailable
               </span>
             </h1>

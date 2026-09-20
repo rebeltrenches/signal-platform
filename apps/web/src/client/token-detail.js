@@ -27,4 +27,35 @@
   if (matchingTab) {
     activateTab(matchingTab.getAttribute('data-tab'));
   }
+
+  // Real "Launched on Signal" check — replaces the static placeholder
+  // with an actual lookup against the real registration endpoint
+  // (Stage 2). Deliberately does NOT add any RPC/indexer capability:
+  // this only answers "is there a real Token row for this address,"
+  // exactly what packages/types' own TokenIdentity.launchedOnSignal
+  // comment describes as the correct way to answer this ("a fact to
+  // fetch — check the Token table"), nothing more. Chain defaults to
+  // 'solana', matching this page's own existing static "Solana" badge
+  // — real multi-chain detail pages are a separate concern this fix
+  // doesn't attempt to solve.
+  (function checkLaunchedOnSignal() {
+    const badge = document.getElementById('signal-launch-badge');
+    if (!badge) return;
+    const address = window.location.pathname.split('/').filter(Boolean).pop();
+    if (!address) return;
+
+    function apiPath(path) {
+      const base = window.SIGNAL_API_BASE_URL;
+      return base ? `${base.replace(/\/$/, '')}${path}` : path;
+    }
+
+    fetch(apiPath(`/api/v1/tokens/solana/${encodeURIComponent(address)}`))
+      .then((res) => {
+        badge.textContent = res.ok ? 'Launched on Signal: Yes' : 'Launched on Signal: No';
+      })
+      .catch(() => {
+        // Lookup failed (no backend reachable) — leave the honest
+        // "Unavailable" text exactly as it was, never guess.
+      });
+  })();
 })();

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Real, re-runnable verification that the confirmed fee model — 3% total
-Transfer Fee, 100% to the creator, 0% anything else — is actually
-encoded in the real Solana instruction the Create flow builds, not just
-displayed in the UI or asserted in a comment.
+Real, re-runnable verification that the confirmed fee model — 1% Signal
+Fee on transfers, 100% to the Signal platform wallet, 0% to the creator
+— is actually encoded in the real Solana instruction the Create flow
+builds, not just displayed in the UI or asserted in a comment.
 
 Complements apps/web/tests/collect-fees.test.py, which verifies the
-HARVEST + WITHDRAWAL side (fees already withheld -> creator's wallet).
+HARVEST + WITHDRAWAL side (fees already withheld -> platform wallet).
 This file verifies the other end of the chain: token/mint CREATION,
-where the 3% rate and the fee authorities are first written into the
+where the 1% rate and the fee authorities are first written into the
 mint's TransferFeeConfig extension.
 
 Same honesty scope as collect-fees.test.py: the stub modules replace
@@ -68,6 +68,11 @@ def main():
     print("fee-rate-and-authority.test.py\n")
 
     creator_wallet = "RealCreatorWallet1111111111111111111111"
+    # The real, actual Signal platform wallet — not a test placeholder.
+    # Using the genuine address here specifically so this test proves
+    # THIS exact value is what ends up in the real instruction, not a
+    # stand-in that could pass even if the real one were wired wrong.
+    platform_wallet = "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -83,6 +88,11 @@ def main():
         )
         page.add_init_script(f"""
           window.__t = {{}};
+          // Mirrors the real build-time injection (build.tsx/Shell.tsx)
+          // that a real deployment with SIGNAL_PLATFORM_WALLET set would
+          // produce — this test does not bypass that mechanism, it
+          // supplies what it would have set.
+          window.SIGNAL_PLATFORM_WALLET = '{platform_wallet}';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -125,15 +135,15 @@ def main():
         cfg_auth = cfg_call.get("cfgAuth")
         withdraw_auth = cfg_call.get("withdrawAuth")
 
-        check("1/2. The rate encoded in the real instruction is exactly 300 bps (3.00%)", bps == 300)
-        check("3/7. transferFeeConfigAuthority equals the connecting creator wallet", cfg_auth == creator_wallet)
-        check("3/7. withdrawWithheldAuthority equals the connecting creator wallet", withdraw_auth == creator_wallet)
-        check("4/6. transferFeeConfigAuthority is NOT the known former platform-wallet address", cfg_auth != "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19")
-        check("5/6. withdrawWithheldAuthority is NOT the known former platform-wallet address", withdraw_auth != "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19")
-        check("7. Both authority slots are the SAME address — one destination, not two", cfg_auth == withdraw_auth)
+        check("1/2. The rate encoded in the real instruction is exactly 100 bps (1.00%)", bps == 100)
+        check("3/7. transferFeeConfigAuthority equals the REAL Signal platform wallet, not the creator", cfg_auth == platform_wallet)
+        check("3/7. withdrawWithheldAuthority equals the REAL Signal platform wallet, not the creator", withdraw_auth == platform_wallet)
+        check("4/6. transferFeeConfigAuthority is NOT the connecting creator wallet — the creator gets 0% authority over this fee", cfg_auth != creator_wallet)
+        check("5/6. withdrawWithheldAuthority is NOT the connecting creator wallet", withdraw_auth != creator_wallet)
+        check("7. Both authority slots are the SAME address — one destination (the platform wallet), not two", cfg_auth == withdraw_auth)
 
-    # --- Worked numeric example: does 300bps actually mean 3%, and does
-    #     the whole fee land as creatorTax with nothing left over? ---
+    # --- Worked numeric example: does 100bps actually mean 1%, and does
+    #     the whole fee land as platformTax with nothing left over? ---
     print()
     sys.path.insert(0, REPO_ROOT)
     import subprocess
@@ -144,7 +154,7 @@ import { DEFAULT_TAX_CONFIG } from '@launchpad/types';
 const r = computeTaxSplit(100_000_000_000n, DEFAULT_TAX_CONFIG);
 console.log(JSON.stringify({
   totalTax: r.totalTax.toString(),
-  creatorTax: r.creatorTax.toString(),
+  platformTax: r.platformTax.toString(),
   netAmount: r.netAmount.toString(),
   ratePercent: Number(r.totalTax * 10000n / r.grossAmount) / 100,
 }));
@@ -155,12 +165,12 @@ console.log(JSON.stringify({
     try:
         result = json.loads(node_check.stdout.strip().splitlines()[-1])
         print("Worked example — 100,000,000,000 base units transferred:")
-        print(f"  totalTax (fee withheld):   {result['totalTax']}")
-        print(f"  creatorTax (to creator):   {result['creatorTax']}")
-        print(f"  netAmount (to recipient):  {result['netAmount']}")
-        print(f"  effective rate:            {result['ratePercent']}%")
-        check("Worked example: effective rate is exactly 3.0%", result["ratePercent"] == 3.0)
-        check("Worked example: 100% of the withheld fee is attributed to the creator (creatorTax == totalTax)", result["creatorTax"] == result["totalTax"])
+        print(f"  totalTax (fee withheld):     {result['totalTax']}")
+        print(f"  platformTax (to platform):   {result['platformTax']}")
+        print(f"  netAmount (to recipient):    {result['netAmount']}")
+        print(f"  effective rate:              {result['ratePercent']}%")
+        check("Worked example: effective rate is exactly 1.0%", result["ratePercent"] == 1.0)
+        check("Worked example: 100% of the withheld fee is attributed to the platform wallet (platformTax == totalTax)", result["platformTax"] == result["totalTax"])
     except Exception as e:
         check(f"Worked numeric example ran and parsed (error: {e})", False)
 

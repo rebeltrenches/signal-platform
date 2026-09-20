@@ -24,7 +24,7 @@ export function ExplorePage() {
       </div>
 
       <div className="toolbar">
-        <input className="input" placeholder="Search name, symbol, or address" aria-label="Search tokens" />
+        <input className="input" id="exploreSearchInput" placeholder="Search name, symbol, or address" aria-label="Search tokens" />
         <button className="chip" data-filter-chain="solana" aria-pressed="false">Solana</button>
         <button className="chip" data-filter-chain="base" aria-pressed="false">Base</button>
         <button className="chip" data-filter-chain="bnb" aria-pressed="false">BNB Chain</button>
@@ -55,7 +55,23 @@ export function ExplorePage() {
       <div style={{ marginTop: 24 }} id="explore-panels">
         {TABS.map((t, i) => (
           <div key={t.id} data-panel={t.id} hidden={i !== 0}>
-            <EmptyState title={EMPTY_COPY[t.id]!.title} body={EMPTY_COPY[t.id]!.body} />
+            {t.id === 'new' ? (
+              <>
+                {/* Real registered tokens render here (explore.js) —
+                    EmptyState below stays the default until real data
+                    actually loads, and reappears if the list is
+                    genuinely empty. Momentum/graduating are unchanged:
+                    still honest, static empty states — neither has a
+                    real data source yet (live RPC / the bonding curve,
+                    respectively). */}
+                <div id="explore-new-list"></div>
+                <div id="explore-new-empty">
+                  <EmptyState title={EMPTY_COPY.new!.title} body={EMPTY_COPY.new!.body} />
+                </div>
+              </>
+            ) : (
+              <EmptyState title={EMPTY_COPY[t.id]!.title} body={EMPTY_COPY[t.id]!.body} />
+            )}
           </div>
         ))}
       </div>

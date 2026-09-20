@@ -50,7 +50,7 @@ const routes: RouteDef[] = [
     title: 'Create',
     element: <CreatePage />,
     clientScripts: ['/client/wizard.js'],
-    moduleScripts: ['/client/launch-solana.js'],
+    moduleScripts: ['/client/launch-solana.js', '/client/evm-wallet.js'],
     embeddedJson: { chainConfigs: CHAIN_CONFIGS, defaultTaxConfig: DEFAULT_TAX_CONFIG },
   },
   { path: 'explore', title: 'Explore', element: <ExplorePage />, clientScripts: ['/client/explore.js'] },
@@ -60,7 +60,7 @@ const routes: RouteDef[] = [
     path: 'dashboard',
     title: 'Dashboard',
     element: <DashboardPage />,
-    clientScripts: ['/client/dashboard.js', '/client/watchlist.js'],
+    clientScripts: ['/client/dashboard.js', '/client/auth-client.js', '/client/watchlist.js', '/client/alerts.js'],
     moduleScripts: ['/client/portfolio.js', '/client/collect-fees.js'],
   },
   { path: 'security', title: 'Security', element: <SecurityPage /> },
@@ -75,6 +75,25 @@ function currentPathFor(routePath: string): string {
 function build() {
   mkdirSync(DIST, { recursive: true });
 
+  // Build-time only, and optional: when apps/api is hosted separately
+  // from this static site, set SIGNAL_API_BASE_URL for that build.
+  // Unset (the normal case today) means every page omits the script
+  // entirely — zero effect on local dev or on any build done without it.
+  const apiBaseUrl = process.env.SIGNAL_API_BASE_URL || undefined;
+  // Same build-time-only pattern as apiBaseUrl above — see
+  // packages/config/src/platform-wallet.ts for why this is read from
+  // an env var rather than hardcoded anywhere in this file or in
+  // launch-solana.js. Deliberately does NOT throw here if unset the
+  // way getPlatformWalletAddress() does when actually used server-side
+  // (SolanaAdapter.ts) — failing the ENTIRE site's build, including
+  // every unrelated page, over one missing var would be a
+  // disproportionate, cascading failure. The real enforcement for the
+  // client-side launch flow itself lives in launch-solana.js, which
+  // checks this value at the moment a launch is actually attempted —
+  // the same "loud failure at the point of real use" rule, without
+  // making it impossible to build anything else in the meantime.
+  const platformWalletAddress = process.env.SIGNAL_PLATFORM_WALLET || undefined;
+
   for (const route of routes) {
     const html =
       '<!DOCTYPE html>\n' +
@@ -85,6 +104,8 @@ function build() {
           clientScripts={['/client/nav.js', '/client/wallet-connect.js', ...(route.clientScripts ?? [])]}
           moduleScripts={route.moduleScripts ?? []}
           embeddedJson={route.embeddedJson}
+          apiBaseUrl={apiBaseUrl}
+          platformWalletAddress={platformWalletAddress}
         >
           {route.element}
         </Shell>

@@ -119,6 +119,7 @@ def main():
             route_stubs(page)
             page.add_init_script(f"""
               window.__t = {{}};
+              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
               window.solana = {{
                 isPhantom: true,
                 connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -149,6 +150,7 @@ def main():
         route_stubs(page)
         page.add_init_script(f"""
           window.__t = {{}};
+              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -177,6 +179,7 @@ def main():
         route_stubs(page)
         page.add_init_script(f"""
           window.__t = {{ failConfirmOnCall: 2, failConfirmError: 'simulated: user rejected supply-mint signature' }};
+              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -243,6 +246,7 @@ def main():
         preexisting_mint = "PreexistingMintFromEarlierSession1111111"
         page.add_init_script(f"""
           window.__t = {{}};
+              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),

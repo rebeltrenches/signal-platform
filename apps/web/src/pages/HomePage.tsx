@@ -42,7 +42,7 @@ const APPROACH = [
 
 const STEPS = [
   { n: '01', title: 'Connect a wallet', body: 'Phantom for Solana, or an EVM wallet for Base and BNB.' },
-  { n: '02', title: 'Configure your token', body: 'Name, symbol, supply — plus the fixed 3% transfer fee where supported.' },
+  { n: '02', title: 'Configure your token', body: 'Name, symbol, supply — plus the fixed 1% Signal Fee where supported.' },
   { n: '03', title: 'Review, then sign', body: 'Every parameter shown before your wallet ever asks for a signature.' },
   { n: '04', title: 'Live once confirmed', body: 'Not before — a launch is never marked done until the chain says so.' },
 ];
@@ -107,7 +107,7 @@ export function HomePage() {
             <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.solana.bg }}>{CHAIN_DOTS.solana.label}</span>
             <div>
               <h4>{solana.displayName}</h4>
-              <p>3.00% transfer fee supported</p>
+              <p>1.00% Signal Fee supported</p>
             </div>
           </div>
           <div className="chain-bar-item">

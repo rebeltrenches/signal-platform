@@ -118,18 +118,18 @@
     const cfg = state.chain ? chainConfigs[state.chain] : null;
     if (cfg && cfg.taxSupported === false) {
       el.innerHTML =
-        '<div class="tax-box tax-unavailable">The transfer fee isn\u2019t available on ' + cfg.displayName +
+        '<div class="tax-box tax-unavailable">The Signal Fee isn\u2019t available on ' + cfg.displayName +
         ' yet \u2014 trading-only until a custom contract exists and is audited (see /security).</div>';
     }
-    // If the transfer fee IS supported, the server-rendered default
-    // markup already shows the real 2%/1% platform+holder breakdown —
-    // nothing to swap in.
+    // If the Signal Fee IS supported, the server-rendered default
+    // markup already shows the real 100%-to-platform-wallet breakdown
+    // (see CreatePage.tsx's tax-box) — nothing to swap in here.
   }
 
   // ---- Review step population ----
   function populateReview() {
     const taxSupported = !(state.chain && chainConfigs[state.chain] && chainConfigs[state.chain].taxSupported === false);
-    const dtc = embedded.defaultTaxConfig || { totalBps: 300 };
+    const dtc = embedded.defaultTaxConfig || { totalBps: 100 };
     const pct = (bps) => (bps / 100).toFixed(2) + '%';
 
     const map = {
@@ -138,8 +138,8 @@
       'rv-symbol': state.symbol || '\u2014',
       'rv-supply': state.supply || '\u2014',
       'rv-decimals': state.decimals || '\u2014',
-      'rv-creator-fee': taxSupported ? pct(dtc.totalBps) + ' \u2192 you' : 'Not available on this chain',
-      'rv-platform-fee': 'None',
+      'rv-creator-fee': taxSupported ? pct(dtc.totalBps) : 'Not available on this chain',
+      'rv-platform-fee': taxSupported ? pct(dtc.totalBps) + ' \u2192 Signal platform wallet (100%)' : '\u2014',
       'rv-holder-reward': 'None',
     };
     Object.entries(map).forEach(([id, value]) => {
