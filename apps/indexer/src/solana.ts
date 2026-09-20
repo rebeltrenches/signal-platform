@@ -1,0 +1,37 @@
+import { SolanaAdapter } from '../../../packages/blockchain/src/solana/SolanaAdapter.js';
+import { PrismaTokenRepository } from '../../api/src/tokens/PrismaTokenRepository.js';
+import { getSharedPrismaClient } from '../../api/src/db/prismaClient.js';
+import { MemoryCheckpointStore } from './CheckpointStore.js';
+import { SolanaTokenRefreshWorker } from './SolanaTokenRefreshWorker.js';
+
+const rpcUrl = process.env.SOLANA_RPC_URL;
+if (!rpcUrl) throw new Error('SOLANA_RPC_URL is required.');
+
+const intervalMs = Number(process.env.INDEXER_INTERVAL_MS ?? '60000');
+if (!Number.isFinite(intervalMs) || intervalMs < 1000) {
+  throw new Error('INDEXER_INTERVAL_MS must be a number >= 1000.');
+}
+
+const prisma = await getSharedPrismaClient();
+const repository = new PrismaTokenRepository(prisma);
+const worker = new SolanaTokenRefreshWorker(
+  new SolanaAdapter({ rpcUrl }),
+  repository,
+  new MemoryCheckpointStore(),
+);
+
+async function runCycle(): Promise<void> {
+  let result;
+  do {
+    result = await worker.runPage();
+    console.log('[indexer] page complete', result);
+  } while (result.nextCursor);
+}
+
+await runCycle();
+
+if (!process.argv.includes('--once')) {
+  setInterval(() => {
+    void runCycle().catch((error) => console.error('[indexer] cycle failed', error));
+  }, intervalMs);
+}
