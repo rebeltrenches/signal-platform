@@ -21,7 +21,7 @@ tested — per the spec's own rule (section 44/45), not skipped here.
 | Stage | What | Status |
 |---|---|---|
 | 1 | Architecture, repo skeleton, shared types, tax math + tests, DB schema | **DONE** |
-| 2 | Database — real migrations against a live Postgres | **PARTIAL** — see below |
+| 2 | Database — real schema sync against live PostgreSQL + production persistence verification | **DONE** — production-verified 2026-09-20 |
 | 3 | Backend API skeleton (versioned routes, no business logic yet) | **DONE** for skeleton scope |
 | 4 | Frontend skeleton — real pages, no framework installable offline (see below) | **DONE** for skeleton scope |
 | 5 | Wallet infrastructure (connect flows for Phantom + EVM wallets) | NEXT |
@@ -401,7 +401,18 @@ consistency; see Stage 6 above for what has since been implemented)*:
 - Two real bugs were found and fixed this session (see above); zero known
   remaining issues in the code as delivered.
 
-## Stage 2/3 completion reports (unchanged from last session)
+## Stage 2 production completion — verified 2026-09-20
+
+**PRODUCTION VERIFIED:**
+- Render is connected to a real PostgreSQL database; `GET /health/database` returns `{"status":"ok","database":"postgresql"}`.
+- The production build runs Prisma generation and `prisma db push` against the configured database before deployment.
+- Database-backed storage is enabled in the deployed API.
+- A real token record was registered through the production API, read back successfully, the Render service was restarted, and the same record was read back again afterward. This proves the token repository is using persistent PostgreSQL storage rather than the previous in-memory store.
+- Stage 2's original blocker (no live Postgres / no Prisma schema execution) is therefore resolved.
+
+**Scope note:** this verifies live PostgreSQL connectivity, schema synchronization, and persistence for the exercised token path. It does not by itself prove every future model or Stage 11 indexer/worker path; those retain their own stage-specific acceptance criteria.
+
+## Stage 2/3 earlier completion reports (historical context)
 
 
 **COMPLETED:**
