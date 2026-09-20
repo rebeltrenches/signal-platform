@@ -12,7 +12,7 @@
     "@prisma/adapter-pg": "^7.10.0"
   },
   "scripts": {
-    "test": "tsx tests/solana-token-refresh-worker.test.ts",
+    "test": "tsx tests/solana-token-refresh-worker.test.ts && tsx tests/indexer-safety.test.ts",
     "solana:once": "tsx src/solana.ts --once",
     "solana": "tsx src/solana.ts"
   }
