@@ -3,8 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "generate": "prisma generate",
-    "migrate:dev": "prisma migrate dev",
-    "studio": "prisma studio"
+    "generate": "prisma7 generate",
+    "migrate:dev": "prisma7 migrate dev",
+    "studio": "prisma7 studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.10.0"
+  },
+  "devDependencies": {
+    "@prisma/prisma7": "^7.10.0"
   }
 }
