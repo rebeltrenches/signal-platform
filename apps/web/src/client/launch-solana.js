@@ -23,7 +23,9 @@ import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/w
 import { apiUrl } from "./api-config.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
-const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% — matches DEFAULT_TAX_CONFIG.totalBps in packages/types, kept in sync manually since this file can't import a TS package directly
+const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% creator transfer fee
+const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
+const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -115,8 +117,9 @@ class LaunchFlow {
    *  the launcher; both fee authorities are the creator wallet,
    *  not the launcher) + initialize the mint. Returns the built
    *  transaction plus the new mint's keypair (needed again for its own
-   *  signature). Throws if the platform wallet isn't configured — never
-   *  silently proceeds with an undefined fee recipient. */
+   *  signature). The same transaction also pays SIGNAL's fixed 0.001 SOL launch fee
+   *  to the configured public platform wallet, so a mint cannot be created
+   *  through this flow without the launch fee instruction. */
   async buildCreateTx(launcherPubkey, decimals, transferFeeBps) {
 this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
@@ -127,6 +130,11 @@ this.mintKeypair = web3.Keypair.generate();
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
     const tx = new web3.Transaction().add(
+      web3.SystemProgram.transfer({
+        fromPubkey: launcherPubkey,
+        toPubkey: SIGNAL_PLATFORM_WALLET,
+        lamports: SIGNAL_LAUNCH_FEE_LAMPORTS,
+      }),
       web3.SystemProgram.createAccount({
         fromPubkey: launcherPubkey,
         newAccountPubkey: mint,
