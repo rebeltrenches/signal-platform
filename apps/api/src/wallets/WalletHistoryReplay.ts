@@ -28,7 +28,9 @@ export interface WalletHistoryReplay {
  */
 export function buildWalletHistoryReplay(trace: SignalTraceResult): WalletHistoryReplay {
   const events = trace.edges
-    .map((edge, index) => ({
+    .map((edge, index) => ({ edge, originalIndex: index }))
+    .sort((a, b) => a.edge.depth - b.edge.depth || a.originalIndex - b.originalIndex)
+    .map(({ edge }, index) => ({
       sequence: index + 1,
       depth: edge.depth,
       from: edge.from,
@@ -36,8 +38,7 @@ export function buildWalletHistoryReplay(trace: SignalTraceResult): WalletHistor
       relationshipType: edge.relationshipType,
       evidenceSource: edge.evidenceSource,
       observedTxSignature: edge.observedTxSignature,
-    }))
-    .sort((a, b) => a.depth - b.depth || a.sequence - b.sequence);
+    }));
 
   return {
     root: trace.root,
