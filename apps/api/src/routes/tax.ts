@@ -10,8 +10,8 @@ import { DEFAULT_TAX_CONFIG, type TaxConfig } from '@launchpad/types';
  * "always show fee before confirmation" requirement.
  *
  * Model (updated — see docs/ARCHITECTURE.md for the full decision
- * history): 100% of the 1% Signal Fee goes to the Signal platform
- * wallet — the token's creator receives none of it. `platformTax` and
+ * history): 100% of the 3% creator transfer fee goes to the Signal platform
+ * wallet — the token's creator receives all of it. `creatorTax` and
  * `totalTax` are equal in this response.
  */
 export const previewTax: Handler = (req) => {
@@ -33,7 +33,7 @@ export const previewTax: Handler = (req) => {
       body: {
         grossAmount: split.grossAmount,
         totalTax: split.totalTax,
-        platformTax: split.platformTax, // 100% of totalTax — the Signal platform wallet, not the creator
+        creatorTax: split.creatorTax, // 100% of totalTax — the token creator, not the creator
         netAmount: split.netAmount,
         config,
       },
