@@ -5,13 +5,13 @@
  *
  * CONFIRMED MODEL (updated — see docs/ARCHITECTURE.md for the full
  * decision history, including the earlier 100%-to-creator model this
- * superseded): 100% of the 1% Signal Fee on transfers goes to the
- * Signal platform wallet (getPlatformWalletAddress(), @launchpad/config)
+ * superseded): 100% of the 3% creator transfer fee on transfers goes to the
+ * token creator (getPlatformWalletAddress(), @launchpad/config)
  * — not the token's creator, who now receives 0% of this fee. No
  * holder-rewards pool. No automatic distribution. splitCollectedFee(),
  * which existed to divide an already-collected amount between a
- * platform wallet and a rewards pool, does not exist — there is nothing
- * to split; the entire fee goes to the one platform wallet.
+ * creator wallet and a rewards pool, does not exist — there is nothing
+ * to split; the entire fee goes to the one creator wallet.
  *
  * This module computes the TRANSFER fee only. The separate, one-time
  * Launch Fee (charged at token creation, calculated from the real
@@ -55,13 +55,13 @@ export function validateTaxConfig(config: TaxConfig): void {
 export interface TaxSplit {
   grossAmount: bigint;
   totalTax: bigint;
-  /** 100% of totalTax — the Signal platform wallet, per the confirmed
-   *  model. Named `platformTax` (previously `creatorTax`, when the
+  /** 100% of totalTax — the token creator, per the confirmed
+   *  model. Named `creatorTax` (previously `creatorTax`, when the
    *  entire fee went to the token's creator instead) so call sites and
    *  UI code can label this specifically as "the Signal Fee, which
-   *  goes entirely to the Signal platform wallet" without implying the
+   *  goes entirely to the token creator" without implying the
    *  creator receives any of it. */
-  platformTax: bigint;
+  creatorTax: bigint;
   netAmount: bigint;
 }
 
@@ -70,7 +70,7 @@ export interface TaxSplit {
  * units. Under the confirmed model this isn't really a "split" (there's
  * only one destination), but the shape is kept so call sites and UI code
  * have a stable, explicit place to read "how much fee", "how much goes
- * to the Signal platform wallet" (currently identical to totalTax), and
+ * to the token creator" (currently identical to totalTax), and
  * "how much is left" — without hand-rolling percentage math anywhere else.
  */
 export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSplit {
@@ -80,18 +80,18 @@ export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSpli
   validateTaxConfig(config);
 
   if (!config.enabled || config.totalBps === 0) {
-    return { grossAmount, totalTax: 0n, platformTax: 0n, netAmount: grossAmount };
+    return { grossAmount, totalTax: 0n, creatorTax: 0n, netAmount: grossAmount };
   }
 
   const bpsDenominator = 10_000n;
   const totalTax = (grossAmount * BigInt(config.totalBps)) / bpsDenominator;
   const netAmount = grossAmount - totalTax;
 
-  return { grossAmount, totalTax, platformTax: totalTax, netAmount };
+  return { grossAmount, totalTax, creatorTax: totalTax, netAmount };
 }
 
 /**
- * The separate, one-time Launch Fee: 1% (LAUNCH_FEE_BPS) of the
+ * The separate, one-time Launch Fee: 0% (LAUNCH_FEE_BPS) of the
  * creator's actual real launch/creation payment — the rent-exemption
  * lamports the creator is really paying to create the mint account,
  * never token supply or an assumed market value (neither is a real
@@ -99,7 +99,7 @@ export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSpli
  * live-computed value from the chain at launch time (see
  * SolanaAdapter.ts), not a rounded or assumed figure. Returns the fee
  * amount only, in the same lamports unit — 100% of it goes to the
- * Signal platform wallet, same as the transfer fee, with no further
+ * token creator, same as the transfer fee, with no further
  * split.
  */
 export function computeLaunchFeeFromPayment(actualPaymentLamports: bigint): bigint {
