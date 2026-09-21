@@ -52,8 +52,8 @@ export function TokenDetailPage() {
 
       {/* Real Trade terminal shape — master spec section 11/23. Every
           field a real pre-trade review needs is here, honestly
-          unavailable, because no DexAdapter implementation (Raydium/
-          Orca) exists yet — Stage 10. The Buy/Sell button is inert by
+          unavailable, because the Raydium adapter's real pool reader/
+          swap builder is not wired to mainnet yet. The Buy/Sell button is inert by
           construction (no data-action, no listener) — same pattern as
           the Create flow's Launch button before Stage 6 was approved.
           Trading here will be REAL when built, or not built at all —
@@ -81,9 +81,9 @@ export function TokenDetailPage() {
           Trading not available yet
         </button>
         <p className="hint" style={{ marginTop: 10, textTransform: 'none' }}>
-          The <code>DexAdapter</code> interface (quote, swap, route comparison) already exists in{' '}
-          <code>packages/dex</code> — no Raydium/Orca implementation exists behind it yet. This button
-          stays inert until that's real; never a simulated fill.
+          SIGNAL already has the <code>DexAdapter</code> and Raydium orchestration in <code>packages/dex</code>.
+          Trading stays disabled until the real mainnet pool reader and swap builder are wired and verified;
+          SIGNAL never substitutes a simulated fill.
         </p>
       </div>
 
