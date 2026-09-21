@@ -13,6 +13,17 @@
     return mint.length > 16 ? mint.slice(0, 8) + "…" + mint.slice(-6) : mint;
   }
 
+  function formatTokenAmount(amount) {
+    const value = Number(amount);
+    if (!Number.isFinite(value)) return String(amount);
+    if (value === 0) return "0";
+    if (Math.abs(value) < 0.000001) return "<0.000001";
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: Math.abs(value) < 1 ? 6 : 4,
+      useGrouping: true,
+    }).format(value);
+  }
+
   function row(token) {
     const div = document.createElement("div");
     div.className = "review-row";
@@ -38,7 +49,7 @@
 
     const value = document.createElement("span");
     value.className = "v";
-    value.textContent = token.amount;
+    value.textContent = formatTokenAmount(token.amount);
 
     div.append(identity, value);
     return div;
