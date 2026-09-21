@@ -78,3 +78,39 @@ export function computeSwapEstimate(
   const minimumAmountOut = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
   return { amountOut, priceImpactPercent, minimumAmountOut };
 }
+
+
+/**
+ * SIGNAL creator-fee settlement for SOL-denominated trading.
+ *
+ * The creator fee is 1% of the SOL side of a trade. Keeping this
+ * calculation in lamports means the creator receives SOL value and
+ * SIGNAL never needs to withhold or later liquidate the project token.
+ *
+ * BUY: fee is taken from the buyer's SOL input before AMM execution.
+ * SELL: fee is taken from the SOL output after AMM execution.
+ */
+export const SIGNAL_CREATOR_FEE_BPS = 100;
+
+export interface SolCreatorFeeSettlement {
+  grossSolLamports: bigint;
+  creatorFeeLamports: bigint;
+  netSolLamports: bigint;
+}
+
+export function computeSolCreatorFee(
+  grossSolLamports: bigint,
+  feeBps: number = SIGNAL_CREATOR_FEE_BPS
+): SolCreatorFeeSettlement {
+  if (grossSolLamports < 0n) throw new RangeError('grossSolLamports cannot be negative.');
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps >= 10000) {
+    throw new RangeError('feeBps must be an integer in [0, 10000).');
+  }
+
+  const creatorFeeLamports = (grossSolLamports * BigInt(feeBps)) / 10_000n;
+  return {
+    grossSolLamports,
+    creatorFeeLamports,
+    netSolLamports: grossSolLamports - creatorFeeLamports,
+  };
+}
