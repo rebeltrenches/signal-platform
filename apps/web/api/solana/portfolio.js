@@ -2,8 +2,11 @@ const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
-function send(res, status, body) {
-  res.status(status).json(body);
+function json(res, status, body) {
+  res.statusCode = status;
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify(body));
 }
 
 function isSolanaAddress(value) {
@@ -15,78 +18,126 @@ function isSolanaAddress(value) {
     decoded = decoded * 58n + BigInt(digit);
   }
   let bytes = 0;
-  while (decoded > 0n) { bytes += 1; decoded >>= 8n; }
+  while (decoded > 0n) {
+    bytes += 1;
+    decoded >>= 8n;
+  }
   let leadingZeroes = 0;
-  for (const ch of value) { if (ch === "1") leadingZeroes += 1; else break; }
+  for (const ch of value) {
+    if (ch === "1") leadingZeroes += 1;
+    else break;
+  }
   return bytes + leadingZeroes === 32;
+}
+
+async function readBody(req) {
+  if (req.body && typeof req.body === "object") return req.body;
+  if (typeof req.body === "string") {
+    try { return JSON.parse(req.body); } catch { return {}; }
+  }
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { return {}; }
 }
 
 async function rpc(url, method, params) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: method, method, params }),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(12000),
   });
-  if (!response.ok) throw new Error("upstream-http");
+
+  if (!response.ok) {
+    const error = new Error("upstream-http");
+    error.status = response.status;
+    throw error;
+  }
+
   const payload = await response.json();
-  if (payload?.error || payload?.result === undefined) throw new Error("upstream-rpc");
+  if (payload?.error || payload?.result === undefined) {
+    const error = new Error("upstream-rpc");
+    error.rpcCode = payload?.error?.code;
+    throw error;
+  }
   return payload.result;
 }
 
-async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  if (req.method !== "POST") return send(res, 405, { error: "Method not allowed" });
+export default async function handler(req, res) {
+  if (req.method !== "POST") return json(res, 405, { error: "Method not allowed", code: "METHOD_NOT_ALLOWED" });
 
-  const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
-  if (!isSolanaAddress(address)) return send(res, 400, { error: "Invalid Solana wallet address" });
+  const body = await readBody(req);
+  const address = typeof body?.address === "string" ? body.address.trim() : "";
+  if (!isSolanaAddress(address)) {
+    return json(res, 400, { error: "Invalid Solana wallet address", code: "INVALID_ADDRESS" });
+  }
 
-  const rpcUrl = process.env.SOLANA_RPC_URL;
-  if (!rpcUrl) return send(res, 503, {
-    error: "Live Solana balances are not configured",
-    code: "RPC_NOT_CONFIGURED"
-  });
+  const rpcUrl = process.env.SOLANA_RPC_URL?.trim();
+  if (!rpcUrl) {
+    return json(res, 503, {
+      error: "Live Solana balances are not configured",
+      code: "RPC_NOT_CONFIGURED",
+    });
+  }
 
   try {
     const parsed = new URL(rpcUrl);
     if (parsed.protocol !== "https:") throw new Error("invalid-config");
   } catch {
-    return send(res, 503, { error: "Live Solana balances are not configured", code: "RPC_INVALID_CONFIG" });
+    return json(res, 503, {
+      error: "Live Solana balances are not configured",
+      code: "RPC_INVALID_CONFIG",
+    });
   }
 
   try {
-    // SOL balance is the required call. Token-program queries are best-effort so
-    // one unsupported/limited RPC method cannot blank the whole portfolio.
-    const lamports = await rpc(rpcUrl, "getBalance", [address, { commitment: "confirmed" }]);
+    const balance = await rpc(rpcUrl, "getBalance", [address, { commitment: "confirmed" }]);
 
     const tokenResults = await Promise.allSettled([
-      rpc(rpcUrl, "getTokenAccountsByOwner", [address, { programId: TOKEN_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
-      rpc(rpcUrl, "getTokenAccountsByOwner", [address, { programId: TOKEN_2022_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
+      rpc(rpcUrl, "getTokenAccountsByOwner", [
+        address,
+        { programId: TOKEN_PROGRAM_ID },
+        { encoding: "jsonParsed", commitment: "confirmed" },
+      ]),
+      rpc(rpcUrl, "getTokenAccountsByOwner", [
+        address,
+        { programId: TOKEN_2022_PROGRAM_ID },
+        { encoding: "jsonParsed", commitment: "confirmed" },
+      ]),
     ]);
 
     const accounts = tokenResults.flatMap((result) =>
       result.status === "fulfilled" ? (result.value?.value ?? []) : []
     );
-    const tokens = accounts.map((entry) => {
-      const info = entry?.account?.data?.parsed?.info;
-      const amount = info?.tokenAmount?.uiAmountString;
-      return info?.mint && amount && amount !== "0" ? { mint: info.mint, amount } : null;
-    }).filter(Boolean);
 
-    return send(res, 200, {
-      lamports: lamports?.value ?? 0,
+    const tokens = accounts
+      .map((entry) => {
+        const info = entry?.account?.data?.parsed?.info;
+        const amount = info?.tokenAmount?.uiAmountString;
+        return info?.mint && amount && amount !== "0"
+          ? { mint: info.mint, amount }
+          : null;
+      })
+      .filter(Boolean);
+
+    return json(res, 200, {
+      lamports: Number(balance?.value ?? 0),
       tokens,
-      tokenDataComplete: tokenResults.every((result) => result.status === "fulfilled")
+      tokenDataComplete: tokenResults.every((result) => result.status === "fulfilled"),
     });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "upstream";
-    console.error("portfolio RPC failure", { reason });
-    return send(res, 502, {
+    const upstreamStatus = error && typeof error === "object" && "status" in error ? error.status : undefined;
+    console.error("portfolio RPC failure", { reason, upstreamStatus });
+
+    return json(res, 502, {
       error: "Live Solana balances are temporarily unavailable",
-      code: reason === "upstream-http" ? "RPC_HTTP_ERROR" : "RPC_RESPONSE_ERROR"
+      code: reason === "upstream-http"
+        ? "RPC_HTTP_ERROR"
+        : reason === "TimeoutError"
+          ? "RPC_TIMEOUT"
+          : "RPC_RESPONSE_ERROR",
     });
   }
 }
-
-
-export { handler as default };
