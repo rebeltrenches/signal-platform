@@ -69,6 +69,8 @@ jobs:
           pnpm exec tsx apps/api/tests/alert-repository.test.ts
       - name: TypeScript verification
         run: pnpm typecheck
+      - name: Bubble Map data tests
+        run: pnpm exec tsx apps/web/tests/bubble-map-data.test.ts
       - name: Web build regression check
         run: pnpm --filter @launchpad/web build
       - name: Wallet page regression test
