@@ -11,21 +11,18 @@
 // instruction sequence for the current fee model: mintAuthority stays
 // the connecting (launcher) wallet; transferFeeConfigAuthority and
 // withdrawWithheldAuthority are BOTH the creator wallet
-// (window.SIGNAL_PLATFORM_WALLET, injected at build time — see
-// api-config.js's platformWalletAddress export and build.tsx/Shell.tsx).
-// The launcher receives 0% of the 1% creator transfer fee on transfers; 100%
-// goes to the creator wallet. No holder-rewards pool.
+// The connected launcher is the token creator and holds both transfer-fee
+// authorities. The full 1% creator transfer fee is therefore collectible
+// by that creator wallet. No holder-rewards pool.
 //
-// Devnet is permanently excluded (docs/ROADMAP.md Stage 6) — there is no
-// devnet option anywhere in this file, intentionally. The RPC below is a
-// public Mainnet endpoint; real use should switch to a paid RPC provider
-// (Helius, Triton, QuickNode) for reliability, since public endpoints
-// rate-limit heavily.
+// Devnet is permanently excluded (docs/ROADMAP.md Stage 6). Browser RPC
+// traffic is routed through SIGNAL's server-side Mainnet proxy so the
+// configured provider URL/key is never exposed to the client.
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 import { apiUrl } from "./api-config.js";
 
-const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
 const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% — matches DEFAULT_TAX_CONFIG.totalBps in packages/types, kept in sync manually since this file can't import a TS package directly
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
@@ -89,7 +86,7 @@ function explorerLink(signature) {
 class LaunchFlow {
   constructor(rootEl) {
     this.root = rootEl;
-    this.connection = new web3.Connection(MAINNET_RPC, "confirmed");
+    this.connection = new web3.Connection(SIGNAL_SOLANA_RPC_PROXY, "confirmed");
     this.wallet = null;
     this.mintKeypair = null;
   }
@@ -147,8 +144,9 @@ this.mintKeypair = web3.Keypair.generate();
       ),
       splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_2022_PROGRAM_ID)
     );
-    const { blockhash } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.feePayer = launcherPubkey;
     tx.partialSign(this.mintKeypair);
     return { tx, mint, lamports };
@@ -161,8 +159,9 @@ this.mintKeypair = web3.Keypair.generate();
       splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_2022_PROGRAM_ID),
       splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_2022_PROGRAM_ID)
     );
-    const { blockhash } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.feePayer = launcherPubkey;
     return { tx, ata };
   }
