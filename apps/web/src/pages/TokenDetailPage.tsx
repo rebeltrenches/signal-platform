@@ -76,13 +76,13 @@ export function TokenDetailPage() {
         <div className="review-row"><span className="k">Slippage</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
         <div className="review-row"><span className="k">Minimum received</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
         <div className="review-row"><span className="k">Network fee</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Creator fee</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
+        <div className="review-row"><span className="k">Creator fee</span><span className="v">1% of SOL side — paid in SOL</span></div>
         <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} disabled title="Needs a real DEX adapter — Stage 10">
           Trading not available yet
         </button>
         <p className="hint" style={{ marginTop: 10, textTransform: 'none' }}>
           SIGNAL already has the <code>DexAdapter</code> and Raydium orchestration in <code>packages/dex</code>.
-          Trading stays disabled until the real mainnet pool reader and swap builder are wired and verified;
+          The official Raydium SDK bridge is now wired for CPMM transaction construction. Trading stays disabled until the creator-fee settlement and wallet-signing path are integration-tested;
           SIGNAL never substitutes a simulated fill.
         </p>
       </div>
