@@ -5,7 +5,7 @@
  *
  * CONFIRMED MODEL (updated — see docs/ARCHITECTURE.md for the full
  * decision history, including the earlier 100%-to-creator model this
- * superseded): 100% of the 3% creator transfer fee on transfers goes to the
+ * superseded): 100% of the 1% creator transfer fee on transfers goes to the
  * token creator (getPlatformWalletAddress(), @launchpad/config)
  * — not the token's creator, who now receives 0% of this fee. No
  * holder-rewards pool. No automatic distribution. splitCollectedFee(),
