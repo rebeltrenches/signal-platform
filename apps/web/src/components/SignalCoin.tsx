@@ -54,14 +54,18 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
           <filter id={`${uid}-soft`} x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="2.2" />
           </filter>
-          <path id={`${uid}-topArc`} d="M 105 260 A 155 155 0 0 1 415 260" />
-          <path id={`${uid}-leftArc`} d="M 72 286 A 190 190 0 0 1 150 112" />
-          <path id={`${uid}-rightArc`} d="M 370 112 A 190 190 0 0 1 448 286" />
-          <path id={`${uid}-bottomArc`} d="M 145 412 A 190 190 0 0 0 375 412" />
+          <path id={`${uid}-topArc`} d="M 122 188 A 164 164 0 0 1 398 188" />
+          <path id={`${uid}-leftArc`} d="M 100 350 A 186 186 0 0 1 108 168" />
+          <path id={`${uid}-rightArc`} d="M 412 168 A 186 186 0 0 1 420 350" />
+          <path id={`${uid}-bottomArc`} d="M 150 398 A 176 176 0 0 0 370 398" />
         </defs>
 
         <circle cx="260" cy="260" r="232" fill="#050610" stroke={`url(#${uid}-edge)`} strokeWidth="5" />
         <circle cx="260" cy="260" r="220" fill="none" stroke={`url(#${uid}-rim)`} strokeWidth="13" />
+        <g fill="#0a0b18" stroke={`url(#${uid}-rim)`} strokeWidth="1.5">
+          <path d="M112 120l36-25 18 28-36 25z" /><path d="M372 95l36 25-18 28-36-25z" />
+          <path d="M112 400l36 25 18-28-36-25z" /><path d="M372 425l36-25-18-28-36 25z" />
+        </g>
         <circle cx="260" cy="260" r="202" fill="#080914" stroke="#24254d" strokeWidth="2" />
         <circle cx="260" cy="260" r="188" fill={`url(#${uid}-face)`} stroke="#8a78ff" strokeWidth="2" />
 
@@ -80,7 +84,7 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
         </g>
 
         <circle cx="260" cy="260" r="116" fill="none" stroke="#7650ff" strokeOpacity=".08" strokeWidth="14" />
-        <g filter={`url(#${uid}-glow)`}>
+        <g>
           <path d="M202 211 A72 72 0 0 1 318 211" stroke={`url(#${uid}-mark)`} strokeWidth="12" strokeLinecap="round" fill="none" />
           <path d="M222 233 A45 45 0 0 1 298 233" stroke={`url(#${uid}-mark)`} strokeWidth="12" strokeLinecap="round" fill="none" />
           <path d="M185 341 L260 217 L335 341" stroke={`url(#${uid}-mark)`} strokeWidth="13" strokeLinecap="round" strokeLinejoin="round" fill="none" />
@@ -90,17 +94,16 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
         <text x="260" y="362" textAnchor="middle" fill="#ffffff" fontSize="34" fontWeight="800" letterSpacing="5">SIGNAL</text>
         <text x="260" y="388" textAnchor="middle" fill="#f0ecff" fontSize="10.5" fontWeight="600" letterSpacing="3.4">THE LAUNCHPAD</text>
         <text x="260" y="406" textAnchor="middle" fill="#f0ecff" fontSize="10" fontWeight="600" letterSpacing="2.8">FOR WHAT'S NEXT</text>
-        <g fill="#bdafff" fontSize="9.4" fontWeight="700" letterSpacing="1">
-          <text x="190" y="433" textAnchor="middle">REAL PROJECTS</text>
-          <text x="260" y="433" textAnchor="middle">REAL DATA</text>
-          <text x="334" y="433" textAnchor="middle">REAL COMMUNITY</text>
+        <g fill="#bdafff" fontSize="8.2" fontWeight="700" letterSpacing=".7">
+          <text x="188" y="432" textAnchor="middle">REAL</text><text x="188" y="443" textAnchor="middle">PROJECTS</text>
+          <text x="260" y="432" textAnchor="middle">REAL</text><text x="260" y="443" textAnchor="middle">DATA</text>
+          <text x="334" y="432" textAnchor="middle">REAL</text><text x="334" y="443" textAnchor="middle">COMMUNITY</text>
         </g>
-        <g stroke="#6758aa" strokeWidth="1">
-          <path d="M224 421v18" /><path d="M297 421v18" />
-        </g>
-        <text fill="#f7f4ff" fontSize="12" fontWeight="700" letterSpacing="4">
-          <textPath href={`#${uid}-topArc`} startOffset="50%" textAnchor="middle">SIGNAL</textPath>
-        </text>
+        <g stroke="#6758aa" strokeWidth="1"><path d="M224 424v20" /><path d="M297 424v20" /></g>
+        <text fill="#f7f4ff" fontSize="15" fontWeight="700" letterSpacing="6"><textPath href={`#${uid}-topArc`} startOffset="50%" textAnchor="middle">S I G N A L</textPath></text>
+        <text fill="#e7e2ff" fontSize="9.2" fontWeight="700" letterSpacing="1.4"><textPath href={`#${uid}-leftArc`} startOffset="50%" textAnchor="middle">LAUNCH · BUILD · TRADE</textPath></text>
+        <text fill="#e7e2ff" fontSize="8.8" fontWeight="700" letterSpacing="1.1"><textPath href={`#${uid}-rightArc`} startOffset="50%" textAnchor="middle">MULTI-CHAIN · COMMUNITY · CULTURE</textPath></text>
+        <text fill="#f7f4ff" fontSize="13" fontWeight="700" letterSpacing="4"><textPath href={`#${uid}-bottomArc`} startOffset="50%" textAnchor="middle">$SIGNAL</textPath></text>
       </svg>
     </div>
   );
