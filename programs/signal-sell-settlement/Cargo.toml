@@ -1,0 +1,12 @@
+[package]
+name = "signal-sell-settlement"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+solana-program = "2"
+spl-token = { version = "6", features = ["no-entrypoint"] }
