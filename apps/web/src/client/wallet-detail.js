@@ -189,6 +189,7 @@
             reviewRow('Evidence source', escapeHtml(edge.evidenceSource)),
             reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(edge.observedTxSignature)}</span>`)
           ].join('')).join('') : reviewRow('Evidence', 'Root wallet for this trace')}
+          ${address !== trace.root ? `<div style="margin-top:12px"><a class="btn btn-ghost" href="/wallet/${encodeURIComponent(trace.chain.toLowerCase())}/${encodeURIComponent(address)}">Open wallet intelligence</a></div>` : ''}
           <div class="how-box" style="margin-top:12px">Observed transaction evidence only. This does not claim common ownership or identity.</div>
         `;
         host.appendChild(details);
