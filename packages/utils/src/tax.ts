@@ -3,15 +3,9 @@
  * launch-config form must go through — no other file should compute a
  * fee split by hand.
  *
- * CONFIRMED MODEL (updated — see docs/ARCHITECTURE.md for the full
- * decision history, including the earlier 100%-to-creator model this
- * superseded): 100% of the 1% creator transfer fee on transfers goes to the
- * token creator (getPlatformWalletAddress(), @launchpad/config)
- * — not the token's creator, who now receives 0% of this fee. No
- * holder-rewards pool. No automatic distribution. splitCollectedFee(),
- * which existed to divide an already-collected amount between a
- * creator wallet and a rewards pool, does not exist — there is nothing
- * to split; the entire fee goes to the one creator wallet.
+ * CONFIRMED MODEL: 100% of the 1% transfer fee on transfers goes to the
+ * token creator. No holder-rewards pool and no platform share. There is
+ * nothing to split after collection; the entire fee belongs to the creator.
  *
  * This module computes the TRANSFER fee only. The separate, one-time
  * Launch Fee (charged at token creation, calculated from the real
@@ -55,12 +49,7 @@ export function validateTaxConfig(config: TaxConfig): void {
 export interface TaxSplit {
   grossAmount: bigint;
   totalTax: bigint;
-  /** 100% of totalTax — the token creator, per the confirmed
-   *  model. Named `creatorTax` (previously `creatorTax`, when the
-   *  entire fee went to the token's creator instead) so call sites and
-   *  UI code can label this specifically as "the Signal Fee, which
-   *  goes entirely to the token creator" without implying the
-   *  creator receives any of it. */
+  /** 100% of totalTax — the token creator, per the confirmed model. */
   creatorTax: bigint;
   netAmount: bigint;
 }
