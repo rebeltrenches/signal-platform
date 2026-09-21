@@ -44,9 +44,10 @@ pub fn process_instruction(
     let mint = next_account_info(&mut it)?;
     let token_program = next_account_info(&mut it)?;
 
-    if data != [1] {
+    if data.len() != 33 || data[0] != 1 {
         return Err(ProgramError::InvalidInstructionData);
     }
+    let trade_id = &data[1..33];
     if !trader_wallet.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
@@ -55,7 +56,10 @@ pub fn process_instruction(
         return Err(ProgramError::IncorrectProgramId);
     }
 
-    let (expected_authority, bump) = Pubkey::find_program_address(&[b"sell-settlement"], program_id);
+    let (expected_authority, bump) = Pubkey::find_program_address(
+        &[b"sell-settlement", trader_wallet.key.as_ref(), creator_wallet.key.as_ref(), trade_id],
+        program_id,
+    );
     if authority.key != &expected_authority {
         return Err(ProgramError::InvalidSeeds);
     }
@@ -93,7 +97,10 @@ pub fn process_instruction(
     }
     let trader_amount = gross.checked_sub(creator_fee).ok_or(ProgramError::ArithmeticOverflow)?;
 
-    let seeds: &[&[u8]] = &[b"sell-settlement", &[bump]];
+    let bump_seed = [bump];
+    let seeds: &[&[u8]] = &[
+        b"sell-settlement", trader_wallet.key.as_ref(), creator_wallet.key.as_ref(), trade_id, &bump_seed,
+    ];
     invoke_signed(
         &transfer_checked(
             token_program.key, settlement.key, mint.key, creator.key,
