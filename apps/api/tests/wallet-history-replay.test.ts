@@ -24,6 +24,7 @@ function run() {
   assert.equal(replay.chain, 'SOLANA');
   assert.equal(replay.events.length, 2);
   assert.deepEqual(replay.events.map((event) => event.depth), [1, 2]);
+  assert.deepEqual(replay.events.map((event) => event.sequence), [1, 2]);
   assert.equal(replay.events[0].observedTxSignature, 'sig-1');
   assert.equal(replay.events[1].observedTxSignature, 'sig-2');
   assert.ok(replay.events.every((event) => event.evidenceSource === 'BLOCKCHAIN_DERIVED'));
