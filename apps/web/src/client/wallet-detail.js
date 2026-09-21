@@ -237,9 +237,39 @@
         <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Wallet History Replay</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">Evidence trace · ${escapeHtml(replay.chain)}</p></div>
         <span class="badge">${replay.events.length} evidence steps</span>
       </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <button type="button" class="btn btn-ghost" id="replay-prev" disabled>Previous evidence</button>
+        <span id="replay-position" class="badge" aria-live="polite">Step 1 of ${replay.events.length}</span>
+        <button type="button" class="btn btn-ghost" id="replay-next" ${replay.events.length === 1 ? 'disabled' : ''}>Next evidence</button>
+      </div>
       ${events}
       <div class="how-box" style="margin-top:12px">These steps replay the current evidence trace, not verified transaction time. Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
     `);
+
+    let activeReplayStep = 1;
+    const replayCards = Array.from(host.querySelectorAll('[data-replay-step]'));
+    const previousButton = document.getElementById('replay-prev');
+    const nextButton = document.getElementById('replay-next');
+    const positionLabel = document.getElementById('replay-position');
+
+    function selectReplayStep(step) {
+      activeReplayStep = Math.max(1, Math.min(replayCards.length, step));
+      replayCards.forEach((card, index) => {
+        const selected = index + 1 === activeReplayStep;
+        card.setAttribute('aria-current', selected ? 'step' : 'false');
+        card.style.opacity = selected ? '1' : '.62';
+        card.style.outline = selected ? '2px solid var(--brand)' : '';
+        card.style.outlineOffset = selected ? '2px' : '';
+      });
+      if (positionLabel) positionLabel.textContent = `Step ${activeReplayStep} of ${replayCards.length}`;
+      if (previousButton) previousButton.disabled = activeReplayStep === 1;
+      if (nextButton) nextButton.disabled = activeReplayStep === replayCards.length;
+      replayCards[activeReplayStep - 1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    previousButton?.addEventListener('click', () => selectReplayStep(activeReplayStep - 1));
+    nextButton?.addEventListener('click', () => selectReplayStep(activeReplayStep + 1));
+    selectReplayStep(1);
 
     host.querySelectorAll('[data-replay-toggle]').forEach((button) => {
       button.addEventListener('click', () => {
