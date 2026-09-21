@@ -54,6 +54,10 @@ pub fn process_instruction(
         return Err(ProgramError::InvalidAccountData);
     }
 
+    if settlement.owner != token_program.key || creator.owner != token_program.key || trader.owner != token_program.key {
+        return Err(ProgramError::IllegalOwner);
+    }
+
     let settlement_state = TokenAccount::unpack(&settlement.try_borrow_data()?)?;
     if settlement_state.owner != expected_authority || settlement_state.mint != *mint.key {
         return Err(ProgramError::InvalidAccountData);
