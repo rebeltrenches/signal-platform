@@ -1,4 +1,5 @@
 import { traceFundingAncestry } from './FundingAncestry.js';
+import { buildSignalTrace } from './SignalTrace.js';
 import type { WalletIntelligenceRepository } from './WalletIntelligenceRepository.js';
 import { PrismaWalletIntelligenceRepository, type WalletIntelligencePrismaLikeClient } from './PrismaWalletIntelligenceRepository.js';
 import { getSharedPrismaClient } from '../db/prismaClient.js';
@@ -29,4 +30,10 @@ export async function getFundingAncestry(chain: string, address: string, maxDept
   const reader = repository as WalletIntelligenceRepository & { incomingFunding?: (chain: string, address: string) => Promise<any[]> };
   if (!reader.incomingFunding) throw new Error('Funding ancestry reader is not available.');
   return traceFundingAncestry({ incomingFunding: reader.incomingFunding.bind(reader) }, chain, address, maxDepth);
+}
+
+export async function getSignalTrace(chain: string, address: string, maxDepth = 3) {
+  const ancestry = await getFundingAncestry(chain, address, maxDepth);
+  if (!ancestry) return null;
+  return buildSignalTrace(chain, ancestry);
 }
