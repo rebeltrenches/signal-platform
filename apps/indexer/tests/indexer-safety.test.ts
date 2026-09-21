@@ -60,6 +60,13 @@ async function replayIsIdempotent() {
   assert.equal(metadata?.holderCount, 2);
 }
 
-await failureIsolation();
-await replayIsIdempotent();
-console.log('indexer-safety: ok');
+async function main() {
+  await failureIsolation();
+  await replayIsIdempotent();
+  console.log('indexer-safety: ok');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
