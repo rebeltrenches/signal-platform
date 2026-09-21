@@ -59,7 +59,7 @@ jobs:
 
       - name: Sync schema to isolated PostgreSQL
         working-directory: packages/database
-        run: pnpm exec prisma7 db push --skip-generate
+        run: pnpm exec prisma7 db push
 
       - name: Stage 11 indexer tests
         run: pnpm --filter @launchpad/indexer test
