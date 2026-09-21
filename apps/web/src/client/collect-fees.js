@@ -8,14 +8,11 @@
 // mirrors SolanaAdapter.buildCreateTokenTransaction. Never executed
 // against a real network from this sandbox — no internet access here.
 //
-// Model, updated: 1% creator transfer fee on transfers, 100% to the Signal
-// creator wallet (window.SIGNAL_PLATFORM_WALLET) — not the creator,
-// who now receives none of it. The ONLY wallet that can ever receive
-// anything here is the token creator itself; this file
-// enforces that the connected wallet actually IS the creator wallet
-// before building or signing anything (enforced twice — once here,
-// once in dashboard.js, which decides whether the button exists at
-// all).
+// Model: 1% creator transfer fee on transfers, with the full withheld fee
+// collectible by the token creator. The launch flow assigns the creator
+// wallet as withdrawWithheldAuthority. This file enforces that the connected
+// wallet matches that recorded creator address before building or signing
+// anything (enforced twice — once here, once in dashboard.js).
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 
@@ -167,9 +164,8 @@ class CollectFeesFlow {
       // independent check right before signing — if the connected
       // wallet has changed since the button was rendered, this catches
       // it rather than trusting stale DOM state. Checked against the
-      // PLATFORM wallet, not any creator record — only the platform
-      // wallet holds withdrawWithheldAuthority under the current fee
-      // model, so it's the only wallet this can ever be for.
+      // recorded creator address. The creator wallet holds
+      // withdrawWithheldAuthority under the current fee model.
       if (!creatorAddress || connectedPubkey.toBase58() !== creatorAddress) {
         btn.textContent = originalLabel;
         btn.disabled = false;
