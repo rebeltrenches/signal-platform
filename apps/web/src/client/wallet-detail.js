@@ -168,6 +168,32 @@
         </div>
         <div class="how-box" style="margin-top:12px">Each line represents an observed blockchain transaction path. Bubble size does not represent holdings yet.${trace.truncated ? ' This trace was truncated at its evidence limit.' : ''}</div>
       </div>`);
+
+    host.querySelectorAll('[data-wallet-address]').forEach((bubble) => {
+      bubble.addEventListener('click', () => {
+        const address = bubble.getAttribute('data-wallet-address');
+        if (!address) return;
+        const evidence = trace.edges.filter((edge) => edge.from === address || edge.to === address);
+        const existing = document.getElementById('wallet-bubble-evidence');
+        if (existing) existing.remove();
+
+        const details = document.createElement('div');
+        details.id = 'wallet-bubble-evidence';
+        details.className = 'card';
+        details.style.marginTop = '12px';
+        details.innerHTML = `
+          <h3 style="margin-top:0;font:var(--text-h2);font-size:1rem">Wallet evidence</h3>
+          ${reviewRow('Wallet', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(address)}</span>`)}
+          ${evidence.length ? evidence.map((edge) => [
+            reviewRow('Relationship', 'funded'),
+            reviewRow('Evidence source', escapeHtml(edge.evidenceSource)),
+            reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(edge.observedTxSignature)}</span>`)
+          ].join('')).join('') : reviewRow('Evidence', 'Root wallet for this trace')}
+          <div class="how-box" style="margin-top:12px">Observed transaction evidence only. This does not claim common ownership or identity.</div>
+        `;
+        host.appendChild(details);
+      });
+    });
   }
 
   (async function loadSignalTrace() {
