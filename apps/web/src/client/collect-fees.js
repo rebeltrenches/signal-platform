@@ -88,14 +88,15 @@ class CollectFeesFlow {
     }
 
     const signatures = [];
-    const { blockhash } = await this.connection.getLatestBlockhash();
 
     for (let i = 0; i < accountsWithFees.length; i += HARVEST_BATCH_SIZE) {
       const batch = accountsWithFees.slice(i, i + HARVEST_BATCH_SIZE).map((a) => a.pubkey);
       const harvestTx = new web3.Transaction().add(
         splToken.createHarvestWithheldTokensToMintInstruction(mint, batch, splToken.TOKEN_2022_PROGRAM_ID)
       );
-      harvestTx.recentBlockhash = blockhash;
+      const harvestBlockhash = await this.connection.getLatestBlockhash();
+      harvestTx.recentBlockhash = harvestBlockhash.blockhash;
+      harvestTx.lastValidBlockHeight = harvestBlockhash.lastValidBlockHeight;
       harvestTx.feePayer = creatorWallet;
       const sig = await this.signSubmitConfirm(harvestTx, (s) => onStepState("harvest", s));
       signatures.push(sig);
@@ -118,7 +119,9 @@ class CollectFeesFlow {
         splToken.TOKEN_2022_PROGRAM_ID
       )
     );
-    withdrawTx.recentBlockhash = blockhash;
+    const withdrawBlockhash = await this.connection.getLatestBlockhash();
+    withdrawTx.recentBlockhash = withdrawBlockhash.blockhash;
+    withdrawTx.lastValidBlockHeight = withdrawBlockhash.lastValidBlockHeight;
     withdrawTx.feePayer = creatorWallet;
     const withdrawSig = await this.signSubmitConfirm(withdrawTx, (s) => onStepState("withdraw", s));
     signatures.push(withdrawSig);
