@@ -1,4 +1,4 @@
-import { SystemProgram, Transaction, TransactionInstruction, VersionedTransaction, PublicKey } from '@solana/web3.js';
+import { AddressLookupTableAccount, PublicKey, SystemProgram, Transaction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { prepareSolBuySettlement } from './amm-math.js';
 
 export interface SolBuyAssembly {
@@ -22,6 +22,7 @@ export function assembleSolBuyTransaction(params: {
   creatorAddress: string;
   grossSolLamports: bigint;
   raydiumTransaction: Transaction | VersionedTransaction;
+  addressLookupTableAccounts?: AddressLookupTableAccount[];
 }): SolBuyAssembly {
   const buyer = new PublicKey(params.buyerAddress);
   const creator = new PublicKey(params.creatorAddress);
@@ -50,11 +51,23 @@ export function assembleSolBuyTransaction(params: {
     return { ...settlement, transaction: tx };
   }
 
-  // A v0 Raydium transaction cannot be safely spliced without its
-  // address-lookup-table accounts. Fail closed until the SDK bridge
-  // returns the lookup tables required to recompile the message.
   if (params.raydiumTransaction instanceof VersionedTransaction) {
-    throw new Error('Versioned Raydium BUY requires lookup-table-aware recompilation before creator fee insertion.');
+    const lookups = params.addressLookupTableAccounts ?? [];
+    const requiredLookups = params.raydiumTransaction.message.addressTableLookups.length;
+    if (lookups.length !== requiredLookups) {
+      throw new Error('Versioned Raydium BUY is missing required address lookup table accounts.');
+    }
+
+    const decoded = TransactionMessage.decompile(params.raydiumTransaction.message, {
+      addressLookupTableAccounts: lookups,
+    });
+    const message = new TransactionMessage({
+      payerKey: buyer,
+      recentBlockhash: decoded.recentBlockhash,
+      instructions: [feeInstruction, ...decoded.instructions],
+    }).compileToV0Message(lookups);
+
+    return { ...settlement, transaction: new VersionedTransaction(message) };
   }
 
   throw new TypeError('Unsupported Raydium transaction type.');
