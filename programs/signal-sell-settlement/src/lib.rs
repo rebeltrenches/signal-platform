@@ -40,7 +40,7 @@ pub fn process_instruction(
     let mint = next_account_info(&mut it)?;
     let token_program = next_account_info(&mut it)?;
 
-    if token_program.key != &spl_token::id() {
+    if token_program.key != &spl_token::id() || mint.key != &spl_token::native_mint::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
 
