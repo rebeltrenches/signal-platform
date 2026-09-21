@@ -14,8 +14,11 @@ export interface SolSellSettlementPlan {
  * The 1% creator fee must be calculated from the ACTUAL SOL/WSOL output
  * produced by Raydium. A pre-swap SystemProgram.transfer would charge an
  * estimate and could diverge from execution. The final implementation
- * therefore needs an atomic on-chain settlement instruction/router that
- * receives the swap output and splits it 1%/99% in the same transaction.
+ * therefore needs an atomic on-chain settlement instruction/router. Raydium CPMM
+ * pays swap output to the user output token account, so merely appending a
+ * client-side SOL transfer cannot prove the transfer is based on actual output.
+ * SIGNAL must route the WSOL output through a program-controlled settlement
+ * account, verify the received delta on-chain, then split it 1%/99% atomically.
  *
  * Until that instruction exists and is verified, SELL execution must
  * remain disabled rather than silently settling from a quote.
@@ -43,6 +46,6 @@ export function prepareAtomicSolSellPlan(params: {
 
 export function assertAtomicSolSellExecutionAvailable(): never {
   throw new Error(
-    'SELL execution is locked until SIGNAL has a verified atomic on-chain SOL-output splitter.'
+    'SELL execution is locked until SIGNAL has a verified on-chain WSOL-output splitter that settles from the actual received amount.'
   );
 }
