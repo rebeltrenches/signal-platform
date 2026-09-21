@@ -34,6 +34,8 @@ jobs:
         run: pnpm exec tsx packages/dex/tests/sol-sell-settlement.test.ts
       - name: SELL instruction binding tests
         run: pnpm exec tsx packages/dex/tests/sol-sell-instruction.test.ts
+      - name: Atomic SELL transaction tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-transaction.test.ts
       - name: Compile on-chain SELL settlement program
         working-directory: programs/signal-sell-settlement
         run: cargo check
