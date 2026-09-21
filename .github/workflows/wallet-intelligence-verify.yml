@@ -1,0 +1,68 @@
+name: Wallet Intelligence Stage 1 verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/database/**'
+      - '.github/workflows/wallet-intelligence-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: signal_test
+          POSTGRES_PASSWORD: signal_test
+          POSTGRES_DB: signal_wallet_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signal_test -d signal_wallet_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://signal_test:signal_test@localhost:5432/signal_wallet_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --global pnpm@9.15.9
+      - run: pnpm install --no-frozen-lockfile
+      - name: Generate Prisma client
+        working-directory: packages/database
+        run: pnpm generate
+      - name: Sync schema to isolated PostgreSQL
+        working-directory: packages/database
+        run: pnpm exec prisma7 db push
+      - name: Wallet Intelligence repository tests
+        run: pnpm exec tsx apps/api/tests/wallet-intelligence-repository.test.ts
+      - name: Existing API regression tests
+        run: |
+          pnpm exec tsx apps/api/tests/token-repository.test.ts
+          pnpm exec tsx apps/api/tests/watchlist-repository.test.ts
+          pnpm exec tsx apps/api/tests/alert-repository.test.ts
+      - name: TypeScript verification
+        run: pnpm typecheck
+      - name: Web build regression check
+        run: pnpm --filter @launchpad/web build
+      - name: Wallet page regression test
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+          python apps/web/tests/wallet-detail-tokens.test.py
+      - name: Safety boundary
+        run: |
+          echo "Wallet Intelligence verification completed against isolated CI resources."
+          echo "No production database, wallet key, signer, transaction submission, or deployment is available to this job."

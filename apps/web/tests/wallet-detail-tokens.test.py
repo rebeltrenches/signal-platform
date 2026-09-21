@@ -114,18 +114,21 @@ def run():
             page.click('[data-tab="Holdings"]')
             page.wait_for_timeout(200)
             holdings_text = page.inner_text('[data-panel="Holdings"]')
-            check("Holdings tab is untouched — still genuinely blocked on Stage 11", "Stage 11" in holdings_text, holdings_text)
+            check("Holdings shows the honest no-indexed-data state when Wallet Intelligence has no wallet record", "No indexed holdings yet" in holdings_text and "No holder snapshots are currently available" in holdings_text, holdings_text)
 
             page.click('[data-tab="Trades"]')
             page.wait_for_timeout(200)
             trades_text = page.inner_text('[data-panel="Trades"]')
-            check("Trades tab is untouched — still genuinely blocked on Stage 11", "Stage 11" in trades_text, trades_text)
+            check("Trades shows the honest no-indexed-data state when Wallet Intelligence has no wallet record", "No indexed activity yet" in trades_text and "No wallet activity has been indexed" in trades_text, trades_text)
 
             console_errors = []
             page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
             page.reload(wait_until="networkidle")
             page.wait_for_timeout(400)
-            real_errors = [e for e in console_errors if 'esm.sh' not in e and 'ERR_FAILED' not in e]
+            # The Wallet Intelligence endpoint intentionally returns 404 when this
+            # in-memory test API has no persisted wallet record. That is an
+            # expected honest state, not a frontend failure.
+            real_errors = [e for e in console_errors if 'esm.sh' not in e and 'ERR_FAILED' not in e and '404 (Not Found)' not in e]
             check(f"zero unexpected console errors (saw {len(console_errors)} total, {len(real_errors)} unexplained)", len(real_errors) == 0, str(real_errors))
 
             browser.close()

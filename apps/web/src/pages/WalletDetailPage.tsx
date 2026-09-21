@@ -16,8 +16,8 @@ const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport'];
 export function WalletDetailPage() {
   return (
     <div className="container" style={{ paddingBottom: 80 }}>
-      <div className="badge badge-placeholder" style={{ marginTop: 24 }}>
-        Layout template — real wallet activity needs Stage 11 + 14
+      <div className="badge" id="wallet-intelligence-status" style={{ marginTop: 24 }}>
+        Wallet Intelligence — loading indexed evidence
       </div>
       <div className="page-head">
         <div>
@@ -33,10 +33,12 @@ export function WalletDetailPage() {
 
       <div id="wallet-panels" style={{ marginTop: 24 }}>
         <div data-panel="Holdings">
-          <EmptyState title="No indexed holdings yet" body="This page reads from the Holder table, populated by the indexer — Stage 11." />
+          <div id="wallet-holdings-list"></div>
+          <div id="wallet-holdings-empty"><EmptyState title="No indexed holdings yet" body="No holder snapshots are currently available for this wallet." /></div>
         </div>
         <div data-panel="Trades" hidden>
-          <EmptyState title="No indexed trades yet" body="Populated from WalletActivity — Stage 11." />
+          <div id="wallet-activity-list"></div>
+          <div id="wallet-activity-empty"><EmptyState title="No indexed activity yet" body="No wallet activity has been indexed for this address." /></div>
         </div>
         <div data-panel="Created tokens" hidden>
           {/* Real list renders here (wallet-detail.js) — the empty
@@ -55,10 +57,11 @@ export function WalletDetailPage() {
             <div id="wallet-tokens-launched-row">
               <SourcedRow label="Tokens launched" data={sourcedUnavailable('blockchain-derived')} format={(v: number) => String(v)} />
             </div>
-            <SourcedRow label="First observed activity" data={sourcedUnavailable('blockchain-derived')} format={(v: string) => v} />
+            <div id="wallet-first-observed-row"><SourcedRow label="First observed activity" data={sourcedUnavailable('blockchain-derived')} format={(v: string) => v} /></div>
           </div>
           <h3 style={{ font: 'var(--text-h2)', fontSize: '1rem', margin: '20px 0 10px 0' }}>Wallet relationships</h3>
-          <div className="empty-state">
+          <div id="wallet-relationships-list"></div>
+          <div className="empty-state" id="wallet-relationships-empty">
             <h3>No observed relationships yet</h3>
             <p>Real relationships — funding, shared liquidity, co-signed transactions — populate from indexed on-chain history, each with its own evidence and confidence level. Never a claim that two wallets belong to the same person without that evidence.</p>
           </div>
