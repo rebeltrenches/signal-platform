@@ -60,6 +60,8 @@ jobs:
         run: pnpm exec tsx apps/api/tests/signal-trace-route.test.ts
       - name: Stage 3 Wallet History Replay tests
         run: pnpm exec tsx apps/api/tests/wallet-history-replay.test.ts
+      - name: Stage 3 Wallet History Replay API tests
+        run: pnpm exec tsx apps/api/tests/wallet-history-replay-route.test.ts
       - name: Stage 2 Solana relationship detector tests
         run: pnpm exec tsx apps/indexer/tests/solana-funding-relationship-worker.test.ts
       - name: Existing indexer regression tests
