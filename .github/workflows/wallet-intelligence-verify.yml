@@ -56,6 +56,8 @@ jobs:
         run: pnpm exec tsx apps/api/tests/funding-ancestry-route.test.ts
       - name: Stage 3 Signal Trace tests
         run: pnpm exec tsx apps/api/tests/signal-trace.test.ts
+      - name: Stage 3 Signal Trace API tests
+        run: pnpm exec tsx apps/api/tests/signal-trace-route.test.ts
       - name: Stage 2 Solana relationship detector tests
         run: pnpm exec tsx apps/indexer/tests/solana-funding-relationship-worker.test.ts
       - name: Existing indexer regression tests
