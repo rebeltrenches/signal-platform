@@ -165,20 +165,27 @@ export class SolanaAdapter implements BlockchainAdapter {
       const mintPubkey = new PublicKey(tokenAddress);
       const programId = await this.getMintProgramId(mintPubkey);
       const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
-      const accounts = await this.connection.getProgramAccounts(programId, {
-        filters: [{ memcmp: { offset: 0, bytes: tokenAddress } }],
-      });
+      // Ask the RPC for only the mint's largest token accounts instead of
+      // scanning every account owned by the token program. Public Solana RPC
+      // endpoints may reject/limit the broad getProgramAccounts query.
+      const largest = await this.connection.getTokenLargestAccounts(mintPubkey, 'confirmed');
+      const selected = largest.value.slice(0, limit);
+      const accountInfos = await this.connection.getMultipleAccountsInfo(
+        selected.map((entry) => entry.address),
+        'confirmed'
+      );
       const totalSupply = mint.supply;
-      const holders = accounts
-        .map(({ pubkey, account }) => unpackAccount(pubkey, account, programId))
-        .filter((acc) => acc.amount > 0n)
-        .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0))
-        .slice(0, limit)
-        .map((acc) => ({
-          address: acc.owner.toBase58(),
-          balance: acc.amount,
-          percentOfSupply: totalSupply > 0n ? Number((acc.amount * 10000n) / totalSupply) / 100 : 0,
-        }));
+      const holders = selected.flatMap((entry, index) => {
+        const account = accountInfos[index];
+        if (!account) return [];
+        const unpacked = unpackAccount(entry.address, account, programId);
+        if (unpacked.amount <= 0n) return [];
+        return [{
+          address: unpacked.owner.toBase58(),
+          balance: unpacked.amount,
+          percentOfSupply: totalSupply > 0n ? Number((unpacked.amount * 10000n) / totalSupply) / 100 : 0,
+        }];
+      });
       return holders;
     } catch (error) {
       // An empty array is a valid holder snapshot, so it must never also
