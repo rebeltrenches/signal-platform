@@ -5,54 +5,55 @@ use solana_program::{
     program::invoke_signed,
     program_error::ProgramError,
     pubkey::Pubkey,
+    system_instruction,
+    system_program,
 };
-use spl_token::{instruction::transfer_checked, state::{Account as TokenAccount, Mint}};
 use solana_program::program_pack::Pack;
+use spl_token::{instruction::close_account, state::{Account as TokenAccount, Mint}};
 
 entrypoint!(process_instruction);
 
 const CREATOR_FEE_BPS: u64 = 100;
 const BPS_DENOMINATOR: u64 = 10_000;
+const SETTLE_SELL: u8 = 1;
 
-/// Settlement accounts:
-/// 0. settlement authority PDA
-/// 1. program-controlled WSOL token account
-/// 2. creator WSOL token account
-/// 3. trader WSOL token account
-/// 4. creator wallet
-/// 5. trader wallet (signer)
-/// 6. WSOL mint
-/// 7. SPL Token program
+/// Accounts:
+/// 0 authority PDA (writable; receives unwrapped SOL temporarily)
+/// 1 trade-specific WSOL settlement account (writable)
+/// 2 creator wallet (writable)
+/// 3 trader wallet (signer, writable)
+/// 4 canonical WSOL mint
+/// 5 SPL Token program
+/// 6 System program
 ///
-/// This first implementation splits the WSOL present in the settlement account.
-/// It MUST NOT be enabled for production until transaction orchestration proves
-/// the account starts empty for each trade (or a baseline/delta state is added).
-/// Otherwise a pre-existing balance could be included in the split. The authority
-/// is a PDA; no private platform signing key is used.
-pub fn process_instruction(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
-    data: &[u8],
-) -> ProgramResult {
+/// The client must create the trade-specific settlement ATA with a NON-idempotent
+/// create instruction in the same atomic transaction before the Raydium swap.
+/// That makes an already-existing/pre-funded settlement account fail the transaction.
+/// Raydium then sends WSOL to it and this instruction closes/unwraps it and splits
+/// only its native WSOL amount: 1% creator, 99% trader. Rent reclaimed by closing
+/// the temporary token account is returned to the trader.
+pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
+    if data.len() != 33 || data[0] != SETTLE_SELL {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    let trade_id = &data[1..33];
+
     let mut it = accounts.iter();
     let authority = next_account_info(&mut it)?;
     let settlement = next_account_info(&mut it)?;
-    let creator = next_account_info(&mut it)?;
-    let trader = next_account_info(&mut it)?;
     let creator_wallet = next_account_info(&mut it)?;
     let trader_wallet = next_account_info(&mut it)?;
     let mint = next_account_info(&mut it)?;
     let token_program = next_account_info(&mut it)?;
+    let system_program_info = next_account_info(&mut it)?;
 
-    if data.len() != 33 || data[0] != 1 {
-        return Err(ProgramError::InvalidInstructionData);
-    }
-    let trade_id = &data[1..33];
     if !trader_wallet.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
-
     if token_program.key != &spl_token::id() || mint.key != &spl_token::native_mint::id() {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+    if system_program_info.key != &system_program::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
 
@@ -63,25 +64,22 @@ pub fn process_instruction(
     if authority.key != &expected_authority {
         return Err(ProgramError::InvalidSeeds);
     }
+    if authority.owner != &system_program::id() || !authority.data_is_empty() {
+        return Err(ProgramError::IllegalOwner);
+    }
+    if settlement.owner != token_program.key {
+        return Err(ProgramError::IllegalOwner);
+    }
 
     let mint_state = Mint::unpack(&mint.try_borrow_data()?)?;
     if mint_state.decimals != 9 {
         return Err(ProgramError::InvalidAccountData);
     }
-
-    if settlement.owner != token_program.key || creator.owner != token_program.key || trader.owner != token_program.key {
-        return Err(ProgramError::IllegalOwner);
-    }
-
     let settlement_state = TokenAccount::unpack(&settlement.try_borrow_data()?)?;
     if settlement_state.owner != expected_authority || settlement_state.mint != *mint.key {
         return Err(ProgramError::InvalidAccountData);
     }
-
-    let creator_state = TokenAccount::unpack(&creator.try_borrow_data()?)?;
-    let trader_state = TokenAccount::unpack(&trader.try_borrow_data()?)?;
-    if creator_state.mint != *mint.key || trader_state.mint != *mint.key ||
-       creator_state.owner != *creator_wallet.key || trader_state.owner != *trader_wallet.key {
+    if settlement_state.is_native.is_none() {
         return Err(ProgramError::InvalidAccountData);
     }
 
@@ -101,22 +99,36 @@ pub fn process_instruction(
     let seeds: &[&[u8]] = &[
         b"sell-settlement", trader_wallet.key.as_ref(), creator_wallet.key.as_ref(), trade_id, &bump_seed,
     ];
+
+    // Closing a native WSOL account unwraps its SOL and returns all lamports
+    // (WSOL backing + rent) to the authority PDA.
     invoke_signed(
-        &transfer_checked(
-            token_program.key, settlement.key, mint.key, creator.key,
-            authority.key, &[], creator_fee, mint_state.decimals,
-        )?,
-        &[settlement.clone(), mint.clone(), creator.clone(), authority.clone(), token_program.clone()],
+        &close_account(token_program.key, settlement.key, authority.key, authority.key, &[])?,
+        &[settlement.clone(), authority.clone(), authority.clone(), token_program.clone()],
+        &[seeds],
+    )?;
+
+    invoke_signed(
+        &system_instruction::transfer(authority.key, creator_wallet.key, creator_fee),
+        &[authority.clone(), creator_wallet.clone(), system_program_info.clone()],
         &[seeds],
     )?;
     invoke_signed(
-        &transfer_checked(
-            token_program.key, settlement.key, mint.key, trader.key,
-            authority.key, &[], trader_amount, mint_state.decimals,
-        )?,
-        &[settlement.clone(), mint.clone(), trader.clone(), authority.clone(), token_program.clone()],
+        &system_instruction::transfer(authority.key, trader_wallet.key, trader_amount),
+        &[authority.clone(), trader_wallet.clone(), system_program_info.clone()],
         &[seeds],
     )?;
+
+    // Return the temporary token-account rent (and only any harmless donated
+    // lamports at this unique PDA) to the trader so no SOL remains trapped.
+    let remainder = authority.lamports();
+    if remainder > 0 {
+        invoke_signed(
+            &system_instruction::transfer(authority.key, trader_wallet.key, remainder),
+            &[authority.clone(), trader_wallet.clone(), system_program_info.clone()],
+            &[seeds],
+        )?;
+    }
 
     Ok(())
 }
