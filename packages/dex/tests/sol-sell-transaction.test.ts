@@ -22,7 +22,7 @@ test('atomic SELL orders create -> Raydium -> settlement', () => {
   assert.ok(result.transaction instanceof Transaction);
   assert.equal(result.transaction.instructions.length, 3);
   assert.ok(result.transaction.instructions[1].programId.equals(raydiumProgram));
-  assert.ok(result.transaction.instructions[2].programId.equals(Keypair.fromSeed ? result.transaction.instructions[2].programId : result.transaction.instructions[2].programId));
+  assert.ok(result.transaction.instructions[2].programId.equals(new (require('@solana/web3.js').PublicKey)(programId)));
 });
 
 test('SELL fails closed if Raydium output is not routed to settlement account', () => {
