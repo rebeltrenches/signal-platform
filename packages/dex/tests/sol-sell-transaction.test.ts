@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { Keypair, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 import { deriveSolSellSettlementAccounts } from '../src/sol-sell-accounts.js';
 import { assembleAtomicSolSellTransaction } from '../src/sol-sell-transaction.js';
 
@@ -22,7 +22,7 @@ test('atomic SELL orders create -> Raydium -> settlement', () => {
   assert.ok(result.transaction instanceof Transaction);
   assert.equal(result.transaction.instructions.length, 3);
   assert.ok(result.transaction.instructions[1].programId.equals(raydiumProgram));
-  assert.ok(result.transaction.instructions[2].programId.equals(new (require('@solana/web3.js').PublicKey)(programId)));
+  assert.ok(result.transaction.instructions[2].programId.equals(new PublicKey(programId)));
 });
 
 test('SELL fails closed if Raydium output is not routed to settlement account', () => {
