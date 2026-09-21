@@ -439,7 +439,7 @@
   position: absolute;
   inset: 8%;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(117, 58, 255, .035), rgba(51, 89, 255, .012) 42%, transparent 66%);
+  background: radial-gradient(circle, rgba(117, 58, 255, .006), rgba(51, 89, 255, .0024) 42%, transparent 66%);
   filter: blur(7px);
 }
 @keyframes coin-aura {
@@ -452,7 +452,7 @@
   width: 100%;
   height: 100%;
   overflow: visible;
-  filter: drop-shadow(0 0 2px rgba(101, 50, 255, .10));
+  filter: drop-shadow(0 0 1px rgba(101, 50, 255, .018));
 }
 .signal-coin-earth {
   position: absolute;
@@ -469,7 +469,7 @@
     radial-gradient(ellipse at 35% 55%, rgba(50, 83, 176, .72), transparent 31%),
     radial-gradient(ellipse at 65% 65%, rgba(67, 36, 147, .8), transparent 34%),
     linear-gradient(180deg, #172d69 0%, #0a1027 60%, #050610 100%);
-  box-shadow: 0 -5px 16px rgba(67, 98, 255, .20);
+  box-shadow: 0 -3px 8px rgba(67, 98, 255, .042);
   transform: perspective(520px) rotateX(58deg);
 }
 .signal-coin-earth::before {
