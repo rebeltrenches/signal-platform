@@ -55,6 +55,9 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
             <feGaussianBlur stdDeviation="2.2" />
           </filter>
           <path id={`${uid}-topArc`} d="M 105 260 A 155 155 0 0 1 415 260" />
+          <path id={`${uid}-leftArc`} d="M 72 286 A 190 190 0 0 1 150 112" />
+          <path id={`${uid}-rightArc`} d="M 370 112 A 190 190 0 0 1 448 286" />
+          <path id={`${uid}-bottomArc`} d="M 145 412 A 190 190 0 0 0 375 412" />
         </defs>
 
         <circle cx="260" cy="260" r="232" fill="#050610" stroke={`url(#${uid}-edge)`} strokeWidth="5" />
@@ -87,7 +90,7 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
         <text x="260" y="362" textAnchor="middle" fill="#ffffff" fontSize="34" fontWeight="800" letterSpacing="5">SIGNAL</text>
         <text x="260" y="388" textAnchor="middle" fill="#f0ecff" fontSize="10.5" fontWeight="600" letterSpacing="3.4">THE LAUNCHPAD</text>
         <text x="260" y="406" textAnchor="middle" fill="#f0ecff" fontSize="10" fontWeight="600" letterSpacing="2.8">FOR WHAT'S NEXT</text>
-        <g fill="#bdafff" fontSize="8.2" fontWeight="700" letterSpacing=".8">
+        <g fill="#bdafff" fontSize="9.4" fontWeight="700" letterSpacing="1">
           <text x="190" y="433" textAnchor="middle">REAL PROJECTS</text>
           <text x="260" y="433" textAnchor="middle">REAL DATA</text>
           <text x="334" y="433" textAnchor="middle">REAL COMMUNITY</text>
