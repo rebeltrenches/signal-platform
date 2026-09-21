@@ -12,7 +12,7 @@ test('SELL accounts derive program PDA and wallet-bound WSOL ATAs', () => {
   const creator = Keypair.generate().publicKey;
   const trader = Keypair.generate().publicKey;
   const accounts = deriveSolSellSettlementAccounts({
-    programId: program.toBase58(), creatorAddress: creator.toBase58(), traderAddress: trader.toBase58(), tradeId: '11'.repeat(32), tradeId: '11'.repeat(32),
+    programId: program.toBase58(), creatorAddress: creator.toBase58(), traderAddress: trader.toBase58(), tradeId: '11'.repeat(32),
   });
   const [authority] = PublicKey.findProgramAddressSync([SELL_SETTLEMENT_SEED, trader.toBuffer(), creator.toBuffer(), Buffer.from('11'.repeat(32), 'hex')], program);
   assert.ok(accounts.authority.equals(authority));
@@ -25,7 +25,7 @@ test('SELL instruction binds creator wallet and requires trader signature', () =
   const creator = Keypair.generate().publicKey;
   const trader = Keypair.generate().publicKey;
   const ix = buildSolSellSettlementInstruction({
-    programId: program.toBase58(), creatorAddress: creator.toBase58(), traderAddress: trader.toBase58(),
+    programId: program.toBase58(), creatorAddress: creator.toBase58(), traderAddress: trader.toBase58(), tradeId: '11'.repeat(32),
   });
   assert.equal(ix.data.length, 33);
   assert.equal(ix.data[0], SETTLE_SELL_INSTRUCTION);
