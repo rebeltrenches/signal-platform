@@ -57,6 +57,11 @@ export function assembleSolBuyTransaction(params: {
     if (lookups.length !== requiredLookups) {
       throw new Error('Versioned Raydium BUY is missing required address lookup table accounts.');
     }
+    for (let i = 0; i < requiredLookups; i++) {
+      if (!lookups[i].key.equals(params.raydiumTransaction.message.addressTableLookups[i].accountKey)) {
+        throw new Error('Versioned Raydium BUY address lookup table order/key mismatch.');
+      }
+    }
 
     const decoded = TransactionMessage.decompile(params.raydiumTransaction.message, {
       addressLookupTableAccounts: lookups,
