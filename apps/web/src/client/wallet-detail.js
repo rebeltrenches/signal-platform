@@ -217,16 +217,18 @@
       const from = event.from.length <= 16 ? event.from : `${event.from.slice(0, 7)}…${event.from.slice(-5)}`;
       const to = event.to.length <= 16 ? event.to : `${event.to.slice(0, 7)}…${event.to.slice(-5)}`;
       return `
-        <div class="card" style="margin-bottom:10px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-            <span class="badge">Step ${index + 1}</span>
-            <strong style="font-size:.88rem">Funding evidence · depth ${escapeHtml(event.depth)}</strong>
+        <div class="card" data-replay-step="${index + 1}" style="margin-bottom:10px">
+          <button type="button" class="btn btn-ghost" data-replay-toggle="${index + 1}" aria-expanded="false" style="width:100%;justify-content:space-between;text-align:left;padding:8px 10px">
+            <span style="display:flex;align-items:center;gap:10px"><span class="badge">Step ${index + 1}</span><strong style="font-size:.88rem">Funding evidence · depth ${escapeHtml(event.depth)}</strong></span>
+            <span aria-hidden="true">+</span>
+          </button>
+          <div data-replay-details="${index + 1}" hidden style="margin-top:10px">
+            ${reviewRow('From', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(from)}</span>`)}
+            ${reviewRow('To', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(to)}</span>`)}
+            ${reviewRow('Relationship', escapeHtml(event.relationshipType))}
+            ${reviewRow('Evidence source', escapeHtml(event.evidenceSource))}
+            ${reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(event.observedTxSignature)}</span>`)}
           </div>
-          ${reviewRow('From', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(from)}</span>`)}
-          ${reviewRow('To', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(to)}</span>`)}
-          ${reviewRow('Relationship', escapeHtml(event.relationshipType))}
-          ${reviewRow('Evidence source', escapeHtml(event.evidenceSource))}
-          ${reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(event.observedTxSignature)}</span>`)}
         </div>`;
     }).join('');
 
@@ -238,6 +240,19 @@
       ${events}
       <div class="how-box" style="margin-top:12px">These steps replay the current evidence trace, not verified transaction time. Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
     `);
+
+    host.querySelectorAll('[data-replay-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const step = button.getAttribute('data-replay-toggle');
+        const details = host.querySelector(`[data-replay-details="${step}"]`);
+        if (!details) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        details.hidden = expanded;
+        const marker = button.querySelector('[aria-hidden="true"]');
+        if (marker) marker.textContent = expanded ? '+' : '−';
+      });
+    });
   }
 
   (async function loadHistoryReplay() {
