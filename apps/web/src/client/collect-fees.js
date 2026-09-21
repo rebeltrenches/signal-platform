@@ -16,7 +16,7 @@
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 
-const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
+const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
 const HARVEST_BATCH_SIZE = 20; // matches SolanaAdapter.ts exactly
 
 function explorerLink(signature) {
@@ -173,7 +173,7 @@ class CollectFeesFlow {
         return;
       }
 
-      const connection = new web3.Connection(MAINNET_RPC, 'confirmed');
+      const connection = new web3.Connection(SIGNAL_SOLANA_RPC_PROXY, 'confirmed');
       const flow = new CollectFeesFlow(connection, window.solana);
 
       const result = await flow.collect(mintAddress, connectedPubkey, decimals, (step, state) => {
