@@ -3,6 +3,7 @@ import type { WalletIntelligenceRecord, WalletIntelligenceRepository } from './W
 export interface WalletIntelligencePrismaLikeClient {
   wallet: { findUnique(args: any): Promise<any> };
   holder: { findMany(args: any): Promise<any[]> };
+  walletActivity: { findFirst(args: any): Promise<any> };
 }
 
 const iso = (value: any): string => value instanceof Date ? value.toISOString() : String(value);
@@ -26,6 +27,12 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
     // Holder snapshots deliberately match by chain + address. Holder has
     // no Wallet FK in the schema, so joining through Wallet would invent
     // a relationship that does not exist.
+    const firstActivity = await this.db.walletActivity.findFirst({
+      where: { walletId: wallet.id },
+      orderBy: { occurredAt: 'asc' },
+      select: { occurredAt: true },
+    });
+
     const holdings = await this.db.holder.findMany({
       where: { address, token: { chain } },
       include: { token: true },
@@ -34,11 +41,6 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
     });
 
     const activities = wallet.activity ?? [];
-    const oldestObserved = activities.length
-      ? activities.reduce((oldest: any, row: any) =>
-          new Date(row.occurredAt).getTime() < new Date(oldest.occurredAt).getTime() ? row : oldest
-        ).occurredAt
-      : null;
 
     const mapRelationship = (row: any, direction: 'outgoing' | 'incoming', other: any) => ({
       id: row.id,
@@ -55,7 +57,7 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
     return {
       address: wallet.address,
       chain: wallet.chain,
-      firstObservedActivity: oldestObserved ? iso(oldestObserved) : null,
+      firstObservedActivity: firstActivity?.occurredAt ? iso(firstActivity.occurredAt) : null,
       holdings: holdings.map((h: any) => ({
         token: {
           id: h.token.id, chain: h.token.chain, address: h.token.address,
