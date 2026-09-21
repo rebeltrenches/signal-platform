@@ -1,6 +1,6 @@
 import BN from 'bn.js';
 import { PublicKey } from '@solana/web3.js';
-import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
+import { CurveCalculator, FeeOn, Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
 import type { RaydiumPoolReader, RaydiumSwapBuilder, PoolReserves } from './RaydiumDexAdapter.js';
 
 const CPMM_PROGRAM_ID = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
@@ -87,24 +87,40 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
     amountIn: bigint;
     minimumAmountOut: bigint;
   }): Promise<unknown> {
-    // Current Raydium SDK V2 exposes tradeV2.swap as the supported
-    // high-level swap builder. We use it to avoid hand-rolling CPMM
-    // instruction layouts and keep signing/sending outside this bridge.
+    const { poolInfo, poolKeys, rpcData } = await this.loadPool(params.poolAddress);
     void new PublicKey(params.walletAddress);
 
-    const built = await this.raydium.tradeV2.swap({
-      inputMint: params.inputToken,
-      outputMint: params.outputToken,
-      amountIn: params.amountIn,
-      slippageBps: 0,
-      txVersion: TxVersion.V0,
-    } as any);
+    const baseIn = params.inputToken === poolInfo.mintA.address;
+    if (!baseIn && params.inputToken !== poolInfo.mintB.address) {
+      throw new Error('Input mint does not match the resolved Raydium CPMM pool.');
+    }
 
-    // Do not execute here. The caller must inspect the fresh quote,
-    // apply SIGNAL creator-fee settlement, then request wallet signing.
-    return {
-      poolAddress: params.poolAddress,
-      minimumAmountOut: params.minimumAmountOut,
-      raydium: built,
-    };
-  }}
+    const inputAmount = new BN(params.amountIn.toString());
+    const swapResult = CurveCalculator.swapBaseInput(
+      inputAmount,
+      baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
+      baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
+      rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,
+      rpcData.configInfo.protocolFeeRate,
+      rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
+    );
+
+    if (BigInt(swapResult.outputAmount.toString()) < params.minimumAmountOut) {
+      throw new Error('Fresh Raydium output is below SIGNAL minimum received.');
+    }
+
+    const { transaction } = await this.raydium.cpmm.swap({
+      poolInfo,
+      poolKeys,
+      inputAmount,
+      swapResult,
+      slippage: 0,
+      baseIn,
+      txVersion: TxVersion.V0,
+    });
+
+    return transaction;
+  }
+}
