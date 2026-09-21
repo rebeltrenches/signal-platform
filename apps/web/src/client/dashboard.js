@@ -3,11 +3,8 @@
 // reads and displays — it never writes an entry itself, so there's no
 // path for a fake launch to appear here.
 //
-// "Collect Fees" is shown only when the connected wallet matches the
-// recorded creator address for that confirmed launch. The launch flow assigns
-// the creator as the transfer-fee authority, so the UI must not imply that
-// another wallet can collect creator fees. The actual withdrawal logic lives
-// in collect-fees.js; this file only controls whether the action is shown.
+// Creator trading fees are settled in SOL by the trading layer. The old
+// Token-2022 withheld-token collection action is intentionally not rendered.
 (function () {
   const emptyEl = document.getElementById('launches-empty');
   const listEl = document.getElementById('launches-list');
@@ -57,17 +54,6 @@
       return;
     }
 
-    const connectedAddress = (window.launchpadWallet && window.launchpadWallet.address) || null;
-
-    emptyEl.hidden = true;
-    listEl.innerHTML = launches
-      .slice()
-      .reverse()
-      .map((l) => {
-        const isCreator = connectedAddress && l.creatorAddress && connectedAddress === l.creatorAddress;
-        const collectButton = isCreator
-          ? `<button class="btn btn-ghost" data-collect-mint="${escapeHtml(l.mint)}" data-creator-address="${escapeHtml(l.creatorAddress)}" data-decimals="${escapeHtml(String(l.decimals ?? 6))}" style="padding:4px 12px;">Collect Fees</button>`
-          : '';
         return `
       <div class="card" style="margin-bottom:10px;" data-launch-card="${escapeHtml(l.mint)}">
         <div class="review-row"><span class="k">${escapeHtml(l.name)} (${escapeHtml(l.symbol)})</span>
@@ -77,7 +63,6 @@
           </span>
         </div>
         <div class="review-row"><span class="k" style="font-family:monospace;font-size:11px">${escapeHtml(l.mint)}</span><span class="v" style="color:var(--ink-faint)">${new Date(l.launchedAt).toLocaleString()}</span></div>
-        ${collectButton ? `<div class="review-row"><span class="k" style="color:var(--ink-faint)">Accumulated Transfer Fee</span>${collectButton}</div><div data-collect-status style="font-size:0.8125rem;color:var(--ink-dim);margin-top:6px;"></div>` : ''}
       </div>`;
       })
       .join('');
