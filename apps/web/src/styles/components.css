@@ -527,7 +527,7 @@
 @media (max-width: 560px) {
   .signal-coin-stage { width: min(320px, 78vw); }
   .hero-side-label { font-size: 6.5px; line-height: 1.2; letter-spacing: .06em; max-width: 52px; }
-  .hero-side-label-left { left: -1%; top: 44px; transform: none; text-align: right; align-items: flex-end; }
-  .hero-side-label-right { right: -1%; top: 56px; transform: none; text-align: left; align-items: flex-start; }
+  .hero-side-label-left { left: 3%; top: 44px; transform: none; text-align: right; align-items: flex-end; }
+  .hero-side-label-right { right: 3%; top: 56px; transform: none; text-align: left; align-items: flex-start; }
   .hero-side-label i { width: 18px; margin-top: 5px; }
 }
