@@ -47,8 +47,8 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install pnpm
+        run: npm install --global pnpm@9.15.9
 
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
