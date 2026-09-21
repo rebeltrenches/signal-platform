@@ -6,7 +6,7 @@ use solana_program::{
     program_error::ProgramError,
     pubkey::Pubkey,
 };
-use spl_token::{instruction::transfer_checked, state::Account as TokenAccount};
+use spl_token::{instruction::transfer_checked, state::{Account as TokenAccount, Mint}};
 use solana_program::program_pack::Pack;
 
 entrypoint!(process_instruction);
@@ -47,6 +47,11 @@ pub fn process_instruction(
         return Err(ProgramError::InvalidSeeds);
     }
 
+    let mint_state = Mint::unpack(&mint.try_borrow_data()?)?;
+    if mint_state.decimals != 9 {
+        return Err(ProgramError::InvalidAccountData);
+    }
+
     let settlement_state = TokenAccount::unpack(&settlement.try_borrow_data()?)?;
     if settlement_state.owner != expected_authority || settlement_state.mint != *mint.key {
         return Err(ProgramError::InvalidAccountData);
@@ -74,7 +79,7 @@ pub fn process_instruction(
     invoke_signed(
         &transfer_checked(
             token_program.key, settlement.key, mint.key, creator.key,
-            authority.key, &[], creator_fee, 9,
+            authority.key, &[], creator_fee, mint_state.decimals,
         )?,
         &[settlement.clone(), mint.clone(), creator.clone(), authority.clone(), token_program.clone()],
         &[seeds],
@@ -82,7 +87,7 @@ pub fn process_instruction(
     invoke_signed(
         &transfer_checked(
             token_program.key, settlement.key, mint.key, trader.key,
-            authority.key, &[], trader_amount, 9,
+            authority.key, &[], trader_amount, mint_state.decimals,
         )?,
         &[settlement.clone(), mint.clone(), trader.clone(), authority.clone(), token_program.clone()],
         &[seeds],
