@@ -43,10 +43,14 @@
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const message = payload.code === "RPC_NOT_CONFIGURED"
-          ? "Live balances are waiting for the preview RPC connection."
-          : (payload.error || "Live Solana balances are unavailable");
-        throw new Error(message);
+        const messages = {
+          RPC_NOT_CONFIGURED: "Preview RPC is not configured.",
+          RPC_INVALID_CONFIG: "Preview RPC configuration is invalid.",
+          RPC_HTTP_ERROR: "The Solana RPC provider rejected the request.",
+          RPC_TIMEOUT: "The Solana RPC provider timed out.",
+          RPC_RESPONSE_ERROR: "The Solana RPC provider returned an invalid response.",
+        };
+        throw new Error(messages[payload.code] || payload.error || "Live Solana balances are unavailable");
       }
 
       solEl.textContent = `${Number(payload.lamports) / 1_000_000_000} SOL`;
