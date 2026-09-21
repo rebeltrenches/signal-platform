@@ -55,22 +55,32 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [lamports, legacy, token2022] = await Promise.all([
-      rpc(rpcUrl, "getBalance", [address, { commitment: "confirmed" }]),
+    // SOL balance is the required call. Token-program queries are best-effort so
+    // one unsupported/limited RPC method cannot blank the whole portfolio.
+    const lamports = await rpc(rpcUrl, "getBalance", [address, { commitment: "confirmed" }]);
+
+    const tokenResults = await Promise.allSettled([
       rpc(rpcUrl, "getTokenAccountsByOwner", [address, { programId: TOKEN_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
       rpc(rpcUrl, "getTokenAccountsByOwner", [address, { programId: TOKEN_2022_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
     ]);
 
-    const accounts = [...(legacy?.value ?? []), ...(token2022?.value ?? [])];
+    const accounts = tokenResults.flatMap((result) =>
+      result.status === "fulfilled" ? (result.value?.value ?? []) : []
+    );
     const tokens = accounts.map((entry) => {
       const info = entry?.account?.data?.parsed?.info;
       const amount = info?.tokenAmount?.uiAmountString;
       return info?.mint && amount && amount !== "0" ? { mint: info.mint, amount } : null;
     }).filter(Boolean);
 
-    return send(res, 200, { lamports: lamports?.value ?? 0, tokens });
+    return send(res, 200, {
+      lamports: lamports?.value ?? 0,
+      tokens,
+      tokenDataComplete: tokenResults.every((result) => result.status === "fulfilled")
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "upstream";
+    console.error("portfolio RPC failure", { reason });
     return send(res, 502, {
       error: "Live Solana balances are temporarily unavailable",
       code: reason === "upstream-http" ? "RPC_HTTP_ERROR" : "RPC_RESPONSE_ERROR"
