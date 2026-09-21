@@ -1,0 +1,36 @@
+name: DEX settlement verification
+
+on:
+  push:
+    branches: [wallet-intelligence-stage3]
+    paths:
+      - 'programs/signal-sell-settlement/**'
+      - 'packages/dex/**'
+      - '.github/workflows/dex-settlement.yml'
+  pull_request:
+    paths:
+      - 'programs/signal-sell-settlement/**'
+      - 'packages/dex/**'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --no-frozen-lockfile
+      - name: DEX math tests
+        run: pnpm exec tsx packages/dex/tests/amm-math.test.ts
+      - name: Raydium adapter tests
+        run: pnpm exec tsx packages/dex/tests/RaydiumDexAdapter.test.ts
+      - name: SELL settlement tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-settlement.test.ts
+      - name: Compile on-chain SELL settlement program
+        working-directory: programs/signal-sell-settlement
+        run: cargo check
