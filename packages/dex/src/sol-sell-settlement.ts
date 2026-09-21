@@ -20,8 +20,9 @@ export interface SolSellSettlementPlan {
  * SIGNAL must route the WSOL output through a program-controlled settlement
  * account, verify the received delta on-chain, then split it 1%/99% atomically.
  *
- * Until that instruction exists and is verified, SELL execution must
- * remain disabled rather than silently settling from a quote.
+ * The instruction and atomic composition now exist in Stage 3, but SELL execution
+ * remains disabled until the program is deployed to a controlled cluster and the
+ * complete Raydium -> settlement -> native SOL flow passes simulation/integration tests.
  */
 export function prepareAtomicSolSellPlan(params: {
   grossSolOutputLamports: bigint;
@@ -46,6 +47,6 @@ export function prepareAtomicSolSellPlan(params: {
 
 export function assertAtomicSolSellExecutionAvailable(): never {
   throw new Error(
-    'SELL execution is locked until SIGNAL has a verified on-chain WSOL-output splitter that settles from the actual received amount.'
+    'SELL execution is locked until the trade-specific settlement program is deployed and the complete Raydium-to-native-SOL flow passes integration verification.'
   );
 }
