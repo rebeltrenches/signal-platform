@@ -345,6 +345,26 @@ model PlatformFee {
 // removed along with that mechanism, not left testing/tracking something
 // that no longer exists.
 
+model IndexerCheckpoint {
+  key       String   @id
+  cursor    String?
+  updatedAt DateTime @updatedAt
+}
+
+
+model IndexerRunState {
+  key             String   @id
+  chain           Chain
+  lastStartedAt   DateTime?
+  lastCompletedAt DateTime?
+  lastFailureAt   DateTime?
+  lastError       String?
+  attempted       Int      @default(0)
+  refreshed       Int      @default(0)
+  failed          Int      @default(0)
+  updatedAt       DateTime @updatedAt
+}
+
 model BlockchainEvent {
   id          String   @id @default(cuid())
   chain       Chain

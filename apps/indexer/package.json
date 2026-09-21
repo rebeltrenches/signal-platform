@@ -1,0 +1,19 @@
+{
+  "name": "@launchpad/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@launchpad/blockchain": "workspace:*",
+    "@launchpad/types": "workspace:*",
+    "@launchpad/config": "workspace:*",
+    "@solana/web3.js": "^1.95.3",
+    "@solana/spl-token": "^0.4.9",
+    "@prisma/client": "^7.10.0",
+    "@prisma/adapter-pg": "^7.10.0"
+  },
+  "scripts": {
+    "test": "tsx tests/solana-token-refresh-worker.test.ts && tsx tests/indexer-safety.test.ts",
+    "solana:once": "tsx src/solana.ts --once",
+    "solana": "tsx src/solana.ts"
+  }
+}

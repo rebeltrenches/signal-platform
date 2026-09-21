@@ -25,12 +25,12 @@
  * fabrication this project has avoided throughout.
  *
  * IMPORTANT HONESTY NOTE (read before trusting anything "worked"):
- * This file was written and reviewed in a sandboxed environment with NO
- * internet access. Every method that talks to the network has never
- * actually been executed against a live RPC endpoint. Zero real
- * transactions have been submitted under this authority model, on any
- * network, as of this writing. See docs/ROADMAP.md's Stage 6 section for
- * the exact status.
+ * The read-only Solana indexing path has been executed against Solana
+ * mainnet RPC and verified to persist token metadata and holder snapshots
+ * in isolated PostgreSQL during Stage 11 CI. Transaction-building/write
+ * paths remain unverified against live submission: zero real transactions
+ * have been submitted under this authority model as of this writing.
+ * See docs/ROADMAP.md's Stage 6 section for the broader status.
  *
  * SECURITY: no method in this class ever holds, requests, or uses the
  * launcher's private key. buildCreateTokenTransaction generates a fresh,
@@ -50,6 +50,7 @@ import {
 import {
   ExtensionType,
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
   createInitializeTransferFeeConfigInstruction,
   createAssociatedTokenAccountInstruction,
@@ -102,6 +103,19 @@ export class SolanaAdapter implements BlockchainAdapter {
     this.connection = new Connection(config.rpcUrl, 'confirmed');
   }
 
+  /**
+   * Read paths must support both the original SPL Token program and
+   * Token-2022. Signal-created mints use Token-2022, but Stage 11 may
+   * index already-registered Solana tokens that use the legacy program.
+   */
+  private async getMintProgramId(mintPubkey: PublicKey): Promise<PublicKey> {
+    const account = await this.connection.getAccountInfo(mintPubkey, 'confirmed');
+    if (!account) throw new Error('Mint account not found.');
+    if (account.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+    if (account.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
+    throw new Error(`Unsupported token program: ${account.owner.toBase58()}`);
+  }
+
   // -------------------------------------------------------------------
   // Read methods — real RPC calls. Every field that could fail to
   // resolve returns the DataPoint 'unavailable' state rather than a
@@ -111,7 +125,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTokenIdentity(tokenAddress: string): Promise<TokenIdentity | null> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       return {
         chain: this.chain,
         address: tokenAddress,
@@ -132,7 +147,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTokenSupplyInfo(tokenAddress: string): Promise<TokenSupplyInfo | null> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       return {
         totalSupply: mint.supply,
         decimals: mint.decimals,
@@ -147,24 +163,36 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTopHolders(tokenAddress: string, limit: number): Promise<HolderInfo[]> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
-      const accounts = await this.connection.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
-        filters: [{ memcmp: { offset: 0, bytes: tokenAddress } }],
-      });
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
+      // Ask the RPC for only the mint's largest token accounts instead of
+      // scanning every account owned by the token program. Public Solana RPC
+      // endpoints may reject/limit the broad getProgramAccounts query.
+      const largest = await this.connection.getTokenLargestAccounts(mintPubkey, 'confirmed');
+      const selected = largest.value.slice(0, limit);
+      const accountInfos = await this.connection.getMultipleAccountsInfo(
+        selected.map((entry) => entry.address),
+        'confirmed'
+      );
       const totalSupply = mint.supply;
-      const holders = accounts
-        .map(({ pubkey, account }) => unpackAccount(pubkey, account, TOKEN_2022_PROGRAM_ID))
-        .filter((acc) => acc.amount > 0n)
-        .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0))
-        .slice(0, limit)
-        .map((acc) => ({
-          address: acc.owner.toBase58(),
-          balance: acc.amount,
-          percentOfSupply: totalSupply > 0n ? Number((acc.amount * 10000n) / totalSupply) / 100 : 0,
-        }));
+      const holders = selected.flatMap((entry, index) => {
+        const account = accountInfos[index];
+        if (!account) return [];
+        const unpacked = unpackAccount(entry.address, account, programId);
+        if (unpacked.amount <= 0n) return [];
+        return [{
+          address: unpacked.owner.toBase58(),
+          balance: unpacked.amount,
+          percentOfSupply: totalSupply > 0n ? Number((unpacked.amount * 10000n) / totalSupply) / 100 : 0,
+        }];
+      });
       return holders;
-    } catch {
-      return [];
+    } catch (error) {
+      // An empty array is a valid holder snapshot, so it must never also
+      // mean "the RPC failed". Propagate read failures to the indexer so
+      // saveIndexedData is not called and the last known-good holder
+      // snapshot remains intact.
+      throw error;
     }
   }
 
@@ -185,7 +213,8 @@ export class SolanaAdapter implements BlockchainAdapter {
 
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       base.mintAuthorityActive = available(mint.mintAuthority !== null);
       base.freezeAuthorityActive = available(mint.freezeAuthority !== null);
 

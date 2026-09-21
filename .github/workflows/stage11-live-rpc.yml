@@ -1,0 +1,93 @@
+name: Stage 11 live RPC verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-rpc-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: signal_test
+          POSTGRES_PASSWORD: signal_test
+          POSTGRES_DB: signal_stage11_rpc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U signal_test -d signal_stage11_rpc_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://signal_test:signal_test@localhost:5432/signal_stage11_rpc_test
+      SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+
+    steps:
+      - name: Checkout exact branch commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        run: npm install --global pnpm@9.15.9
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: packages/database
+        run: pnpm generate
+
+      - name: Sync schema to isolated PostgreSQL
+        working-directory: packages/database
+        run: pnpm exec prisma7 db push
+
+      - name: Confirm RPC secret is present without printing it
+        run: |
+          test -n "$SOLANA_RPC_URL"
+          echo "SOLANA_RPC_URL is configured."
+
+      - name: Seed one known public Solana token into isolated database
+        env:
+          PGPASSWORD: signal_test
+        run: |
+          psql -h localhost -U signal_test -d signal_stage11_rpc_test <<'SQL'
+          INSERT INTO "Wallet" ("id","address","chain","createdAt")
+          VALUES ('stage11-rpc-wallet','11111111111111111111111111111111','SOLANA',NOW());
+
+          INSERT INTO "Token" ("id","chain","address","name","symbol","decimals","totalSupply","creatorId","createdAt","updatedAt")
+          VALUES ('stage11-rpc-rebel','SOLANA','EzNLkZYFLGE2G5v1AWXvcnrb54WxrkD7Syrxxch7pump','REBEL','REBEL',6,0,'stage11-rpc-wallet',NOW(),NOW());
+          SQL
+
+      - name: Run exactly one read-only Solana indexing pass
+        run: pnpm --filter @launchpad/indexer solana:once
+
+      - name: Verify blockchain-derived persistence
+        env:
+          PGPASSWORD: signal_test
+        run: |
+          psql -h localhost -U signal_test -d signal_stage11_rpc_test -c 'SELECT "holderCount","top10HolderPercent","mintAuthorityActive","freezeAuthorityActive","lastIndexedAt" FROM "TokenMetadata" WHERE "tokenId" = '\''stage11-rpc-rebel'\'';'
+          psql -h localhost -U signal_test -d signal_stage11_rpc_test -c 'SELECT COUNT(*) AS holder_rows FROM "Holder" WHERE "tokenId" = '\''stage11-rpc-rebel'\'';'
+          psql -h localhost -U signal_test -d signal_stage11_rpc_test -c 'SELECT "key","chain","attempted","refreshed","failed","lastCompletedAt","lastError" FROM "IndexerRunState" WHERE "key" = '\''solana-token-refresh'\'';'
+          psql -h localhost -U signal_test -d signal_stage11_rpc_test -c 'SELECT "key","cursor","updatedAt" FROM "IndexerCheckpoint" WHERE "key" = '\''solana-token-refresh'\'';'
+
+          test "$(psql -h localhost -U signal_test -d signal_stage11_rpc_test -Atc 'SELECT COUNT(*) FROM "TokenMetadata" WHERE "tokenId" = '\''stage11-rpc-rebel'\'' AND "lastIndexedAt" IS NOT NULL;')" = "1"
+          test "$(psql -h localhost -U signal_test -d signal_stage11_rpc_test -Atc 'SELECT "attempted" FROM "IndexerRunState" WHERE "key" = '\''solana-token-refresh'\'';')" = "1"
+          test "$(psql -h localhost -U signal_test -d signal_stage11_rpc_test -Atc 'SELECT "refreshed" FROM "IndexerRunState" WHERE "key" = '\''solana-token-refresh'\'';')" = "1"
+          test "$(psql -h localhost -U signal_test -d signal_stage11_rpc_test -Atc 'SELECT "failed" FROM "IndexerRunState" WHERE "key" = '\''solana-token-refresh'\'';')" = "0"
+
+      - name: Safety statement
+        run: |
+          echo "Completed one Stage 11 read-only RPC pass against an ephemeral PostgreSQL database."
+          echo "No wallet key, seed phrase, signer, transaction submission, deployment, or production database was provided to this job."

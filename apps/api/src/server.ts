@@ -9,6 +9,7 @@ import { getAuthChallenge, postAuthSession, getAuthSession } from './routes/auth
 import { getWatchlist, postWatchlistItem, deleteWatchlistItem } from './routes/watchlist.js';
 import { getAlerts, postAlert, deleteAlert } from './routes/alerts.js';
 import { listLaunchesRoute, getLaunchRoute, getLaunchByTokenRoute } from './routes/launches.js';
+import { getIndexerStatus } from './routes/indexer.js';
 
 import { initializeStorage as initializeChatStorage } from './chat/store.js';
 import { initializeStorage as initializeTokenStorage } from './tokens/tokenStore.js';
@@ -21,6 +22,7 @@ const router = new Router();
 // --- real, working ----------------------------------------------------
 router.register('GET', '/health', getHealth);
 router.register('GET', '/health/database', getHealthDatabase);
+router.register('GET', '/health/indexer', getIndexerStatus);
 router.register('GET', '/api/v1/chains', listChains);
 router.register('POST', '/api/v1/tax/preview', previewTax);
 
