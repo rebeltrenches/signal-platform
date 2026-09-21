@@ -42,7 +42,12 @@
         body: JSON.stringify({ address }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Live Solana balances are unavailable");
+      if (!response.ok) {
+        const message = payload.code === "RPC_NOT_CONFIGURED"
+          ? "Live balances are waiting for the preview RPC connection."
+          : (payload.error || "Live Solana balances are unavailable");
+        throw new Error(message);
+      }
 
       solEl.textContent = `${Number(payload.lamports) / 1_000_000_000} SOL`;
       tokensEl.replaceChildren();
