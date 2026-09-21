@@ -4,7 +4,7 @@
  * contracts/solana scripts behind the shared interface, so apps/web and
  * apps/api never need to know Solana-specific details.
  *
- * AUTHORITY MODEL (updated for the 3% creator transfer fee — see
+ * AUTHORITY MODEL (updated for the 1% creator transfer fee — see
  * docs/ARCHITECTURE.md's fee-model decision for the full history,
  * including the earlier 100%-to-creator model this superseded):
  *   - mintAuthority              -> the launcher's own connected wallet.
@@ -13,7 +13,7 @@
  *   - withdrawWithheldAuthority  -> the SAME token creator.
  * The launcher controls supply (mint authority) but not the fee
  * mechanism — the token creator controls the fee configuration
- * and receives 100% of the 3% creator transfer fee. No holder-rewards pool, no
+ * and receives 100% of the 1% creator transfer fee. No holder-rewards pool, no
  * further split beyond this single recipient. A separate, one-time 1%
  * Launch Fee (LAUNCH_FEE_BPS, @launchpad/types;
  * computeLaunchFeeFromPayment, @launchpad/utils) is real, tested logic
