@@ -4,7 +4,7 @@
 // path for a fake launch to appear here.
 //
 // "Collect Fees" is shown ONLY when the CONNECTED wallet matches the
-// Signal platform wallet (window.SIGNAL_PLATFORM_WALLET, injected at
+// token creator (window.SIGNAL_PLATFORM_WALLET, injected at
 // build time) — not when it matches the token's creator. Under the
 // current fee model, 100% of the Signal Fee goes to the platform
 // wallet, so only its own holder can ever actually collect anything;
@@ -70,13 +70,9 @@
       .slice()
       .reverse()
       .map((l) => {
-        const isPlatformWallet = connectedAddress && window.SIGNAL_PLATFORM_WALLET && connectedAddress === window.SIGNAL_PLATFORM_WALLET;
-        // Only the Signal platform wallet's own holder can actually
-        // collect anything now — an ordinary creator, even for their
-        // own launch, never gets this button (they hold no withdraw
-        // authority under the current fee model).
-        const collectButton = isPlatformWallet
-          ? `<button class="btn btn-ghost" data-collect-mint="${escapeHtml(l.mint)}" data-decimals="${escapeHtml(String(l.decimals ?? 6))}" style="padding:4px 12px;">Collect Fees</button>`
+        const isCreator = connectedAddress && l.creatorAddress && connectedAddress === l.creatorAddress;
+        const collectButton = isCreator
+          ? `<button class="btn btn-ghost" data-collect-mint="${escapeHtml(l.mint)}" data-creator-address="${escapeHtml(l.creatorAddress)}" data-decimals="${escapeHtml(String(l.decimals ?? 6))}" style="padding:4px 12px;">Collect Fees</button>`
           : '';
         return `
       <div class="card" style="margin-bottom:10px;" data-launch-card="${escapeHtml(l.mint)}">
