@@ -3,7 +3,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { SourcedRow } from '../components/SourcedValue.js';
 import { sourcedUnavailable } from '@launchpad/types';
 
-const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport'];
+const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport', 'Bubble Map'];
 
 /** Layout template for /wallet/[chain]/[address] — master spec sections
  *  14 ("Wallet Intelligence") and 15 ("Signal Passport"). Real
@@ -50,6 +50,17 @@ export function WalletDetailPage() {
           <div id="wallet-created-tokens-list"></div>
           <div id="wallet-created-tokens-empty">
             <EmptyState title="No launches indexed for this wallet yet" body="Tokens created by this wallet, once indexed." />
+          </div>
+        </div>
+        <div data-panel="Bubble Map" hidden>
+          <div id="wallet-bubble-map">
+            <div className="empty-state" id="wallet-bubble-map-empty">
+              <h3>No Signal Trace available yet</h3>
+              <p>The Bubble Map appears only when blockchain-derived funding relationships with transaction evidence are available.</p>
+            </div>
+          </div>
+          <div className="how-box" style={{ marginTop: 14 }}>
+            Bubble Map connections represent observed transaction paths only. They do not claim common ownership or identity.
           </div>
         </div>
         <div data-panel="Signal Passport" hidden>
