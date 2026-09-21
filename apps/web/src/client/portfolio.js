@@ -50,7 +50,7 @@
           RPC_TIMEOUT: "The Solana RPC provider timed out.",
           RPC_RESPONSE_ERROR: "The Solana RPC provider returned an invalid response.",
         };
-        throw new Error(messages[payload.code] || payload.error || "Live Solana balances are unavailable");
+        throw new Error(`${messages[payload.code] || payload.error || "Live Solana balances are unavailable"} [${payload.code || `HTTP_${response.status}`}]`);
       }
 
       solEl.textContent = `${Number(payload.lamports) / 1_000_000_000} SOL`;
