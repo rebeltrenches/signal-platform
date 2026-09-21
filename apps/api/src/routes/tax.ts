@@ -10,7 +10,7 @@ import { DEFAULT_TAX_CONFIG, type TaxConfig } from '@launchpad/types';
  * "always show fee before confirmation" requirement.
  *
  * Model (updated — see docs/ARCHITECTURE.md for the full decision
- * history): 100% of the 3% creator transfer fee goes to the Signal platform
+ * history): 100% of the 1% creator transfer fee goes to the Signal platform
  * wallet — the token's creator receives all of it. `creatorTax` and
  * `totalTax` are equal in this response.
  */
