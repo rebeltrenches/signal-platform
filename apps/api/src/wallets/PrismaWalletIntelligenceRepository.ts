@@ -4,12 +4,28 @@ export interface WalletIntelligencePrismaLikeClient {
   wallet: { findUnique(args: any): Promise<any> };
   holder: { findMany(args: any): Promise<any[]> };
   walletActivity: { findFirst(args: any): Promise<any> };
+  walletRelationship: { findMany(args: any): Promise<any[]> };
 }
 
 const iso = (value: any): string => value instanceof Date ? value.toISOString() : String(value);
 
 export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRepository {
   constructor(private readonly db: WalletIntelligencePrismaLikeClient) {}
+
+  async incomingFunding(chain: string, address: string) {
+    return this.db.walletRelationship.findMany({
+      where: {
+        relationshipType: 'funded',
+        evidenceSource: 'BLOCKCHAIN_DERIVED',
+        observedTxSignature: { not: null },
+        walletB: { address, chain },
+        walletA: { chain },
+      },
+      include: { walletA: true, walletB: true },
+      orderBy: { discoveredAt: 'desc' },
+      take: 250,
+    });
+  }
 
   async getWallet(chain: string, address: string): Promise<WalletIntelligenceRecord | null> {
     const wallet = await this.db.wallet.findUnique({
