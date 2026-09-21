@@ -33,7 +33,7 @@ async function rpc(url, method, params) {
   return payload.result;
 }
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") return send(res, 405, { error: "Method not allowed" });
@@ -87,3 +87,6 @@ export default async function handler(req, res) {
     });
   }
 }
+
+
+export { handler as default };
