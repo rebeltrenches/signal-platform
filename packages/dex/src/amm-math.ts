@@ -114,3 +114,40 @@ export function computeSolCreatorFee(
     netSolLamports: grossSolLamports - creatorFeeLamports,
   };
 }
+
+
+/**
+ * Split a SOL-denominated SIGNAL trade into creator fee and swap amount.
+ * BUY semantics: gross SOL supplied by the trader is split before the
+ * Raydium swap; only netSolLamports is sent into the pool.
+ */
+export function prepareSolBuySettlement(
+  grossSolLamports: bigint,
+  feeBps: number = SIGNAL_CREATOR_FEE_BPS
+) {
+  const split = computeSolCreatorFee(grossSolLamports, feeBps);
+  if (split.netSolLamports <= 0n) {
+    throw new Error('SOL amount after creator fee must be greater than zero.');
+  }
+  return {
+    grossSolLamports: split.grossSolLamports,
+    creatorFeeLamports: split.creatorFeeLamports,
+    raydiumInputLamports: split.netSolLamports,
+  };
+}
+
+/**
+ * SELL semantics: Raydium first determines the gross SOL output. SIGNAL
+ * then splits that SOL output into creator fee and trader proceeds.
+ */
+export function prepareSolSellSettlement(
+  grossSolOutputLamports: bigint,
+  feeBps: number = SIGNAL_CREATOR_FEE_BPS
+) {
+  const split = computeSolCreatorFee(grossSolOutputLamports, feeBps);
+  return {
+    grossSolOutputLamports: split.grossSolLamports,
+    creatorFeeLamports: split.creatorFeeLamports,
+    traderReceivesLamports: split.netSolLamports,
+  };
+}
