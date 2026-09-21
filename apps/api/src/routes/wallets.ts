@@ -1,5 +1,5 @@
 import type { Handler } from '../router.js';
-import { getFundingAncestry, getSignalTrace, getWalletIntelligence } from '../wallets/walletIntelligenceStore.js';
+import { getFundingAncestry, getSignalTrace, getWalletHistoryReplay, getWalletIntelligence } from '../wallets/walletIntelligenceStore.js';
 
 const SUPPORTED_CHAINS = new Set(['SOLANA', 'BASE', 'BNB']);
 
@@ -79,4 +79,16 @@ export const getWalletSignalTraceRoute: Handler = async (req) => {
     return { status: 404, body: { error: 'NOT_FOUND', message: 'Signal Trace storage is not available.' } };
   }
   return { status: 200, body: { trace } };
+};
+
+export const getWalletHistoryReplayRoute: Handler = async (req) => {
+  const parsed = validateWalletTraceRequest(req);
+  if (parsed.error) return parsed.error;
+  const { chain, address, requestedDepth } = parsed;
+
+  const replay = await getWalletHistoryReplay(chain, address, requestedDepth);
+  if (!replay) {
+    return { status: 404, body: { error: 'NOT_FOUND', message: 'Wallet History Replay storage is not available.' } };
+  }
+  return { status: 200, body: { replay } };
 };
