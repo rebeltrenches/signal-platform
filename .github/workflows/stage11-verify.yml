@@ -75,8 +75,8 @@ jobs:
 
       - name: Confirm isolated indexer tables
         run: |
-          PGPASSWORD=signal_test psql -h localhost -U signal_test -d signal_stage11_test -c '\\d "IndexerCheckpoint"'
-          PGPASSWORD=signal_test psql -h localhost -U signal_test -d signal_stage11_test -c '\\d "IndexerRunState"'
+          PGPASSWORD=signal_test psql -h localhost -U signal_test -d signal_stage11_test -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('IndexerCheckpoint', 'IndexerRunState') ORDER BY table_name;"
+          test "$(PGPASSWORD=signal_test psql -h localhost -U signal_test -d signal_stage11_test -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('IndexerCheckpoint', 'IndexerRunState');")" = "2"
 
       - name: Safety boundary
         run: |
