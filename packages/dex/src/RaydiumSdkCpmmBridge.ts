@@ -59,6 +59,9 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
     if (!rpcData?.configInfo) return null;
 
     const feeOnOutput = rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB;
+    if (feeOnOutput) {
+      throw new Error('Raydium output-side fee pool requires SDK-native quoting; generic SIGNAL quote is disabled.');
+    }
     const totalFeeRate =
       Number(rpcData.configInfo.tradeFeeRate ?? 0) +
       Number(rpcData.configInfo.creatorFeeRate ?? 0) +
@@ -71,10 +74,7 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
       tokenB: poolInfo.mintB.address,
       reserveA: BigInt(rpcData.baseReserve.toString()),
       reserveB: BigInt(rpcData.quoteReserve.toString()),
-      // SIGNAL's generic quote math accepts one input-side fee rate.
-      // Output-side fee pools must be quoted by the SDK execution path,
-      // so fail closed rather than silently misquote them.
-      feeBps: feeOnOutput ? 0 : Math.floor(totalFeeRate / 100),
+      feeBps: Math.floor(totalFeeRate / 100),
       liquidityUsd: typeof poolInfo.tvl === 'number' ? poolInfo.tvl : null,
     };
   }
