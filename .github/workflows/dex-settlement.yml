@@ -1,5 +1,9 @@
 name: DEX settlement verification
 
+concurrency:
+  group: dex-settlement-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [wallet-intelligence-stage3]
