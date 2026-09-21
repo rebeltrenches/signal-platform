@@ -3,17 +3,11 @@
 // reads and displays — it never writes an entry itself, so there's no
 // path for a fake launch to appear here.
 //
-// "Collect Fees" is shown ONLY when the CONNECTED wallet matches the
-// token creator (window.SIGNAL_PLATFORM_WALLET, injected at
-// build time) — not when it matches the token's creator. Under the
-// current fee model, 100% of the Signal Fee goes to the platform
-// wallet, so only its own holder can ever actually collect anything;
-// showing this button to an ordinary creator (who will never be able
-// to successfully sign the real withdrawal, since they don't hold
-// withdrawWithheldAuthority) would be misleading UI, not just an
-// unreachable one. The actual click handling lives in collect-fees.js
-// (separate file, separate concern); this file only decides whether
-// the button should exist at all.
+// "Collect Fees" is shown only when the connected wallet matches the
+// recorded creator address for that confirmed launch. The launch flow assigns
+// the creator as the transfer-fee authority, so the UI must not imply that
+// another wallet can collect creator fees. The actual withdrawal logic lives
+// in collect-fees.js; this file only controls whether the action is shown.
 (function () {
   const emptyEl = document.getElementById('launches-empty');
   const listEl = document.getElementById('launches-list');
