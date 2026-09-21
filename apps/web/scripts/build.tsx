@@ -61,7 +61,7 @@ const routes: RouteDef[] = [
     title: 'Dashboard',
     element: <DashboardPage />,
     clientScripts: ['/client/dashboard.js', '/client/auth-client.js', '/client/watchlist.js', '/client/alerts.js'],
-    moduleScripts: ['/client/portfolio.js', '/client/collect-fees.js'],
+    moduleScripts: ['/client/portfolio.js?v=stage3-portfolio-3', '/client/collect-fees.js'],
   },
   { path: 'security', title: 'Security', element: <SecurityPage /> },
   { path: 'transparency', title: 'Transparency', element: <TransparencyPage /> },
