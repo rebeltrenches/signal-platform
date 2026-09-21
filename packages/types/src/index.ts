@@ -85,8 +85,10 @@ export const DISABLED_TAX_CONFIG: TaxConfig = {
   totalBps: 0,
 };
 
-/** No separate Signal launch/platform fee is charged. */
-export const LAUNCH_FEE_BPS: BasisPoints = 0;
+/** SIGNAL launch fee: 1% of the configured 0.1 SOL launch-price basis. */
+export const LAUNCH_FEE_BPS: BasisPoints = 100;
+/** Fixed launch-price basis in lamports: 0.1 SOL. Financial math stays integer-only. */
+export const LAUNCH_PRICE_LAMPORTS = 100_000_000n;
 
 // ---------------------------------------------------------------------------
 // Token / Launch
