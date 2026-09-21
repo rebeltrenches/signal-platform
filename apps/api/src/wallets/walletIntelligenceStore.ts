@@ -1,5 +1,6 @@
 import { traceFundingAncestry } from './FundingAncestry.js';
 import { buildSignalTrace } from './SignalTrace.js';
+import { buildWalletHistoryReplay } from './WalletHistoryReplay.js';
 import type { WalletIntelligenceRepository } from './WalletIntelligenceRepository.js';
 import { PrismaWalletIntelligenceRepository, type WalletIntelligencePrismaLikeClient } from './PrismaWalletIntelligenceRepository.js';
 import { getSharedPrismaClient } from '../db/prismaClient.js';
@@ -36,4 +37,10 @@ export async function getSignalTrace(chain: string, address: string, maxDepth = 
   const ancestry = await getFundingAncestry(chain, address, maxDepth);
   if (!ancestry) return null;
   return buildSignalTrace(chain, ancestry);
+}
+
+export async function getWalletHistoryReplay(chain: string, address: string, maxDepth = 3) {
+  const trace = await getSignalTrace(chain, address, maxDepth);
+  if (!trace) return null;
+  return buildWalletHistoryReplay(trace);
 }
