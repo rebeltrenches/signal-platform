@@ -52,6 +52,8 @@ jobs:
         run: pnpm exec tsx apps/api/tests/wallet-intelligence-repository.test.ts
       - name: Stage 3 funding ancestry tests
         run: pnpm exec tsx apps/api/tests/funding-ancestry.test.ts
+      - name: Stage 3 funding ancestry API tests
+        run: pnpm exec tsx apps/api/tests/funding-ancestry-route.test.ts
       - name: Stage 2 Solana relationship detector tests
         run: pnpm exec tsx apps/indexer/tests/solana-funding-relationship-worker.test.ts
       - name: Existing indexer regression tests
