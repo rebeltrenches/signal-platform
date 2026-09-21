@@ -1,10 +1,12 @@
-name: Wallet Intelligence Stage 1 verification
+name: Wallet Intelligence verification
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'apps/api/**'
+      - 'apps/indexer/**'
+      - 'packages/blockchain/**'
       - 'apps/web/**'
       - 'packages/database/**'
       - '.github/workflows/wallet-intelligence-verify.yml'
@@ -48,6 +50,10 @@ jobs:
         run: pnpm exec prisma7 db push
       - name: Wallet Intelligence repository tests
         run: pnpm exec tsx apps/api/tests/wallet-intelligence-repository.test.ts
+      - name: Stage 2 Solana relationship detector tests
+        run: pnpm exec tsx apps/indexer/tests/solana-funding-relationship-worker.test.ts
+      - name: Existing indexer regression tests
+        run: pnpm --filter @launchpad/indexer test
       - name: Existing API regression tests
         run: |
           pnpm exec tsx apps/api/tests/token-repository.test.ts
