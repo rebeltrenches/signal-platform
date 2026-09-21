@@ -34,7 +34,18 @@ export function Header({ currentPath }: { currentPath: string }) {
             </a>
           ))}
         </nav>
-        <div id="wallet-connect-root" style={{ marginLeft: 'auto' }}>
+        <a
+          href="https://x.com/SignalChainpad"
+          className="btn btn-ghost"
+          aria-label="Signal on X"
+          title="Signal on X"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ width: 38, padding: 0, marginLeft: 'auto', fontWeight: 700, fontSize: 16 }}
+        >
+          𝕏
+        </a>
+        <div id="wallet-connect-root">
           <button className="btn btn-ghost" id="wallet-connect-btn" type="button">
             Connect wallet
           </button>
