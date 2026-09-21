@@ -71,12 +71,44 @@ export default async function handler(req, res) {
       rpc(rpcUrl, "getTokenAccountsByOwner", [address, { programId: TOKEN_2022_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
     ]);
     const accounts = tokenResults.flatMap((result) => result.status === "fulfilled" ? (result.value?.value ?? []) : []);
-    const tokens = accounts.map((entry) => {
+    const rawTokens = accounts.map((entry) => {
       const info = entry?.account?.data?.parsed?.info;
       const amount = info?.tokenAmount?.uiAmountString;
       return info?.mint && amount && amount !== "0" ? { mint: info.mint, amount } : null;
     }).filter(Boolean);
-    return json(res, 200, { lamports: Number(balance?.value ?? 0), tokens, tokenDataComplete: tokenResults.every((result) => result.status === "fulfilled") });
+    let tokens = rawTokens;
+    if (rawTokens.length) {
+      try {
+        const assets = await rpc(rpcUrl, "getAssetBatch", {
+          ids: rawTokens.map((token) => token.mint),
+          options: { showFungible: true },
+        });
+        const metadataByMint = new Map(
+          (Array.isArray(assets) ? assets : [])
+            .filter((asset) => asset?.id)
+            .map((asset) => [asset.id, {
+              name: typeof asset?.content?.metadata?.name === "string" ? asset.content.metadata.name.trim() : "",
+              symbol: typeof asset?.content?.metadata?.symbol === "string" ? asset.content.metadata.symbol.trim() : "",
+            }])
+        );
+        tokens = rawTokens.map((token) => {
+          const metadata = metadataByMint.get(token.mint);
+          return metadata?.name || metadata?.symbol
+            ? { ...token, name: metadata.name || undefined, symbol: metadata.symbol || undefined }
+            : token;
+        });
+      } catch (metadataError) {
+        console.warn("portfolio metadata unavailable", {
+          reason: metadataError instanceof Error ? metadataError.message : "metadata",
+        });
+      }
+    }
+
+    return json(res, 200, {
+      lamports: Number(balance?.value ?? 0),
+      tokens,
+      tokenDataComplete: tokenResults.every((result) => result.status === "fulfilled"),
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "upstream";
     const upstreamStatus = error && typeof error === "object" && "status" in error ? error.status : undefined;
