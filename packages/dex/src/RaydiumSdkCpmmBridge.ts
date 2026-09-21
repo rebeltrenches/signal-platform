@@ -1,6 +1,6 @@
 import BN from 'bn.js';
 import { PublicKey } from '@solana/web3.js';
-import { CurveCalculator, FeeOn, Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
+import { Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
 import type { RaydiumPoolReader, RaydiumSwapBuilder, PoolReserves } from './RaydiumDexAdapter.js';
 
 const CPMM_PROGRAM_ID = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
@@ -87,41 +87,24 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
     amountIn: bigint;
     minimumAmountOut: bigint;
   }): Promise<unknown> {
-    const { poolInfo, poolKeys, rpcData } = await this.loadPool(params.poolAddress);
-    if (params.inputToken !== poolInfo.mintA.address && params.inputToken !== poolInfo.mintB.address) {
-      throw new Error('Input mint does not match the resolved Raydium pool.');
-    }
-
-    const baseIn = params.inputToken === poolInfo.mintA.address;
-    const inputAmount = new BN(params.amountIn.toString());
-    const swapResult = CurveCalculator.swapBaseInput(
-      inputAmount,
-      baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
-      baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
-      rpcData.configInfo.tradeFeeRate,
-      rpcData.configInfo.creatorFeeRate,
-      rpcData.configInfo.protocolFeeRate,
-      rpcData.configInfo.fundFeeRate,
-      rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB
-    );
-
-    if (BigInt(swapResult.outputAmount.toString()) < params.minimumAmountOut) {
-      throw new Error('Fresh Raydium quote is below the requested minimum output.');
-    }
-
-    const { transaction } = await this.raydium.cpmm.swap({
-      poolInfo,
-      poolKeys,
-      inputAmount,
-      swapResult,
-      slippage: 0,
-      baseIn,
-      txVersion: TxVersion.V0,
-    });
-
-    // Wallet ownership is checked by the caller before signing. This
-    // bridge only returns the unsigned SDK-built transaction.
+    // Current Raydium SDK V2 exposes tradeV2.swap as the supported
+    // high-level swap builder. We use it to avoid hand-rolling CPMM
+    // instruction layouts and keep signing/sending outside this bridge.
     void new PublicKey(params.walletAddress);
-    return transaction;
-  }
-}
+
+    const built = await this.raydium.tradeV2.swap({
+      inputMint: params.inputToken,
+      outputMint: params.outputToken,
+      amountIn: params.amountIn,
+      slippageBps: 0,
+      txVersion: TxVersion.V0,
+    } as any);
+
+    // Do not execute here. The caller must inspect the fresh quote,
+    // apply SIGNAL creator-fee settlement, then request wallet signing.
+    return {
+      poolAddress: params.poolAddress,
+      minimumAmountOut: params.minimumAmountOut,
+      raydium: built,
+    };
+  }}
