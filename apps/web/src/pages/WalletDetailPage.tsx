@@ -3,7 +3,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { SourcedRow } from '../components/SourcedValue.js';
 import { sourcedUnavailable } from '@launchpad/types';
 
-const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport', 'Bubble Map'];
+const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport', 'Bubble Map', 'History Replay'];
 
 /** Layout template for /wallet/[chain]/[address] — master spec sections
  *  14 ("Wallet Intelligence") and 15 ("Signal Passport"). Real
@@ -61,6 +61,17 @@ export function WalletDetailPage() {
           </div>
           <div className="how-box" style={{ marginTop: 14 }}>
             Bubble Map connections represent observed transaction paths only. They do not claim common ownership or identity.
+          </div>
+        </div>
+        <div data-panel="History Replay" hidden>
+          <div id="wallet-history-replay">
+            <div className="empty-state" id="wallet-history-replay-empty">
+              <h3>No Wallet History Replay available yet</h3>
+              <p>Replay appears only when blockchain-derived funding relationships with transaction evidence are available.</p>
+            </div>
+          </div>
+          <div className="how-box" style={{ marginTop: 14 }}>
+            Replay order follows the current evidence trace. It is not presented as transaction chronology until verified block timestamps are indexed.
           </div>
         </div>
         <div data-panel="Signal Passport" hidden>
