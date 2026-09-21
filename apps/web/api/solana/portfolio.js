@@ -35,19 +35,23 @@ async function rpc(url, method, params) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") return send(res, 405, { error: "Method not allowed" });
 
   const address = typeof req.body?.address === "string" ? req.body.address.trim() : "";
   if (!isSolanaAddress(address)) return send(res, 400, { error: "Invalid Solana wallet address" });
 
   const rpcUrl = process.env.SOLANA_RPC_URL;
-  if (!rpcUrl) return send(res, 503, { error: "Live Solana balances are not configured" });
+  if (!rpcUrl) return send(res, 503, {
+    error: "Live Solana balances are not configured",
+    code: "RPC_NOT_CONFIGURED"
+  });
 
   try {
     const parsed = new URL(rpcUrl);
     if (parsed.protocol !== "https:") throw new Error("invalid-config");
   } catch {
-    return send(res, 503, { error: "Live Solana balances are not configured" });
+    return send(res, 503, { error: "Live Solana balances are not configured", code: "RPC_INVALID_CONFIG" });
   }
 
   try {
@@ -65,7 +69,11 @@ export default async function handler(req, res) {
     }).filter(Boolean);
 
     return send(res, 200, { lamports: lamports?.value ?? 0, tokens });
-  } catch {
-    return send(res, 502, { error: "Live Solana balances are temporarily unavailable" });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "upstream";
+    return send(res, 502, {
+      error: "Live Solana balances are temporarily unavailable",
+      code: reason === "upstream-http" ? "RPC_HTTP_ERROR" : "RPC_RESPONSE_ERROR"
+    });
   }
 }
