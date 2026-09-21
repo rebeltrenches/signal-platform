@@ -4,16 +4,16 @@
  * contracts/solana scripts behind the shared interface, so apps/web and
  * apps/api never need to know Solana-specific details.
  *
- * AUTHORITY MODEL (updated for the 1% Signal Fee — see
+ * AUTHORITY MODEL (updated for the 3% creator transfer fee — see
  * docs/ARCHITECTURE.md's fee-model decision for the full history,
  * including the earlier 100%-to-creator model this superseded):
  *   - mintAuthority              -> the launcher's own connected wallet.
- *   - transferFeeConfigAuthority -> the Signal platform wallet
+ *   - transferFeeConfigAuthority -> the token creator
  *     (getPlatformWalletAddress(), from @launchpad/config).
- *   - withdrawWithheldAuthority  -> the SAME Signal platform wallet.
+ *   - withdrawWithheldAuthority  -> the SAME token creator.
  * The launcher controls supply (mint authority) but not the fee
- * mechanism — the Signal platform wallet controls the fee configuration
- * and receives 100% of the 1% Signal Fee. No holder-rewards pool, no
+ * mechanism — the token creator controls the fee configuration
+ * and receives 100% of the 3% creator transfer fee. No holder-rewards pool, no
  * further split beyond this single recipient. A separate, one-time 1%
  * Launch Fee (LAUNCH_FEE_BPS, @launchpad/types;
  * computeLaunchFeeFromPayment, @launchpad/utils) is real, tested logic
@@ -68,7 +68,6 @@ import {
 } from '@solana/spl-token';
 import type { Chain, TokenIdentity, TxResult, DataPoint } from '@launchpad/types';
 import { DEFAULT_TAX_CONFIG } from '@launchpad/types';
-import { getPlatformWalletAddress } from '@launchpad/config';
 import type {
   BlockchainAdapter,
   CreateTokenParams,
@@ -235,7 +234,7 @@ export class SolanaAdapter implements BlockchainAdapter {
   // Write methods — build UNSIGNED transactions only. Token creation and
   // mint-authority actions are signed by the launcher's own wallet;
   // fee-collection (buildHarvestAndWithdrawTransactions) is signed by
-  // the Signal platform wallet instead, since it alone holds
+  // the token creator instead, since it alone holds
   // withdrawWithheldAuthority under the current fee model. Signal never
   // holds either wallet's private key — this file only ever builds
   // unsigned transactions for each wallet's own holder to sign.
@@ -243,7 +242,7 @@ export class SolanaAdapter implements BlockchainAdapter {
 
   /**
    * Builds: create mint account + initialize the 1% TransferFeeConfig
-   * (100% to the Signal platform wallet — see
+   * (100% to the token creator — see
    * docs/ARCHITECTURE.md's fee-model decision) + initialize the mint
    * itself. Returns the transaction unsigned (apart from the fresh
    * mint keypair's own required signature).
@@ -252,12 +251,11 @@ export class SolanaAdapter implements BlockchainAdapter {
    * authority is about who can mint additional supply, unrelated to
    * fee routing, and is unchanged by this decision.
    * transferFeeConfigAuthority and withdrawWithheldAuthority are BOTH
-   * now the Signal platform wallet (getPlatformWalletAddress()), not
+   * now the token creator (getPlatformWalletAddress()), not
    * the launcher — the launcher receives none of this fee.
    */
   async buildCreateTokenTransaction(params: CreateTokenParams): Promise<UnsignedTransaction> {
     const launcher = new PublicKey(params.launcherAddress);
-    const platformWallet = new PublicKey(getPlatformWalletAddress());
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
@@ -297,8 +295,8 @@ export class SolanaAdapter implements BlockchainAdapter {
       }),
       createInitializeTransferFeeConfigInstruction(
         mint,
-        platformWallet, // transferFeeConfigAuthority -> the Signal platform wallet, not the creator
-        platformWallet, // withdrawWithheldAuthority  -> the Signal platform wallet, not the creator
+        launcher, // creator controls transfer-fee configuration
+        launcher, // creator controls and receives withheld transfer fees
         feeBasisPoints,
         maxFee,
         TOKEN_2022_PROGRAM_ID
@@ -319,9 +317,9 @@ export class SolanaAdapter implements BlockchainAdapter {
         `Mint address (new): ${mint.toBase58()}`,
         `Decimals: ${params.decimals}`,
         `Network rent for this mint account: ${lamports} lamports — paid to Solana itself, not to Signal.`,
-        `Signal Fee on future transfers: ${(feeBasisPoints / 100).toFixed(2)}% total — 100% goes to the Signal platform wallet, not to you.`,
+        `Transfer fee on future transfers: ${(feeBasisPoints / 100).toFixed(2)}% total — 100% goes to you, the token creator; Signal receives 0%.`,
         `You (${params.launcherAddress}) will be the mint authority — you can mint additional supply.`,
-        `The Signal platform wallet will be the transfer-fee-config authority and withdraw-withheld authority for the Signal Fee — it receives that fee, not you.`,
+        `You (${params.launcherAddress}) will hold both transfer-fee authorities and can collect the withheld creator fees.`,
       ],
       metadata: { mintAddress: mint.toBase58() },
     };
@@ -358,7 +356,7 @@ export class SolanaAdapter implements BlockchainAdapter {
 
   /** Renounce mint authority, locking total supply forever. Irreversible
    *  — see docs/SECURITY.md. Renouncing MINT authority never touches the
-   *  fee mechanism — the Signal platform wallet keeps fee control and
+   *  fee mechanism — the token creator keeps fee control and
    *  fee receipt regardless of whether the launcher renounces supply
    *  control. */
   async buildRenounceMintAuthorityTransaction(
@@ -383,8 +381,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   }
 
   /**
-   * Harvest + withdraw the Signal platform wallet's accumulated Signal
-   * Fee, to the platform wallet's own token account — the entire real
+   * Harvest + withdraw the token creator's accumulated Signal
+   * Fee, to the creator wallet's own token account — the entire real
    * fee-collection mechanism under the current model, since the whole
    * 1% belongs to the Signal platform and nothing needs further
    * splitting. Returns an unsigned transaction for the PLATFORM
@@ -395,9 +393,9 @@ export class SolanaAdapter implements BlockchainAdapter {
    * Harvesting (moving withheld amounts out of individual holder
    * accounts into the mint's own withheld balance) is permissionless on
    * Token-2022. Only WITHDRAWING requires withdrawWithheldAuthority,
-   * which is now the Signal platform wallet (getPlatformWalletAddress()),
+   * which is now the token creator (getPlatformWalletAddress()),
    * not the creator — see the fee-model decision in
-   * docs/ARCHITECTURE.md. Only the platform wallet's own holder can
+   * docs/ARCHITECTURE.md. Only the creator wallet's own holder can
    * actually sign and submit this; a creator's wallet has no authority
    * to withdraw this fee under the new model.
    *
@@ -412,9 +410,10 @@ export class SolanaAdapter implements BlockchainAdapter {
    */
   async buildHarvestAndWithdrawTransactions(
     mintAddress: string,
-    decimals: number
+    decimals: number,
+    creatorAddress: string
   ): Promise<{ transactions: UnsignedTransaction[]; hasWithheldBalance: boolean }> {
-    const platformWallet = new PublicKey(getPlatformWalletAddress());
+    const creatorWallet = new PublicKey(creatorAddress);
     const mint = new PublicKey(mintAddress);
 
     const allAccounts = await this.connection.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
@@ -450,10 +449,10 @@ export class SolanaAdapter implements BlockchainAdapter {
       );
       harvestTx.recentBlockhash = blockhash;
       // Harvest itself is permissionless on Token-2022 (no specific
-      // authority required) — the platform wallet pays its own gas for
+      // authority required) — the creator wallet pays its own gas for
       // initiating its own collection, the same "you pay gas for your
       // own action" symmetry the old creator-collects model had.
-      harvestTx.feePayer = platformWallet;
+      harvestTx.feePayer = creatorWallet;
       transactions.push({
         chain: this.chain,
         opaquePayload: harvestTx,
@@ -461,17 +460,17 @@ export class SolanaAdapter implements BlockchainAdapter {
       });
     }
 
-    const ata = getAssociatedTokenAddressSync(mint, platformWallet, false, TOKEN_2022_PROGRAM_ID);
+    const ata = getAssociatedTokenAddressSync(mint, creatorWallet, false, TOKEN_2022_PROGRAM_ID);
     const withdrawTx = new Transaction().add(
-      createAssociatedTokenAccountIdempotentInstruction(platformWallet, ata, platformWallet, mint, TOKEN_2022_PROGRAM_ID),
-      createWithdrawWithheldTokensFromMintInstruction(mint, ata, platformWallet, [], TOKEN_2022_PROGRAM_ID)
+      createAssociatedTokenAccountIdempotentInstruction(creatorWallet, ata, creatorWallet, mint, TOKEN_2022_PROGRAM_ID),
+      createWithdrawWithheldTokensFromMintInstruction(mint, ata, creatorWallet, [], TOKEN_2022_PROGRAM_ID)
     );
     withdrawTx.recentBlockhash = blockhash;
-    withdrawTx.feePayer = platformWallet;
+    withdrawTx.feePayer = creatorWallet;
     transactions.push({
       chain: this.chain,
       opaquePayload: withdrawTx,
-      humanSummary: [`Withdraw the accumulated Signal Fee to the Signal platform wallet's own token account (${ata.toBase58()})`],
+      humanSummary: [`Withdraw the accumulated Signal Fee to the token creator's own token account (${ata.toBase58()})`],
       metadata: { destinationAta: ata.toBase58() },
     });
 
@@ -483,7 +482,7 @@ export class SolanaAdapter implements BlockchainAdapter {
    * verification step: confirming what's actually enforced on-chain.
    * Returns null if the mint can't be read or has no TransferFeeConfig
    * extension. Under the current model, a healthy mint should show
-   * withdrawWithheldAuthority equal to the Signal platform wallet's
+   * withdrawWithheldAuthority equal to the token creator's
    * address, not the creator's.
    */
   async readTransferFeeConfig(mintAddress: string): Promise<{
