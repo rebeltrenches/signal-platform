@@ -23,7 +23,7 @@
  * that entire class of bug.
  */
 import type { TaxConfig, BasisPoints } from '@launchpad/types';
-import { PROTOCOL_MAX_TAX_BPS, LAUNCH_FEE_BPS } from '@launchpad/types';
+import { PROTOCOL_MAX_TAX_BPS, LAUNCH_FEE_BPS, LAUNCH_PRICE_LAMPORTS } from '@launchpad/types';
 
 export class InvalidTaxConfigError extends Error {}
 
@@ -80,22 +80,13 @@ export function computeTaxSplit(grossAmount: bigint, config: TaxConfig): TaxSpli
 }
 
 /**
- * The separate, one-time Launch Fee: 0% (LAUNCH_FEE_BPS) of the
- * creator's actual real launch/creation payment — the rent-exemption
- * lamports the creator is really paying to create the mint account,
- * never token supply or an assumed market value (neither is a real
- * payment being made). `actualPaymentLamports` should be the exact,
- * live-computed value from the chain at launch time (see
- * SolanaAdapter.ts), not a rounded or assumed figure. Returns the fee
- * amount only, in the same lamports unit — 100% of it goes to the
- * token creator, same as the transfer fee, with no further
- * split.
+ * One-time SIGNAL launch fee. The fee is 1% of the fixed 0.1 SOL
+ * launch-price basis, so today's fee is 0.001 SOL (1,000,000 lamports).
+ * It is separate from Solana rent/network costs and is paid to SIGNAL,
+ * never to the token creator.
  */
-export function computeLaunchFeeFromPayment(actualPaymentLamports: bigint): bigint {
-  if (actualPaymentLamports < 0n) {
-    throw new InvalidTaxConfigError('actualPaymentLamports cannot be negative.');
-  }
-  return (actualPaymentLamports * BigInt(LAUNCH_FEE_BPS)) / 10_000n;
+export function computeLaunchFee(): bigint {
+  return (LAUNCH_PRICE_LAMPORTS * BigInt(LAUNCH_FEE_BPS)) / 10_000n;
 }
 
 /** Basis points as a human string, e.g. 100 -> "1.00%". Display only — never compute with this. */
