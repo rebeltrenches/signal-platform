@@ -37,6 +37,23 @@ export default async function handler(req, res) {
     return json(res, 400, { error: "Invalid JSON-RPC request", code: "INVALID_RPC_REQUEST" });
   }
 
+  const allowedMethods = new Set([
+    "getAccountInfo",
+    "getBalance",
+    "getBlockHeight",
+    "getLatestBlockhash",
+    "getMultipleAccounts",
+    "getProgramAccounts",
+    "getSignatureStatuses",
+    "getTokenAccountBalance",
+    "getTokenAccountsByOwner",
+    "sendTransaction",
+    "simulateTransaction",
+  ]);
+  if (!allowedMethods.has(body.method)) {
+    return json(res, 403, { error: "Solana RPC method is not allowed", code: "RPC_METHOD_NOT_ALLOWED" });
+  }
+
   try {
     const upstream = await fetch(rpcUrl, {
       method: "POST",
