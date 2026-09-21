@@ -153,7 +153,8 @@
       const p = positions.get(node.address);
       const size = node.role === 'ROOT' ? 88 : 72;
       const label = node.address.length <= 12 ? node.address : `${node.address.slice(0, 6)}…${node.address.slice(-4)}`;
-      return `<button type="button" class="btn btn-ghost" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1">${escapeHtml(label)}</button>`;
+      const roleLabel = node.role === 'ROOT' ? 'Root wallet' : `Funding source · depth ${node.depth}`;
+      return `<button type="button" class="btn btn-ghost" aria-pressed="false" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1"><span style="display:block;font-family:inherit;font-size:.58rem;opacity:.7;margin-bottom:2px">${escapeHtml(roleLabel)}</span>${escapeHtml(label)}</button>`;
     }).join('');
 
     host.insertAdjacentHTML('afterbegin', `
@@ -173,6 +174,15 @@
       bubble.addEventListener('click', () => {
         const address = bubble.getAttribute('data-wallet-address');
         if (!address) return;
+
+        host.querySelectorAll('[data-wallet-address]').forEach((node) => {
+          const selected = node.getAttribute('data-wallet-address') === address;
+          node.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          node.style.outline = selected ? '2px solid var(--brand)' : '';
+          node.style.outlineOffset = selected ? '3px' : '';
+          node.style.transform = selected ? 'translate(-50%,-50%) scale(1.08)' : 'translate(-50%,-50%)';
+        });
+
         const evidence = trace.edges.filter((edge) => edge.from === address || edge.to === address);
         const existing = document.getElementById('wallet-bubble-evidence');
         if (existing) existing.remove();
