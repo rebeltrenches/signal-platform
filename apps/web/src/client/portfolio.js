@@ -9,16 +9,38 @@
   const tokensEl = document.getElementById("portfolio-tokens");
   if (!btn) return;
 
-  function row(label, value) {
+  function shortenMint(mint) {
+    return mint.length > 16 ? mint.slice(0, 8) + "…" + mint.slice(-6) : mint;
+  }
+
+  function row(token) {
     const div = document.createElement("div");
     div.className = "review-row";
-    const k = document.createElement("span");
-    k.className = "k";
-    k.textContent = label;
-    const v = document.createElement("span");
-    v.className = "v";
-    v.textContent = value;
-    div.append(k, v);
+
+    const identity = document.createElement("span");
+    identity.className = "k";
+
+    const primary = document.createElement("span");
+    primary.textContent = token.symbol || token.name || shortenMint(token.mint);
+    primary.title = token.mint;
+    identity.append(primary);
+
+    if (token.symbol || token.name) {
+      const mint = document.createElement("small");
+      mint.textContent = shortenMint(token.mint);
+      mint.title = token.mint;
+      mint.style.display = "block";
+      mint.style.marginTop = "3px";
+      mint.style.fontFamily = "monospace";
+      mint.style.opacity = "0.65";
+      identity.append(mint);
+    }
+
+    const value = document.createElement("span");
+    value.className = "v";
+    value.textContent = token.amount;
+
+    div.append(identity, value);
     return div;
   }
 
@@ -56,9 +78,9 @@
       solEl.textContent = `${Number(payload.lamports) / 1_000_000_000} SOL`;
       tokensEl.replaceChildren();
       if (Array.isArray(payload.tokens) && payload.tokens.length) {
-        for (const token of payload.tokens) tokensEl.append(row(token.mint, token.amount));
+        for (const token of payload.tokens) tokensEl.append(row(token));
       } else {
-        tokensEl.append(row("Tokens", "None held"));
+        tokensEl.append(row({ mint: "Tokens", amount: "None held" }));
       }
 
       skeletonEl.style.display = "none";
