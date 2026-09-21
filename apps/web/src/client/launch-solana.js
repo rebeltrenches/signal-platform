@@ -7,13 +7,9 @@
 // real, correct code and actually executing it against mainnet are two
 // different things; only the first has happened.
 //
-// Matches packages/blockchain/src/solana/SolanaAdapter.ts's exact
-// instruction sequence for the current fee model: mintAuthority stays
-// the connecting (launcher) wallet; transferFeeConfigAuthority and
-// withdrawWithheldAuthority are BOTH the creator wallet
-// The connected launcher is the token creator and holds both transfer-fee
-// authorities. The full 1% creator transfer fee is therefore collectible
-// by that creator wallet. No holder-rewards pool.
+// SIGNAL's 1% creator trading fee is paid in SOL by the trading layer.
+// It is deliberately NOT implemented as Token-2022 TransferFeeConfig,
+// because that mechanism withholds the launched token rather than SOL.
 //
 // Devnet is permanently excluded (docs/ROADMAP.md Stage 6). Browser RPC
 // traffic is routed through SIGNAL's server-side Mainnet proxy so the
@@ -23,7 +19,6 @@ import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/w
 import { apiUrl } from "./api-config.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
-const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% creator transfer fee
 const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
 const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
 
@@ -112,21 +107,16 @@ class LaunchFlow {
     return resp.publicKey;
   }
 
-  /** Mirrors SolanaAdapter.buildCreateTokenTransaction exactly: create
-   *  mint account + initialize 1% TransferFeeConfig (mintAuthority stays
-   *  the launcher; both fee authorities are the creator wallet,
-   *  not the launcher) + initialize the mint. Returns the built
-   *  transaction plus the new mint's keypair (needed again for its own
-   *  signature). The same transaction also pays SIGNAL's fixed 0.001 SOL launch fee
-   *  to the configured public platform wallet, so a mint cannot be created
-   *  through this flow without the launch fee instruction. */
-  async buildCreateTx(launcherPubkey, decimals, transferFeeBps) {
+  /** Create the mint account and initialize the mint.
+   *  SIGNAL's creator trading fee is not a Token-2022 transfer fee:
+   *  it will be collected in SOL by the trading layer. This avoids
+   *  accumulating potentially worthless project tokens.
+   *  The same transaction pays SIGNAL's fixed 0.001 SOL launch fee
+   *  to the public platform wallet. */
+  async buildCreateTx(launcherPubkey, decimals) {
 this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
-    const maxFee = BigInt(1_000_000) * 10n ** BigInt(decimals);
-
-    const extensions = [splToken.ExtensionType.TransferFeeConfig];
-    const mintLen = splToken.getMintLen(extensions);
+    const mintLen = splToken.MINT_SIZE;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
     const tx = new web3.Transaction().add(
@@ -142,15 +132,7 @@ this.mintKeypair = web3.Keypair.generate();
         lamports,
         programId: splToken.TOKEN_2022_PROGRAM_ID,
       }),
-      splToken.createInitializeTransferFeeConfigInstruction(
-        mint,
-        launcherPubkey, // creator controls transfer-fee configuration
-        launcherPubkey, // creator controls and receives withheld transfer fees
-        transferFeeBps,
-        maxFee,
-        splToken.TOKEN_2022_PROGRAM_ID
-      ),
-      splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_2022_PROGRAM_ID)
+splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_2022_PROGRAM_ID)
     );
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -387,7 +369,7 @@ function recordRealLaunch(entry) {
         }
         supply = BigInt(wizard.supply);
 
-        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals, DEFAULT_TOTAL_TRANSFER_FEE_BPS);
+        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals);
         mint = newMint;
         await flow.signSubmitConfirm(createTx, "mint");
 
