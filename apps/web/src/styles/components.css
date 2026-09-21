@@ -517,7 +517,7 @@
   box-shadow: 0 0 10px rgba(142, 68, 255, .6);
 }
 .hero-side-label-left { left: -7%; top: 88px; }
-.hero-side-label-right { right: -8%; top: 104px; text-align: left; }
+.hero-side-label-right { right: -12%; top: 104px; text-align: left; }
 
 @media (max-width: 860px) {
   .signal-coin-stage { width: min(430px, 90vw); }
