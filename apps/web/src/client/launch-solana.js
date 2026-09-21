@@ -10,11 +10,11 @@
 // Matches packages/blockchain/src/solana/SolanaAdapter.ts's exact
 // instruction sequence for the current fee model: mintAuthority stays
 // the connecting (launcher) wallet; transferFeeConfigAuthority and
-// withdrawWithheldAuthority are BOTH the Signal platform wallet
+// withdrawWithheldAuthority are BOTH the creator wallet
 // (window.SIGNAL_PLATFORM_WALLET, injected at build time — see
 // api-config.js's platformWalletAddress export and build.tsx/Shell.tsx).
-// The launcher receives 0% of the 1% Signal Fee on transfers; 100%
-// goes to the Signal platform wallet. No holder-rewards pool.
+// The launcher receives 0% of the 3% creator transfer fee on transfers; 100%
+// goes to the creator wallet. No holder-rewards pool.
 //
 // Devnet is permanently excluded (docs/ROADMAP.md Stage 6) — there is no
 // devnet option anywhere in this file, intentionally. The RPC below is a
@@ -23,10 +23,10 @@
 // rate-limit heavily.
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
-import { apiUrl, getPlatformWalletAddress } from "./api-config.js";
+import { apiUrl } from "./api-config.js";
 
 const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
-const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% — matches DEFAULT_TAX_CONFIG.totalBps in packages/types, kept in sync manually since this file can't import a TS package directly
+const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 300; // 1.00% — matches DEFAULT_TAX_CONFIG.totalBps in packages/types, kept in sync manually since this file can't import a TS package directly
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -114,23 +114,14 @@ class LaunchFlow {
   }
 
   /** Mirrors SolanaAdapter.buildCreateTokenTransaction exactly: create
-   *  mint account + initialize 1% TransferFeeConfig (mintAuthority stays
-   *  the launcher; both fee authorities are the Signal platform wallet,
+   *  mint account + initialize 3% TransferFeeConfig (mintAuthority stays
+   *  the launcher; both fee authorities are the creator wallet,
    *  not the launcher) + initialize the mint. Returns the built
    *  transaction plus the new mint's keypair (needed again for its own
    *  signature). Throws if the platform wallet isn't configured — never
    *  silently proceeds with an undefined fee recipient. */
   async buildCreateTx(launcherPubkey, decimals, transferFeeBps) {
-    const platformWalletStr = getPlatformWalletAddress();
-    if (!platformWalletStr) {
-      throw new Error(
-        "Signal platform wallet is not configured (SIGNAL_PLATFORM_WALLET was not set at build time). " +
-        "Refusing to build a launch transaction with no configured Signal Fee recipient."
-      );
-    }
-    const platformWallet = new web3.PublicKey(platformWalletStr);
-
-    this.mintKeypair = web3.Keypair.generate();
+this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
     const maxFee = BigInt(1_000_000) * 10n ** BigInt(decimals);
 
@@ -148,8 +139,8 @@ class LaunchFlow {
       }),
       splToken.createInitializeTransferFeeConfigInstruction(
         mint,
-        platformWallet, // transferFeeConfigAuthority -> the Signal platform wallet, not the creator
-        platformWallet, // withdrawWithheldAuthority  -> the Signal platform wallet, not the creator
+        launcherPubkey, // creator controls transfer-fee configuration
+        launcherPubkey, // creator controls and receives withheld transfer fees
         transferFeeBps,
         maxFee,
         splToken.TOKEN_2022_PROGRAM_ID
