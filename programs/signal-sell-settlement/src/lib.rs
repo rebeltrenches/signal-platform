@@ -19,8 +19,10 @@ const BPS_DENOMINATOR: u64 = 10_000;
 /// 1. program-controlled WSOL token account
 /// 2. creator WSOL token account
 /// 3. trader WSOL token account
-/// 4. WSOL mint
-/// 5. SPL Token program
+/// 4. creator wallet
+/// 5. trader wallet (signer)
+/// 6. WSOL mint
+/// 7. SPL Token program
 ///
 /// This first implementation splits the WSOL present in the settlement account.
 /// It MUST NOT be enabled for production until transaction orchestration proves
@@ -30,15 +32,24 @@ const BPS_DENOMINATOR: u64 = 10_000;
 pub fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
-    _data: &[u8],
+    data: &[u8],
 ) -> ProgramResult {
     let mut it = accounts.iter();
     let authority = next_account_info(&mut it)?;
     let settlement = next_account_info(&mut it)?;
     let creator = next_account_info(&mut it)?;
     let trader = next_account_info(&mut it)?;
+    let creator_wallet = next_account_info(&mut it)?;
+    let trader_wallet = next_account_info(&mut it)?;
     let mint = next_account_info(&mut it)?;
     let token_program = next_account_info(&mut it)?;
+
+    if data != [1] {
+        return Err(ProgramError::InvalidInstructionData);
+    }
+    if !trader_wallet.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
 
     if token_program.key != &spl_token::id() || mint.key != &spl_token::native_mint::id() {
         return Err(ProgramError::IncorrectProgramId);
@@ -65,7 +76,8 @@ pub fn process_instruction(
 
     let creator_state = TokenAccount::unpack(&creator.try_borrow_data()?)?;
     let trader_state = TokenAccount::unpack(&trader.try_borrow_data()?)?;
-    if creator_state.mint != *mint.key || trader_state.mint != *mint.key {
+    if creator_state.mint != *mint.key || trader_state.mint != *mint.key ||
+       creator_state.owner != *creator_wallet.key || trader_state.owner != *trader_wallet.key {
         return Err(ProgramError::InvalidAccountData);
     }
 
