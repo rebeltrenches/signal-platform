@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm --filter @launchpad/web build",
+  "installCommand": "cd ../.. && npx --yes pnpm@9.15.9 install --filter @launchpad/web... --no-frozen-lockfile",
+  "buildCommand": "cd ../.. && npx --yes pnpm@9.15.9 --filter @launchpad/web build",
   "outputDirectory": "dist"
 }
