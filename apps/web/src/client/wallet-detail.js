@@ -122,6 +122,65 @@
     }
   }
 
+
+  function renderBubbleMap(trace) {
+    const host = document.getElementById('wallet-bubble-map');
+    const empty = document.getElementById('wallet-bubble-map-empty');
+    if (!host || !trace?.nodes?.length) return;
+    if (empty) empty.hidden = true;
+
+    const sourceNodes = trace.nodes.filter((n) => n.role !== 'ROOT');
+    const positions = new Map();
+    trace.nodes.forEach((node) => {
+      if (node.role === 'ROOT') {
+        positions.set(node.address, { x: 50, y: 50 });
+        return;
+      }
+      const index = sourceNodes.findIndex((n) => n.address === node.address);
+      const radius = Math.min(38, 17 + (Math.max(1, node.depth) - 1) * 10);
+      const angle = ((index / Math.max(1, sourceNodes.length)) * Math.PI * 2) - Math.PI / 2;
+      positions.set(node.address, { x: 50 + Math.cos(angle) * radius, y: 50 + Math.sin(angle) * radius });
+    });
+
+    const lines = trace.edges.map((edge) => {
+      const from = positions.get(edge.from);
+      const to = positions.get(edge.to);
+      if (!from || !to) return '';
+      return `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" vector-effect="non-scaling-stroke" style="stroke:currentColor;opacity:.22;stroke-width:1.25" />`;
+    }).join('');
+
+    const bubbles = trace.nodes.map((node) => {
+      const p = positions.get(node.address);
+      const size = node.role === 'ROOT' ? 88 : 72;
+      const label = node.address.length <= 12 ? node.address : `${node.address.slice(0, 6)}…${node.address.slice(-4)}`;
+      return `<button type="button" class="btn btn-ghost" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1">${escapeHtml(label)}</button>`;
+    }).join('');
+
+    host.insertAdjacentHTML('afterbegin', `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:12px">
+          <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Signal Bubble Map</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">Observed funding relationships · ${escapeHtml(trace.chain)}</p></div>
+          <span class="badge">${trace.nodes.length} wallets</span>
+        </div>
+        <div style="position:relative;min-height:360px;overflow:hidden;border:1px solid var(--border);border-radius:16px">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%">${lines}</svg>
+          ${bubbles}
+        </div>
+        <div class="how-box" style="margin-top:12px">Each line represents an observed blockchain transaction path. Bubble size does not represent holdings yet.${trace.truncated ? ' This trace was truncated at its evidence limit.' : ''}</div>
+      </div>`);
+  }
+
+  (async function loadSignalTrace() {
+    try {
+      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/signal-trace?depth=3`));
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.trace) renderBubbleMap(body.trace);
+    } catch {
+      // Keep the honest empty state when trace evidence is unavailable.
+    }
+  })();
+
   (async function loadWalletIntelligence() {
     try {
       const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}`));
