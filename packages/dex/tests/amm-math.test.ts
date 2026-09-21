@@ -82,3 +82,29 @@ test('rejects a fee of 100% or more', () => {
 });
 
 console.log(`${passed} test(s) passed.`);
+
+
+describe('SOL creator fee settlement', () => {
+  it('charges exactly 1% in lamports', () => {
+    expect(SIGNAL_CREATOR_FEE_BPS).toBe(100);
+    expect(computeSolCreatorFee(1_000_000_000n)).toEqual({
+      grossSolLamports: 1_000_000_000n,
+      creatorFeeLamports: 10_000_000n,
+      netSolLamports: 990_000_000n,
+    });
+  });
+
+  it('uses integer lamport math without floating point', () => {
+    expect(computeSolCreatorFee(123_456_789n)).toEqual({
+      grossSolLamports: 123_456_789n,
+      creatorFeeLamports: 1_234_567n,
+      netSolLamports: 122_222_222n,
+    });
+  });
+
+  it('rejects invalid values', () => {
+    expect(() => computeSolCreatorFee(-1n)).toThrow();
+    expect(() => computeSolCreatorFee(1n, -1)).toThrow();
+    expect(() => computeSolCreatorFee(1n, 10000)).toThrow();
+  });
+});
