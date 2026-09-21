@@ -25,12 +25,12 @@
  * fabrication this project has avoided throughout.
  *
  * IMPORTANT HONESTY NOTE (read before trusting anything "worked"):
- * This file was written and reviewed in a sandboxed environment with NO
- * internet access. Every method that talks to the network has never
- * actually been executed against a live RPC endpoint. Zero real
- * transactions have been submitted under this authority model, on any
- * network, as of this writing. See docs/ROADMAP.md's Stage 6 section for
- * the exact status.
+ * The read-only Solana indexing path has been executed against Solana
+ * mainnet RPC and verified to persist token metadata and holder snapshots
+ * in isolated PostgreSQL during Stage 11 CI. Transaction-building/write
+ * paths remain unverified against live submission: zero real transactions
+ * have been submitted under this authority model as of this writing.
+ * See docs/ROADMAP.md's Stage 6 section for the broader status.
  *
  * SECURITY: no method in this class ever holds, requests, or uses the
  * launcher's private key. buildCreateTokenTransaction generates a fresh,
