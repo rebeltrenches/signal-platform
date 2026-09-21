@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "Multi-chain token launchpad and trading terminal (Solana, Base, BNB Chain)",
+  "packageManager": "pnpm@9.15.9",
   "workspaces": [
     "apps/*",
     "packages/*"
