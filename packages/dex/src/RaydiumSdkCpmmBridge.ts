@@ -1,6 +1,8 @@
 import BN from 'bn.js';
-import { PublicKey } from '@solana/web3.js';
-import { CurveCalculator, FeeOn, Raydium, TxVersion } from '@raydium-io/raydium-sdk-v2';
+import { PublicKey, Transaction } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { CurveCalculator, FeeOn, Raydium, TxVersion, getPdaObservationId, makeSwapCpmmBaseInInstruction } from '@raydium-io/raydium-sdk-v2';
+import { WRAPPED_SOL_MINT } from './sol-sell-accounts.js';
 import type { RaydiumPoolReader, RaydiumSwapBuilder, PoolReserves } from './RaydiumDexAdapter.js';
 
 const CPMM_PROGRAM_ID = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
@@ -77,6 +79,82 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
       feeBps: Math.floor(totalFeeRate / 100),
       liquidityUsd: typeof poolInfo.tvl === 'number' ? poolInfo.tvl : null,
     };
+  }
+
+
+  /**
+   * Build a CPMM SELL instruction whose WSOL output goes directly to SIGNAL's
+   * fresh trade-specific settlement account. This intentionally uses Raydium's
+   * official low-level CPMM instruction builder instead of the convenience
+   * swap() path, because the convenience path chooses/unwraps the trader's
+   * normal WSOL destination automatically.
+   */
+  async buildSellSwapToSettlement(params: {
+    poolAddress: string;
+    traderAddress: string;
+    inputToken: string;
+    amountIn: bigint;
+    minimumWsolOut: bigint;
+    settlementWsolAccount: string;
+  }): Promise<Transaction> {
+    const { poolInfo, poolKeys, rpcData } = await this.loadPool(params.poolAddress);
+    if (!poolKeys) throw new Error('Raydium CPMM pool keys are required for settlement-routed SELL.');
+    const trader = new PublicKey(params.traderAddress);
+    const inputMint = new PublicKey(params.inputToken);
+    const settlement = new PublicKey(params.settlementWsolAccount);
+
+    const baseIn = params.inputToken === poolInfo.mintA.address;
+    if (!baseIn && params.inputToken !== poolInfo.mintB.address) {
+      throw new Error('SELL input mint does not match the Raydium CPMM pool.');
+    }
+    const outputInfo = baseIn ? poolInfo.mintB : poolInfo.mintA;
+    if (outputInfo.address !== WRAPPED_SOL_MINT.toBase58()) {
+      throw new Error('SIGNAL creator-fee SELL settlement requires WSOL as the Raydium output mint.');
+    }
+
+    const inputInfo = baseIn ? poolInfo.mintA : poolInfo.mintB;
+    const inputProgram = new PublicKey(inputInfo.programId ?? TOKEN_PROGRAM_ID);
+    const outputProgram = new PublicKey(outputInfo.programId ?? TOKEN_PROGRAM_ID);
+    if (!outputProgram.equals(TOKEN_PROGRAM_ID)) {
+      throw new Error('Canonical WSOL must use the SPL Token program.');
+    }
+    const userInputAccount = getAssociatedTokenAddressSync(inputMint, trader, false, inputProgram);
+
+    const inputAmount = new BN(params.amountIn.toString());
+    const swapResult = CurveCalculator.swapBaseInput(
+      inputAmount,
+      baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
+      baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
+      rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,
+      rpcData.configInfo.protocolFeeRate,
+      rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB,
+    );
+    if (BigInt(swapResult.outputAmount.toString()) < params.minimumWsolOut) {
+      throw new Error('Fresh Raydium SELL output is below SIGNAL minimum received.');
+    }
+
+    const ix = makeSwapCpmmBaseInInstruction(
+      new PublicKey(poolInfo.programId),
+      trader,
+      new PublicKey(poolKeys.authority),
+      new PublicKey(poolKeys.config.id),
+      new PublicKey(poolInfo.id),
+      userInputAccount,
+      settlement,
+      new PublicKey(poolKeys.vault[baseIn ? 'A' : 'B']),
+      new PublicKey(poolKeys.vault[baseIn ? 'B' : 'A']),
+      inputProgram,
+      outputProgram,
+      inputMint,
+      WRAPPED_SOL_MINT,
+      getPdaObservationId(new PublicKey(poolInfo.programId), new PublicKey(poolInfo.id)).publicKey,
+      inputAmount,
+      new BN(params.minimumWsolOut.toString()),
+    );
+
+    return new Transaction().add(ix);
   }
 
   async buildSwapInstruction(params: {
