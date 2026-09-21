@@ -28,6 +28,8 @@ jobs:
         run: pnpm exec tsx packages/dex/tests/amm-math.test.ts
       - name: Raydium adapter tests
         run: pnpm exec tsx packages/dex/tests/RaydiumDexAdapter.test.ts
+      - name: Raydium SDK bridge typecheck
+        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts
       - name: BUY transaction assembly tests
         run: pnpm exec tsx packages/dex/tests/sol-trade-transaction.test.ts
       - name: SELL settlement tests
