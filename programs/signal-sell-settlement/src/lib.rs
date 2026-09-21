@@ -17,6 +17,15 @@ const CREATOR_FEE_BPS: u64 = 100;
 const BPS_DENOMINATOR: u64 = 10_000;
 const SETTLE_SELL: u8 = 1;
 
+fn split_creator_fee(gross: u64) -> Result<(u64, u64), ProgramError> {
+    if gross == 0 { return Err(ProgramError::InsufficientFunds); }
+    let creator_fee = gross.checked_mul(CREATOR_FEE_BPS)
+        .ok_or(ProgramError::ArithmeticOverflow)? / BPS_DENOMINATOR;
+    if creator_fee == 0 { return Err(ProgramError::InvalidArgument); }
+    let trader_amount = gross.checked_sub(creator_fee).ok_or(ProgramError::ArithmeticOverflow)?;
+    Ok((creator_fee, trader_amount))
+}
+
 /// Accounts:
 /// 0 authority PDA (writable; receives unwrapped SOL temporarily)
 /// 1 trade-specific WSOL settlement account (writable)
@@ -84,16 +93,7 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     }
 
     let gross = settlement_state.amount;
-    if gross == 0 {
-        return Err(ProgramError::InsufficientFunds);
-    }
-    let creator_fee = gross
-        .checked_mul(CREATOR_FEE_BPS).ok_or(ProgramError::ArithmeticOverflow)?
-        / BPS_DENOMINATOR;
-    if creator_fee == 0 {
-        return Err(ProgramError::InvalidArgument);
-    }
-    let trader_amount = gross.checked_sub(creator_fee).ok_or(ProgramError::ArithmeticOverflow)?;
+    let (creator_fee, trader_amount) = split_creator_fee(gross)?;
 
     let bump_seed = [bump];
     let seeds: &[&[u8]] = &[
@@ -131,4 +131,28 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_one_sol_exactly() {
+        let (creator, trader) = split_creator_fee(1_000_000_000).unwrap();
+        assert_eq!(creator, 10_000_000);
+        assert_eq!(trader, 990_000_000);
+    }
+
+    #[test]
+    fn rejects_amount_below_one_creator_lamport() {
+        assert!(split_creator_fee(99).is_err());
+    }
+
+    #[test]
+    fn preserves_every_lamport_in_split() {
+        let gross = 1_234_567_890;
+        let (creator, trader) = split_creator_fee(gross).unwrap();
+        assert_eq!(creator + trader, gross);
+    }
 }
