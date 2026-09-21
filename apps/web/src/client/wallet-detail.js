@@ -207,6 +207,50 @@
     });
   }
 
+  function renderHistoryReplay(replay) {
+    const host = document.getElementById('wallet-history-replay');
+    const empty = document.getElementById('wallet-history-replay-empty');
+    if (!host || !replay?.events?.length) return;
+    if (empty) empty.hidden = true;
+
+    const events = replay.events.map((event, index) => {
+      const from = event.from.length <= 16 ? event.from : `${event.from.slice(0, 7)}…${event.from.slice(-5)}`;
+      const to = event.to.length <= 16 ? event.to : `${event.to.slice(0, 7)}…${event.to.slice(-5)}`;
+      return `
+        <div class="card" style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span class="badge">Step ${index + 1}</span>
+            <strong style="font-size:.88rem">Funding evidence · depth ${escapeHtml(event.depth)}</strong>
+          </div>
+          ${reviewRow('From', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(from)}</span>`)}
+          ${reviewRow('To', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(to)}</span>`)}
+          ${reviewRow('Relationship', escapeHtml(event.relationshipType))}
+          ${reviewRow('Evidence source', escapeHtml(event.evidenceSource))}
+          ${reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(event.observedTxSignature)}</span>`)}
+        </div>`;
+    }).join('');
+
+    host.insertAdjacentHTML('afterbegin', `
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:12px">
+        <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Wallet History Replay</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">Evidence trace · ${escapeHtml(replay.chain)}</p></div>
+        <span class="badge">${replay.events.length} evidence steps</span>
+      </div>
+      ${events}
+      <div class="how-box" style="margin-top:12px">These steps replay the current evidence trace, not verified transaction time. Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
+    `);
+  }
+
+  (async function loadHistoryReplay() {
+    try {
+      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/history-replay?depth=3`));
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.replay) renderHistoryReplay(body.replay);
+    } catch {
+      // Keep the honest empty state when replay evidence is unavailable.
+    }
+  })();
+
   (async function loadSignalTrace() {
     try {
       const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/signal-trace?depth=3`));
