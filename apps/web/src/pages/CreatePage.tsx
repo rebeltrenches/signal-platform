@@ -140,15 +140,14 @@ export function CreatePage() {
                 <span style={{ font: 'var(--text-h2)' }}>{totalPct}</span>
                 <span className="hint" style={{ textTransform: 'none' }}>Transfer Fee — fixed, not adjustable per launch</span>
               </div>
-              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Signal platform wallet</span><span className="v">100% of the Signal Fee</span></div>
-              <div className="review-row"><span className="k">You (the creator)</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of the Signal Fee</span></div>
+              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Token creator</span><span className="v">100% of the creator trading fee</span></div>
+              <div className="review-row"><span className="k">SIGNAL platform share</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of creator trading fee</span></div>
+              <div className="review-row"><span className="k">Payout asset</span><span className="v">SOL</span></div>
               <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
               <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
-                100% of the {totalPct} Signal Fee goes to the Signal platform wallet — not to you, the
-                creator, and not to a holder-rewards pool. Enforced by Solana's Token-2022 program itself
-                (the platform wallet holds the withdraw authority, not you), capped protocol-wide at{' '}
-                {bpsToDisplay(PROTOCOL_MAX_TAX_BPS)}. See{' '}
-                <a href="/security" style={{ color: 'var(--brand)' }}>Security</a> for exactly how collection works.
+                The {totalPct} creator trading fee belongs to you, the token creator, and is designed to be
+                paid in SOL rather than withheld in your project token. SIGNAL's separate launch fee is 0.001 SOL.
+                The creator-fee SOL trading path is being completed before production launch.
               </p>
             </div>
           </div>
@@ -169,8 +168,9 @@ export function CreatePage() {
           <div className="review-row"><span className="k">Symbol</span><span className="v" id="rv-symbol">—</span></div>
           <div className="review-row"><span className="k">Total supply</span><span className="v" id="rv-supply">—</span></div>
           <div className="review-row"><span className="k">Decimals</span><span className="v" id="rv-decimals">—</span></div>
-          <div className="review-row"><span className="k">Signal Fee</span><span className="v" id="rv-creator-fee">—</span></div>
-          <div className="review-row"><span className="k">Signal platform wallet receives</span><span className="v" id="rv-platform-fee">—</span></div>
+          <div className="review-row"><span className="k">Creator trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
+          <div className="review-row"><span className="k">Creator fee payout</span><span className="v">SOL</span></div>
+          <div className="review-row"><span className="k">SIGNAL launch fee</span><span className="v">0.001 SOL</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" id="rv-holder-reward">—</span></div>
           <div className="review-row"><span className="k">Creator wallet</span><span className="v" id="rv-creator-wallet-live" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>Not connected</span></div>
         </div>
