@@ -50,6 +50,7 @@ import {
 import {
   ExtensionType,
   TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
   createInitializeTransferFeeConfigInstruction,
   createAssociatedTokenAccountInstruction,
@@ -102,6 +103,19 @@ export class SolanaAdapter implements BlockchainAdapter {
     this.connection = new Connection(config.rpcUrl, 'confirmed');
   }
 
+  /**
+   * Read paths must support both the original SPL Token program and
+   * Token-2022. Signal-created mints use Token-2022, but Stage 11 may
+   * index already-registered Solana tokens that use the legacy program.
+   */
+  private async getMintProgramId(mintPubkey: PublicKey): Promise<PublicKey> {
+    const account = await this.connection.getAccountInfo(mintPubkey, 'confirmed');
+    if (!account) throw new Error('Mint account not found.');
+    if (account.owner.equals(TOKEN_2022_PROGRAM_ID)) return TOKEN_2022_PROGRAM_ID;
+    if (account.owner.equals(TOKEN_PROGRAM_ID)) return TOKEN_PROGRAM_ID;
+    throw new Error(`Unsupported token program: ${account.owner.toBase58()}`);
+  }
+
   // -------------------------------------------------------------------
   // Read methods — real RPC calls. Every field that could fail to
   // resolve returns the DataPoint 'unavailable' state rather than a
@@ -111,7 +125,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTokenIdentity(tokenAddress: string): Promise<TokenIdentity | null> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       return {
         chain: this.chain,
         address: tokenAddress,
@@ -132,7 +147,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTokenSupplyInfo(tokenAddress: string): Promise<TokenSupplyInfo | null> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       return {
         totalSupply: mint.supply,
         decimals: mint.decimals,
@@ -147,13 +163,14 @@ export class SolanaAdapter implements BlockchainAdapter {
   async getTopHolders(tokenAddress: string, limit: number): Promise<HolderInfo[]> {
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
-      const accounts = await this.connection.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
+      const accounts = await this.connection.getProgramAccounts(programId, {
         filters: [{ memcmp: { offset: 0, bytes: tokenAddress } }],
       });
       const totalSupply = mint.supply;
       const holders = accounts
-        .map(({ pubkey, account }) => unpackAccount(pubkey, account, TOKEN_2022_PROGRAM_ID))
+        .map(({ pubkey, account }) => unpackAccount(pubkey, account, programId))
         .filter((acc) => acc.amount > 0n)
         .sort((a, b) => (a.amount > b.amount ? -1 : a.amount < b.amount ? 1 : 0))
         .slice(0, limit)
@@ -189,7 +206,8 @@ export class SolanaAdapter implements BlockchainAdapter {
 
     try {
       const mintPubkey = new PublicKey(tokenAddress);
-      const mint = await getMint(this.connection, mintPubkey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+      const programId = await this.getMintProgramId(mintPubkey);
+      const mint = await getMint(this.connection, mintPubkey, 'confirmed', programId);
       base.mintAuthorityActive = available(mint.mintAuthority !== null);
       base.freezeAuthorityActive = available(mint.freezeAuthority !== null);
 
