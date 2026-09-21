@@ -19,7 +19,12 @@ async function run() {
             confidenceLevel:'high', observedTxSignature:'Sig1', discoveredAt:new Date('2026-01-04T00:00:00Z'),
             walletB:{ address:'WalletB', chain:'SOLANA' },
           }],
-          relationshipsAsB: [],
+          relationshipsAsB: [{
+            id:'r2', relationshipType:'funded', evidenceSource:'BLOCKCHAIN_DERIVED',
+            evidenceDescription:'WalletC sent SOL to WalletA in transaction Sig2',
+            confidenceLevel:'high', observedTxSignature:'Sig2', discoveredAt:new Date('2026-01-02T00:00:00Z'),
+            walletA:{ address:'WalletC', chain:'SOLANA' },
+          }],
           notes: [],
         };
       },
@@ -52,6 +57,14 @@ async function run() {
   assert.equal(result.relationships[0]?.direction, 'outgoing');
   assert.equal(result.relationships[0]?.evidenceSource, 'BLOCKCHAIN_DERIVED');
   assert.equal(result.relationships[0]?.observedTxSignature, 'Sig1');
+  assert.deepEqual(result.relationshipSummary, {
+    directRelationshipCount: 2,
+    incomingCount: 1,
+    outgoingCount: 1,
+    blockchainDerivedCount: 2,
+    uniqueRelatedWalletCount: 2,
+    transactionEvidenceCount: 2,
+  });
   assert.equal((result as any).riskScore, undefined);
   assert.equal((result.relationships[0] as any).sameOwner, undefined);
 
@@ -66,8 +79,9 @@ async function run() {
   console.log('  ok  - first observed activity is queried independently of the 100-row activity window');
   console.log('  ok  - holder balances remain exact strings');
   console.log('  ok  - relationships preserve evidence and direction');
+  console.log('  ok  - relationship summary counts only observable direct evidence');
   console.log('  ok  - no risk score or wallet-ownership inference is fabricated');
   console.log('  ok  - missing wallets return null without invented data');
-  console.log('\n6 test(s) passed.');
+  console.log('\n7 test(s) passed.');
 }
 run().catch((err) => { console.error(err); process.exit(1); });
