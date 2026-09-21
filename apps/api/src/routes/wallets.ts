@@ -1,7 +1,24 @@
 import type { Handler } from '../router.js';
-import { getFundingAncestry, getWalletIntelligence } from '../wallets/walletIntelligenceStore.js';
+import { getFundingAncestry, getSignalTrace, getWalletIntelligence } from '../wallets/walletIntelligenceStore.js';
 
 const SUPPORTED_CHAINS = new Set(['SOLANA', 'BASE', 'BNB']);
+
+function validateWalletTraceRequest(req: Parameters<Handler>[0]) {
+  const chain = (req.params.chain ?? '').toUpperCase();
+  const address = (req.params.address ?? '').trim();
+  const requestedDepth = Number(req.query.get('depth') ?? '3');
+
+  if (!SUPPORTED_CHAINS.has(chain)) {
+    return { error: { status: 400, body: { error: 'VALIDATION_ERROR', message: 'chain must be SOLANA, BASE, or BNB.' } }, chain, address, requestedDepth };
+  }
+  if (!address) {
+    return { error: { status: 400, body: { error: 'VALIDATION_ERROR', message: 'wallet address is required.' } }, chain, address, requestedDepth };
+  }
+  if (!Number.isInteger(requestedDepth) || requestedDepth < 1 || requestedDepth > 6) {
+    return { error: { status: 400, body: { error: 'VALIDATION_ERROR', message: 'depth must be an integer from 1 to 6.' } }, chain, address, requestedDepth };
+  }
+  return { chain, address, requestedDepth };
+}
 
 export const getWalletIntelligenceRoute: Handler = async (req) => {
   const chain = (req.params.chain ?? '').toUpperCase();
@@ -32,19 +49,9 @@ export const getWalletIntelligenceRoute: Handler = async (req) => {
 };
 
 export const getWalletFundingAncestryRoute: Handler = async (req) => {
-  const chain = (req.params.chain ?? '').toUpperCase();
-  const address = (req.params.address ?? '').trim();
-  const requestedDepth = Number(req.query.get('depth') ?? '3');
-
-  if (!SUPPORTED_CHAINS.has(chain)) {
-    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'chain must be SOLANA, BASE, or BNB.' } };
-  }
-  if (!address) {
-    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'wallet address is required.' } };
-  }
-  if (!Number.isInteger(requestedDepth) || requestedDepth < 1 || requestedDepth > 6) {
-    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'depth must be an integer from 1 to 6.' } };
-  }
+  const parsed = validateWalletTraceRequest(req);
+  if (parsed.error) return parsed.error;
+  const { chain, address, requestedDepth } = parsed;
 
   const ancestry = await getFundingAncestry(chain, address, requestedDepth);
   if (!ancestry) {
@@ -60,4 +67,16 @@ export const getWalletFundingAncestryRoute: Handler = async (req) => {
       },
     },
   };
+};
+
+export const getWalletSignalTraceRoute: Handler = async (req) => {
+  const parsed = validateWalletTraceRequest(req);
+  if (parsed.error) return parsed.error;
+  const { chain, address, requestedDepth } = parsed;
+
+  const trace = await getSignalTrace(chain, address, requestedDepth);
+  if (!trace) {
+    return { status: 404, body: { error: 'NOT_FOUND', message: 'Signal Trace storage is not available.' } };
+  }
+  return { status: 200, body: { trace } };
 };
