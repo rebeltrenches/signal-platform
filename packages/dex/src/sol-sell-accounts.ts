@@ -14,8 +14,6 @@ export interface SolSellSettlementAccounts {
   settlementWsolAccount: PublicKey;
   creator: PublicKey;
   trader: PublicKey;
-  creatorWsolAccount: PublicKey;
-  traderWsolAccount: PublicKey;
 }
 
 export function deriveSolSellSettlementAccounts(params: {
@@ -36,8 +34,5 @@ export function deriveSolSellSettlementAccounts(params: {
     programId,
   );
   const settlementWsolAccount = getAssociatedTokenAddressSync(WRAPPED_SOL_MINT, authority, true, TOKEN_PROGRAM_ID);
-  const creatorWsolAccount = getAssociatedTokenAddressSync(WRAPPED_SOL_MINT, creator, false, TOKEN_PROGRAM_ID);
-  const traderWsolAccount = getAssociatedTokenAddressSync(WRAPPED_SOL_MINT, trader, false, TOKEN_PROGRAM_ID);
-
-  return { authority, settlementWsolAccount, creator, trader, creatorWsolAccount, traderWsolAccount };
+  return { authority, settlementWsolAccount, creator, trader };
 }
