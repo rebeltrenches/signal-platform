@@ -54,6 +54,13 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
       discoveredAt: iso(row.discoveredAt),
     });
 
+    const relationships = [
+      ...(wallet.relationshipsAsA ?? []).map((r: any) => mapRelationship(r, 'outgoing', r.walletB)),
+      ...(wallet.relationshipsAsB ?? []).map((r: any) => mapRelationship(r, 'incoming', r.walletA)),
+    ].sort((a, b) => b.discoveredAt.localeCompare(a.discoveredAt));
+    const uniqueRelatedWallets = new Set(relationships.map((r) => `${r.relatedWallet.chain}:${r.relatedWallet.address}`));
+    const transactionEvidence = new Set(relationships.flatMap((r) => r.observedTxSignature ? [r.observedTxSignature] : []));
+
     return {
       address: wallet.address,
       chain: wallet.chain,
@@ -75,10 +82,15 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
         id: t.id, chain: t.chain, address: t.address, name: t.name,
         symbol: t.symbol, decimals: t.decimals, createdAt: iso(t.createdAt),
       })),
-      relationships: [
-        ...(wallet.relationshipsAsA ?? []).map((r: any) => mapRelationship(r, 'outgoing', r.walletB)),
-        ...(wallet.relationshipsAsB ?? []).map((r: any) => mapRelationship(r, 'incoming', r.walletA)),
-      ].sort((a, b) => b.discoveredAt.localeCompare(a.discoveredAt)),
+      relationships,
+      relationshipSummary: {
+        directRelationshipCount: relationships.length,
+        incomingCount: relationships.filter((r) => r.direction === 'incoming').length,
+        outgoingCount: relationships.filter((r) => r.direction === 'outgoing').length,
+        blockchainDerivedCount: relationships.filter((r) => r.evidenceSource === 'BLOCKCHAIN_DERIVED').length,
+        uniqueRelatedWalletCount: uniqueRelatedWallets.size,
+        transactionEvidenceCount: transactionEvidence.size,
+      },
       notes: (wallet.notes ?? []).map((n: any) => ({
         id: n.id, note: n.note, evidenceSource: n.evidenceSource,
         evidenceTxSignature: n.evidenceTxSignature ?? null, createdAt: iso(n.createdAt),
