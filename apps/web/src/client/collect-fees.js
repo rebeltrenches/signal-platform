@@ -8,7 +8,7 @@
 // mirrors SolanaAdapter.buildCreateTokenTransaction. Never executed
 // against a real network from this sandbox — no internet access here.
 //
-// Model, updated: 3% creator transfer fee on transfers, 100% to the Signal
+// Model, updated: 1% creator transfer fee on transfers, 100% to the Signal
 // creator wallet (window.SIGNAL_PLATFORM_WALLET) — not the creator,
 // who now receives none of it. The ONLY wallet that can ever receive
 // anything here is the token creator itself; this file
