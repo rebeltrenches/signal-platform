@@ -22,9 +22,11 @@ const BPS_DENOMINATOR: u64 = 10_000;
 /// 4. WSOL mint
 /// 5. SPL Token program
 ///
-/// The program measures the WSOL already present in the settlement account and
-/// splits that actual amount 1% / 99%. The authority must be a PDA owned by
-/// this program; no private platform signing key is used.
+/// This first implementation splits the WSOL present in the settlement account.
+/// It MUST NOT be enabled for production until transaction orchestration proves
+/// the account starts empty for each trade (or a baseline/delta state is added).
+/// Otherwise a pre-existing balance could be included in the split. The authority
+/// is a PDA; no private platform signing key is used.
 pub fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
