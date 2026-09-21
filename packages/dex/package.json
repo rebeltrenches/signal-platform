@@ -4,6 +4,10 @@
   "private": true,
   "main": "src/DexAdapter.ts",
   "dependencies": {
-    "@launchpad/types": "workspace:*"
+    "@launchpad/types": "workspace:*",
+    "@raydium-io/raydium-sdk-v2": "^0.2.71-alpha",
+    "@solana/web3.js": "^1.98.4",
+    "@solana/spl-token": "^0.4.14",
+    "bn.js": "^5.2.2"
   }
 }
