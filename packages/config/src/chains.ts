@@ -20,10 +20,10 @@ export interface ChainConfig {
    *  ever) deployment is added. Requires a real indexer/data source —
    *  Stage 11 — not implemented for any chain yet, including Solana. */
   discoverySupported: boolean;
-  /** Whether the transaction-tax mechanism is available on this chain.
-   *  Solana: yes, via Token-2022's native TransferFeeConfig extension
-   *  (audited, no custom contract). EVM chains: no, until a custom tax
-   *  contract is written AND audited — see docs/ARCHITECTURE.md ADR-0003. */
+  /** Whether SIGNAL's creator trading-fee routing is supported on this chain.
+   *  On Solana this is native-SOL settlement in SIGNAL-routed trades; it is
+   *  not a Token-2022 transfer fee. The legacy property name is retained to
+   *  avoid a broad API break while Stage 3 is isolated. */
   taxSupported: boolean;
   defaultTaxConfig: TaxConfig;
   nativeCurrencySymbol: string;
@@ -62,7 +62,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     displayName: 'Base',
     adapterImplemented: false, // becomes true at Stage 7
     discoverySupported: false,
-    taxSupported: false, // deferred — see ADR-0003
+    taxSupported: false, // creator-fee routing not implemented yet
     defaultTaxConfig: DISABLED_TAX_CONFIG,
     nativeCurrencySymbol: 'ETH',
     blockExplorerUrl: 'https://basescan.org',
@@ -74,7 +74,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     displayName: 'BNB Chain',
     adapterImplemented: false, // becomes true at Stage 7
     discoverySupported: false,
-    taxSupported: false, // deferred — see ADR-0003
+    taxSupported: false, // creator-fee routing not implemented yet
     defaultTaxConfig: DISABLED_TAX_CONFIG,
     nativeCurrencySymbol: 'BNB',
     blockExplorerUrl: 'https://bscscan.com',
