@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createServer } from '../src/server.js';
 import { __resetForTests } from '../src/chat/store.js';
+import { issueSessionToken } from '../src/auth/AuthSession.js';
 
 const PORT = 4123;
 const BASE = `http://localhost:${PORT}`;
@@ -85,6 +86,8 @@ async function deleteReq(path: string, fields: { walletAddress: string; signatur
 
 async function main() {
   __resetForTests();
+  const previousAuthSecret = process.env.AUTH_SECRET;
+  process.env.AUTH_SECRET = 'chat-session-test-secret-that-is-not-a-placeholder';
   const server = createServer();
   await new Promise<void>((resolve) => server.listen(PORT, resolve));
   console.log('chat.test.ts\n');
@@ -106,6 +109,27 @@ async function main() {
 
       const after = await req('GET', '/api/v1/chat/main/messages');
       test('the message is really persisted — a second fetch sees it', after.json.messages.length === 1 && after.json.messages[0].content === 'hello signal');
+    }
+
+    // ---- One-signature session auth (normal chat UX) ----
+    {
+      const sessionWallet = makeWallet();
+      const token = issueSessionToken(sessionWallet.address, 'solana');
+      const posted = await fetch(`${BASE}/api/v1/chat/main/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: 'sent with one wallet session' }),
+      });
+      const postedJson: any = await posted.json();
+      test('a valid wallet session posts without a per-message signature', posted.status === 201, JSON.stringify(postedJson));
+      test('session-authenticated posts use the verified session wallet', postedJson?.message?.walletAddress === sessionWallet.address);
+
+      const invalid = await fetch(`${BASE}/api/v1/chat/main/messages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer invalid.session.token' },
+        body: JSON.stringify({ content: 'must not post' }),
+      });
+      test('an invalid wallet session is rejected', invalid.status === 403);
     }
 
     // ---- Signature verification (the real anti-impersonation mechanism) ----
@@ -235,6 +259,8 @@ async function main() {
     }
   } finally {
     server.close();
+    if (previousAuthSecret === undefined) delete process.env.AUTH_SECRET;
+    else process.env.AUTH_SECRET = previousAuthSecret;
   }
 
   console.log(`\n${passed} test(s) passed.`);

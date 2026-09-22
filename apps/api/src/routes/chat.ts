@@ -1,19 +1,16 @@
 /**
- * Chat route handlers. Every write (post, report, delete) requires a
- * real Ed25519 signature over a canonical payload — see chat/verify.ts
- * for why. The canonical signed string is:
+ * Chat route handlers. Writes accept the preferred authenticated wallet
+ * session (one Ed25519 sign-in per 24 hours) and, for compatibility with
+ * older clients, a real Ed25519 signature over a canonical payload:
  *
  *   signal-chat|<roomId>|<action>|<content-or-messageId>|<timestampMs>
  *
  * Including the room id and action in the signed payload means a valid
  * signature for "post 'hello' to the main room at time T" can't be
  * replayed as a report or a delete, and can't be replayed into a
- * different room. The timestamp is checked against server time within
- * SIGNATURE_MAX_AGE_MS — bounding how long a captured signature stays
- * usable, a standard real anti-replay measure for this shape of request
- * (there's no session/nonce system in this project — Stage 19 doesn't
- * exist — so a time-bounded signature is the honest, real mechanism
- * that fits what's actually here).
+ * different room. Legacy signature timestamps are checked against server
+ * time within SIGNATURE_MAX_AGE_MS; sessions are signed and expiry-checked
+ * by AuthSession.ts.
  *
  * XSS: content is HTML-escaped before ever being stored, not only at
  * render time — so every current and future reader of this API (this
@@ -22,6 +19,7 @@
  */
 import type { Handler } from '../router.js';
 import { verifyWalletSignature } from '../chat/verify.js';
+import { verifySessionToken } from '../auth/AuthSession.js';
 import {
   getMainRoom,
   getOrCreateTokenRoom,
@@ -84,6 +82,29 @@ function verifyWriteRequest(
   return { walletAddress, timestamp };
 }
 
+/** Prefer the short-lived authenticated wallet session used elsewhere
+ *  in the app. This lets a wallet prove ownership once and then chat
+ *  normally without a Phantom approval for every message. The legacy
+ *  per-action signature remains accepted for older clients. */
+function verifyWriteIdentity(
+  req: Parameters<Handler>[0],
+  fields: unknown,
+  roomId: string,
+  action: string,
+  payload: string
+): { walletAddress: string } {
+  const rawHeader = req.headers.authorization;
+  const authorization = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
+  if (authorization?.startsWith('Bearer ')) {
+    const session = verifySessionToken(authorization.slice('Bearer '.length));
+    if (!session || session.chain.toLowerCase() !== 'solana') {
+      throw new UnauthorizedError('Your wallet session has expired — sign in again to continue.');
+    }
+    return { walletAddress: session.address };
+  }
+  return verifyWriteRequest(fields, roomId, action, payload);
+}
+
 function serializeMessage(m: ChatMessage) {
   // A deleted message is returned as a real tombstone — never with its
   // original content — so room ordering/counts stay stable for anyone
@@ -121,7 +142,7 @@ export const postMainMessage: Handler = async (req) => {
     const room = await getMainRoom();
     const body = (req.body ?? {}) as Record<string, unknown>;
     const content = typeof body.content === 'string' ? body.content : '';
-    const { walletAddress } = verifyWriteRequest(req.body, room.id, 'post', content);
+    const { walletAddress } = verifyWriteIdentity(req, req.body, room.id, 'post', content);
     const message = await postMessage(room.id, walletAddress, escapeHtml(content));
     return { status: 201, body: { message: serializeMessage(message) } };
   } catch (err) {
@@ -143,7 +164,7 @@ export const postTokenMessage: Handler = async (req) => {
     const room = await getOrCreateTokenRoom(tokenAddress);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const content = typeof body.content === 'string' ? body.content : '';
-    const { walletAddress } = verifyWriteRequest(req.body, room.id, 'post', content);
+    const { walletAddress } = verifyWriteIdentity(req, req.body, room.id, 'post', content);
     const message = await postMessage(room.id, walletAddress, escapeHtml(content));
     return { status: 201, body: { message: serializeMessage(message) } };
   } catch (err) {
@@ -157,7 +178,7 @@ export const reportChatMessage: Handler = async (req) => {
     // The message id is already globally unique, so it — not a room id —
     // is what actually needs to be bound into the signature here; "msg"
     // is a fixed, documented scope segment, not a real room reference.
-    const { walletAddress } = verifyWriteRequest(req.body, 'msg', 'report', messageId);
+    const { walletAddress } = verifyWriteIdentity(req, req.body, 'msg', 'report', messageId);
     const message = await reportMessage(messageId, walletAddress);
     return { status: 200, body: { message: serializeMessage(message) } };
   } catch (err) {
@@ -192,7 +213,7 @@ export const deleteChatMessage: Handler = async (req) => {
       signature: req.query.get('signature'),
       timestamp: req.query.get('timestamp') !== null ? Number(req.query.get('timestamp')) : undefined,
     };
-    const { walletAddress } = verifyWriteRequest(fields, 'msg', 'delete', messageId);
+    const { walletAddress } = verifyWriteIdentity(req, fields, 'msg', 'delete', messageId);
     if (!isModerator(walletAddress)) {
       return { status: 403, body: { error: 'UNAUTHORIZED', message: 'Only an authorized moderator can remove a message.' } };
     }

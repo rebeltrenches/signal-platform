@@ -28,8 +28,8 @@ export function CommunityPage() {
       <p className="hint" style={{ marginTop: 16, textTransform: 'none', color: 'var(--ink-faint)' }}>
         Messages are stored for as long as the server keeps running, not in a permanent database yet
         — see <a href="/security" style={{ color: 'var(--brand)' }}>Security</a> for exactly what
-        that means. Every message here is signed by the sender's own wallet; nobody can post as an
-        address they don't control.
+        that means. Your wallet signs in once per 24-hour session, then messages send without
+        repeated wallet prompts. Nobody can post as an address they don't control.
       </p>
     </div>
   );
