@@ -15,7 +15,7 @@ export default {
           { status: 405, headers: { "cache-control": "no-store, max-age=0" } },
         );
       }
-      return portfolio({ request });
+      return portfolio({ request, env });
     }
 
     if (url.pathname === "/api/solana/rpc") {
