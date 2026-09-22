@@ -29,10 +29,10 @@ test('BUY assembly prepends exact 1% creator SOL transfer', () => {
   assert.equal(result.raydiumInputLamports, 990_000_000n);
   assert.ok(result.transaction instanceof Transaction);
   assert.equal(result.transaction.instructions.length, 2);
-  assert.ok(result.transaction.instructions[0].programId.equals(SystemProgram.programId));
-  assert.ok(result.transaction.instructions[0].keys[0].pubkey.equals(buyer));
-  assert.ok(result.transaction.instructions[0].keys[1].pubkey.equals(creator));
-  assert.ok(result.transaction.instructions[1].programId.equals(raydiumProgram));
+  assert.ok(result.transaction.instructions[0]!.programId.equals(SystemProgram.programId));
+  assert.ok(result.transaction.instructions[0]!.keys[0]!.pubkey.equals(buyer));
+  assert.ok(result.transaction.instructions[0]!.keys[1]!.pubkey.equals(creator));
+  assert.ok(result.transaction.instructions[1]!.programId.equals(raydiumProgram));
 });
 
 test('BUY assembly rejects zero or negative gross SOL amounts', () => {

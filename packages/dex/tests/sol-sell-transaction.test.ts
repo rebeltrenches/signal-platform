@@ -21,8 +21,8 @@ test('atomic SELL orders create -> Raydium -> settlement', () => {
   const result = assembleAtomicSolSellTransaction({ programId, creatorAddress, traderAddress, tradeId: TRADE_ID, raydiumTransaction: raydium });
   assert.ok(result.transaction instanceof Transaction);
   assert.equal(result.transaction.instructions.length, 3);
-  assert.ok(result.transaction.instructions[1].programId.equals(raydiumProgram));
-  assert.ok(result.transaction.instructions[2].programId.equals(new PublicKey(programId)));
+  assert.ok(result.transaction.instructions[1]!.programId.equals(raydiumProgram));
+  assert.ok(result.transaction.instructions[2]!.programId.equals(new PublicKey(programId)));
 });
 
 test('SELL fails closed if Raydium output is not routed to settlement account', () => {

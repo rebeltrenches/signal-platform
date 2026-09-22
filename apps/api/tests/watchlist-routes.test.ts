@@ -50,14 +50,14 @@ function sign(privateKey: crypto.KeyObject, message: string): string {
 }
 
 async function signIn(base: string, wallet: ReturnType<typeof makeWallet>): Promise<string> {
-  const challenge = await (await fetch(`${base}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
+  const challenge: any = await (await fetch(`${base}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
   const signature = sign(wallet.privateKey, challenge.message);
   const sessionRes = await fetch(`${base}/api/v1/auth/session`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ address: wallet.address, chain: 'solana', nonce: challenge.nonce, timestamp: challenge.timestamp, signature }),
   });
-  const sessionBody = await sessionRes.json();
+  const sessionBody: any = await sessionRes.json();
   return sessionBody.sessionToken;
 }
 
@@ -85,17 +85,17 @@ async function run() {
       headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenA}` },
       body: JSON.stringify({ value: 'SomeTokenMintAddress111' }),
     });
-    const addBody = await addRes.json();
+    const addBody: any = await addRes.json();
     test('POST with a valid session adds a real item, 201', addRes.status === 201 && addBody.item?.value === 'SomeTokenMintAddress111');
 
     // --- Real list, scoped to the authenticated wallet ---
     const listRes = await fetch(`${BASE}/api/v1/watchlist`, { headers: { authorization: `Bearer ${tokenA}` } });
-    const listBody = await listRes.json();
+    const listBody: any = await listRes.json();
     test('GET returns wallet A\'s own item', listRes.status === 200 && listBody.items.length === 1);
 
     // --- A DIFFERENT wallet's session sees an empty list — real isolation ---
     const listBRes = await fetch(`${BASE}/api/v1/watchlist`, { headers: { authorization: `Bearer ${tokenB}` } });
-    const listBBody = await listBRes.json();
+    const listBBody: any = await listBRes.json();
     test('GET for a different wallet\'s session sees NONE of wallet A\'s items', listBRes.status === 200 && listBBody.items.length === 0);
 
     // --- Wallet B cannot delete wallet A's item ---
@@ -108,7 +108,7 @@ async function run() {
 
     // --- Confirm it's genuinely still there after the rejected attempt ---
     const stillThereRes = await fetch(`${BASE}/api/v1/watchlist`, { headers: { authorization: `Bearer ${tokenA}` } });
-    const stillThereBody = await stillThereRes.json();
+    const stillThereBody: any = await stillThereRes.json();
     test('the item still exists for its real owner after the rejected cross-wallet delete attempt', stillThereBody.items.length === 1);
 
     // --- The real owner CAN delete their own item ---
@@ -119,7 +119,7 @@ async function run() {
     test('DELETE by the real owner succeeds', realDeleteRes.status === 200);
 
     const finalListRes = await fetch(`${BASE}/api/v1/watchlist`, { headers: { authorization: `Bearer ${tokenA}` } });
-    const finalListBody = await finalListRes.json();
+    const finalListBody: any = await finalListRes.json();
     test('the item is genuinely gone after the real owner deletes it', finalListBody.items.length === 0);
 
     console.log(`\n${passed} test(s) passed.`);

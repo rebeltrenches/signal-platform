@@ -28,6 +28,7 @@ export interface WalletHistoryReplay {
  */
 export function buildWalletHistoryReplay(trace: SignalTraceResult): WalletHistoryReplay {
   const events = trace.edges
+    .filter((edge) => edge.evidenceSource === 'BLOCKCHAIN_DERIVED')
     .map((edge, index) => ({ edge, originalIndex: index }))
     .sort((a, b) => a.edge.depth - b.edge.depth || a.originalIndex - b.originalIndex)
     .map(({ edge }, index) => ({
@@ -36,7 +37,7 @@ export function buildWalletHistoryReplay(trace: SignalTraceResult): WalletHistor
       from: edge.from,
       to: edge.to,
       relationshipType: edge.relationshipType,
-      evidenceSource: edge.evidenceSource,
+      evidenceSource: 'BLOCKCHAIN_DERIVED' as const,
       observedTxSignature: edge.observedTxSignature,
     }));
 

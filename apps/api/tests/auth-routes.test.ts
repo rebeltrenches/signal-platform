@@ -57,7 +57,7 @@ async function run() {
     const wallet = makeWallet();
 
     const challengeRes = await fetch(`${BASE}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`);
-    const challengeBody = await challengeRes.json();
+    const challengeBody: any = await challengeRes.json();
     test('requesting a challenge returns 200 with a real message to sign', challengeRes.status === 200 && typeof challengeBody.message === 'string');
 
     const signature = sign(wallet.privateKey, challengeBody.message);
@@ -66,13 +66,13 @@ async function run() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ address: wallet.address, chain: 'solana', nonce: challengeBody.nonce, timestamp: challengeBody.timestamp, signature }),
     });
-    const sessionBody = await sessionRes.json();
+    const sessionBody: any = await sessionRes.json();
     test('a real, correctly-signed challenge exchanges for a real session token', sessionRes.status === 200 && typeof sessionBody.sessionToken === 'string');
 
     const meRes = await fetch(`${BASE}/api/v1/auth/session`, {
       headers: { authorization: `Bearer ${sessionBody.sessionToken}` },
     });
-    const meBody = await meRes.json();
+    const meBody: any = await meRes.json();
     test('the real session token authenticates a subsequent request via the standard Authorization header', meRes.status === 200 && meBody.address === wallet.address);
 
     const replayRes = await fetch(`${BASE}/api/v1/auth/session`, {
@@ -86,7 +86,7 @@ async function run() {
     test('no Authorization header at all is honestly rejected as unauthorized', noAuthRes.status === 401, String(noAuthRes.status));
 
     const forger = makeWallet();
-    const challenge2 = await (await fetch(`${BASE}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
+    const challenge2: any = await (await fetch(`${BASE}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
     const forgedSig = sign(forger.privateKey, challenge2.message);
     const forgedRes = await fetch(`${BASE}/api/v1/auth/session`, {
       method: 'POST',

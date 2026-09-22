@@ -47,11 +47,11 @@ function run() {
     edges: [],
     truncated: true,
   });
-  assert.equal(short.nodes[0].label, 'Short');
+  assert.equal(short.nodes[0]!.label, 'Short');
   assert.equal(short.truncated, true);
 
-  assert.equal('size' in map.nodes[0], false);
-  assert.equal('holdings' in map.nodes[0], false);
+  assert.equal('size' in map.nodes[0]!, false);
+  assert.equal('holdings' in map.nodes[0]!, false);
 
   console.log('  ok  - converts Signal Trace nodes to graph-ready bubbles');
   console.log('  ok  - preserves transaction evidence on every edge');

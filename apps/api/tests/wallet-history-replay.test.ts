@@ -14,6 +14,7 @@ function run() {
     edges: [
       { from: 'Grandparent', to: 'Parent', depth: 2, relationshipType: 'funded', evidenceSource: 'BLOCKCHAIN_DERIVED', observedTxSignature: 'sig-2' },
       { from: 'Parent', to: 'Root', depth: 1, relationshipType: 'funded', evidenceSource: 'BLOCKCHAIN_DERIVED', observedTxSignature: 'sig-1' },
+      { from: 'Claimed', to: 'Root', depth: 1, relationshipType: 'funded', evidenceSource: 'SIGNAL_VERIFIED', observedTxSignature: 'claim-only' },
     ],
     summary: { fundingSourceCount: 2, transactionEvidenceCount: 2, deepestObservedDepth: 2 },
     truncated: false,
@@ -25,9 +26,10 @@ function run() {
   assert.equal(replay.events.length, 2);
   assert.deepEqual(replay.events.map((event) => event.depth), [1, 2]);
   assert.deepEqual(replay.events.map((event) => event.sequence), [1, 2]);
-  assert.equal(replay.events[0].observedTxSignature, 'sig-1');
-  assert.equal(replay.events[1].observedTxSignature, 'sig-2');
+  assert.equal(replay.events[0]!.observedTxSignature, 'sig-1');
+  assert.equal(replay.events[1]!.observedTxSignature, 'sig-2');
   assert.ok(replay.events.every((event) => event.evidenceSource === 'BLOCKCHAIN_DERIVED'));
+  assert.ok(replay.events.every((event) => event.observedTxSignature !== 'claim-only'));
   assert.equal(replay.evidencePolicy.ownershipInference, false);
   assert.match(replay.evidencePolicy.note, /not transaction time/i);
   assert.equal(replay.truncated, false);

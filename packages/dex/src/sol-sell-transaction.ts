@@ -53,7 +53,7 @@ export function assembleAtomicSolSellTransaction(params: {
     throw new Error('Versioned Raydium SELL is missing required address lookup table accounts.');
   }
   for (let i = 0; i < lookups.length; i++) {
-    if (!lookups[i].key.equals(params.raydiumTransaction.message.addressTableLookups[i].accountKey)) {
+    if (!lookups[i]!.key.equals(params.raydiumTransaction.message.addressTableLookups[i]!.accountKey)) {
       throw new Error('Versioned Raydium SELL address lookup table order/key mismatch.');
     }
   }
