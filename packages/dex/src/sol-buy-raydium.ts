@@ -28,12 +28,15 @@ export async function buildAtomicRaydiumSolBuyWithSlippage(params: {
   const preview = prepareSolBuySettlement(params.grossSolLamports);
   if (preview.creatorFeeLamports <= 0n) throw new Error('Trade amount is too small to produce a creator fee in lamports.');
 
+  if (params.outputToken === WRAPPED_SOL_MINT.toBase58()) throw new Error('BUY output token must not be WSOL.');
+
   const quotedTokenOut = await params.bridge.quoteSwap({
     poolAddress: params.poolAddress,
     inputToken: WRAPPED_SOL_MINT.toBase58(),
     outputToken: params.outputToken,
     amountIn: preview.raydiumInputLamports,
   });
+  if (quotedTokenOut <= 0n) throw new Error('BUY Raydium quote must be greater than zero.');
   const minimumTokenOut = quotedTokenOut * BigInt(10_000 - params.slippageBps) / 10_000n;
   if (minimumTokenOut <= 0n) throw new Error('BUY minimum token output must be greater than zero.');
 
