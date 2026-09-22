@@ -92,6 +92,27 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
    * swap() path, because the convenience path chooses/unwraps the trader's
    * normal WSOL destination automatically.
    */
+  async quoteSellToWsol(params: { poolAddress: string; inputToken: string; amountIn: bigint }): Promise<bigint> {
+    if (params.amountIn <= 0n) throw new Error('SELL amount must be greater than zero.');
+    this.pools.delete(params.poolAddress);
+    const { poolInfo, rpcData } = await this.loadPool(params.poolAddress);
+    const baseIn = params.inputToken === poolInfo.mintA.address;
+    if (!baseIn && params.inputToken !== poolInfo.mintB.address) throw new Error('SELL input mint does not match the Raydium CPMM pool.');
+    const outputInfo = baseIn ? poolInfo.mintB : poolInfo.mintA;
+    if (outputInfo.address !== WRAPPED_SOL_MINT.toBase58()) throw new Error('SIGNAL creator-fee SELL quote requires WSOL output.');
+    const swapResult = CurveCalculator.swapBaseInput(
+      new BN(params.amountIn.toString()),
+      baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
+      baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
+      rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,
+      rpcData.configInfo.protocolFeeRate,
+      rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB,
+    );
+    return BigInt(swapResult.outputAmount.toString());
+  }
+
   async buildSellSwapToSettlement(params: {
     poolAddress: string;
     traderAddress: string;
