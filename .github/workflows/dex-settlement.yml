@@ -13,6 +13,7 @@ on:
       - 'packages/blockchain/src/solana/SolanaAdapter.ts'
       - 'packages/types/src/index.ts'
       - 'packages/config/src/chains.ts'
+      - 'packages/config/src/platform-wallet.ts'
       - 'packages/blockchain/src/core/BlockchainAdapter.ts'
       - 'packages/utils/tests/tax.test.ts'
       - 'packages/utils/src/tax.ts'
@@ -31,6 +32,7 @@ on:
       - 'packages/blockchain/src/solana/SolanaAdapter.ts'
       - 'packages/types/src/index.ts'
       - 'packages/config/src/chains.ts'
+      - 'packages/config/src/platform-wallet.ts'
       - 'packages/blockchain/src/core/BlockchainAdapter.ts'
       - 'packages/utils/tests/tax.test.ts'
       - 'packages/utils/src/tax.ts'
@@ -74,6 +76,7 @@ jobs:
           ! grep -q "createInitializeTransferFeeConfigInstruction" packages/blockchain/src/solana/SolanaAdapter.ts
           grep -q "programId: TOKEN_PROGRAM_ID" packages/blockchain/src/solana/SolanaAdapter.ts
           grep -q "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" packages/config/src/platform-wallet.ts
           grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS" packages/blockchain/src/solana/SolanaAdapter.ts
           ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana.js
           grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000" apps/web/src/client/launch-solana.js
