@@ -70,12 +70,11 @@ export interface CreateTokenParams {
   symbol: string;
   decimals: number;
   totalSupply: bigint;
-  /** The wallet launching this token — becomes mint authority AND (as of
-   *  2026-09-17, superseding an intermediate design) transfer-fee
-   *  authority: they receive 100% of the transfer tax. No Signal
-   *  platform fee, no holder-rewards pool — see docs/ROADMAP.md Stage 6. */
+  /** The wallet launching this token. On Solana it becomes the mint authority
+   *  during creation. Creator trading fees are handled separately by SIGNAL's
+   *  routed trade settlement and are paid in native SOL. */
   launcherAddress: string;
-  taxBps: number | null; // null/0 where taxSupported is false for this chain
+  taxBps: number | null; // legacy/generic fee-policy field; not encoded as a Solana token transfer fee
 }
 
 /** Opaque wrapper — real implementations wrap @solana/web3.js's Transaction
