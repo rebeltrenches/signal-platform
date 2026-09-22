@@ -139,6 +139,9 @@ export class RaydiumDexAdapter implements DexAdapter {
   }
 
   async swap(quote: Quote, walletAddress: string, slippageBps: number): Promise<unknown> {
+    if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10_000) {
+      throw new RangeError('slippageBps must be an integer in [0, 10000).');
+    }
     if (!this.swapBuilder) {
       throw new Error('No swap builder configured — this adapter does not construct swap instructions itself (see class doc).');
     }
@@ -146,7 +149,9 @@ export class RaydiumDexAdapter implements DexAdapter {
       throw new Error('This adapter only supports a direct single-pool swap, not a multi-hop route.');
     }
     const [inputToken, outputToken] = quote.route;
+    if (quote.estimatedOutputAmount.raw <= 0n) throw new Error('Quoted output must be greater than zero.');
     const minimumAmountOut = (quote.estimatedOutputAmount.raw * BigInt(10000 - slippageBps)) / 10000n;
+    if (minimumAmountOut <= 0n) throw new Error('Minimum output must be greater than zero.');
     const found = await (this.poolReader as RaydiumPoolReader | undefined)?.findPool(inputToken!, outputToken!);
     if (!found) throw new Error('Could not re-resolve the pool for this quote.');
 
