@@ -11,6 +11,8 @@ on:
       - 'packages/blockchain/**'
       - 'apps/web/**'
       - 'functions/**'
+      - 'worker.js'
+      - 'wrangler.jsonc'
       - 'packages/database/**'
       - '.github/workflows/wallet-intelligence-verify.yml'
   workflow_dispatch:
@@ -92,6 +94,10 @@ jobs:
         run: pnpm --filter @launchpad/web build
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
+      - name: Cloudflare Worker syntax check
+        run: |
+          node --input-type=module --check < worker.js
+          node --input-type=module --check < functions/api/solana/portfolio.js
       - name: Wallet page regression test
         run: |
           python -m pip install playwright
