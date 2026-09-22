@@ -12,6 +12,19 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   const btn = document.getElementById('wallet-connect-btn');
   if (!btn) return;
 
+  function phantomProvider() {
+    return window.phantom?.solana || window.solana || null;
+  }
+
+  function isMobileDevice() {
+    if (navigator.userAgentData?.mobile) return true;
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return true;
+    // iPadOS and privacy-focused mobile browsers can identify themselves as
+    // desktop Safari. Touch capability plus a phone/tablet-sized screen is a
+    // safer fallback than relying on the user-agent string alone.
+    return navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 900;
+  }
+
   function shortAddr(addr) {
     return addr.slice(0, 4) + '\u2026' + addr.slice(-4);
   }
@@ -35,7 +48,7 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   }
 
   function acceptConnection(resp) {
-    const publicKey = resp?.publicKey || window.solana?.publicKey;
+    const publicKey = resp?.publicKey || phantomProvider()?.publicKey;
     if (!publicKey) return false;
     const address = publicKey.toString();
     btn.textContent = shortAddr(address);
@@ -45,9 +58,9 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   }
 
   async function connect() {
-    if (!window.solana || !window.solana.isPhantom) {
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (isMobile) {
+    const provider = phantomProvider();
+    if (!provider?.isPhantom) {
+      if (isMobileDevice()) {
         const target = encodeURIComponent(window.location.href);
         const ref = encodeURIComponent(window.location.origin);
         window.location.href = `https://phantom.app/ul/browse/${target}?ref=${ref}`;
@@ -57,7 +70,7 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
       return;
     }
     try {
-      const resp = await window.solana.connect();
+      const resp = await provider.connect();
       acceptConnection(resp);
     } catch (err) {
       btn.textContent = 'Connect wallet';
@@ -67,27 +80,29 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   btn.addEventListener('click', connect);
 
   function installProviderListeners() {
-    if (!window.solana?.isPhantom || window.__signalPhantomListenersInstalled) return;
+    const provider = phantomProvider();
+    if (!provider?.isPhantom || window.__signalPhantomListenersInstalled) return;
     window.__signalPhantomListenersInstalled = true;
 
-    window.solana.on?.('accountChanged', (publicKey) => {
+    provider.on?.('accountChanged', (publicKey) => {
       if (!publicKey) {
         broadcastDisconnected();
         return;
       }
       acceptConnection({ publicKey });
     });
-    window.solana.on?.('disconnect', broadcastDisconnected);
+    provider.on?.('disconnect', broadcastDisconnected);
   }
 
   // Restore a connection that the user already approved in Phantom. The
   // onlyIfTrusted flag never opens a permission prompt; it simply restores
   // the existing trusted session after a reload or page navigation.
   async function restoreTrustedConnection() {
-    if (!window.solana?.isPhantom || window.launchpadWallet.address) return;
+    const provider = phantomProvider();
+    if (!provider?.isPhantom || window.launchpadWallet.address) return;
     installProviderListeners();
     try {
-      const resp = await window.solana.connect({ onlyIfTrusted: true });
+      const resp = await provider.connect({ onlyIfTrusted: true });
       acceptConnection(resp);
     } catch {
       // No prior approval (or a locked wallet) is a normal disconnected state.
