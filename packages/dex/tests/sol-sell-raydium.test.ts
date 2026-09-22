@@ -64,6 +64,13 @@ await test('SELL rejects a slippage-adjusted minimum that rounds to zero', async
   }), /minimum WSOL output/);
 });
 
+  await test('SELL rejects zero quote and WSOL-as-input', async () => {
+    const zeroBridge: any = { quoteSellToWsol: async () => 0n };
+    const base = { settlementProgramId: programId, creatorAddress, traderAddress, tradeId: TRADE_ID, poolAddress, amountIn: 1n, slippageBps: 100 };
+    await assert.rejects(() => buildAtomicRaydiumSolSellWithSlippage({ ...base, bridge: zeroBridge, inputToken }), /quote must be greater than zero/);
+    await assert.rejects(() => buildAtomicRaydiumSolSellWithSlippage({ ...base, bridge: zeroBridge, inputToken: 'So11111111111111111111111111111111111111112' }), /must not be WSOL/);
+  });
+
   console.log(`${passed} test(s) passed.`);
 }
 
