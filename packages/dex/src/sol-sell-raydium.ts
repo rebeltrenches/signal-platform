@@ -42,3 +42,28 @@ export async function buildAtomicRaydiumSolSell(params: {
     raydiumTransaction,
   });
 }
+
+export async function buildAtomicRaydiumSolSellWithSlippage(params: {
+  bridge: RaydiumSdkCpmmBridge;
+  settlementProgramId: string;
+  creatorAddress: string;
+  traderAddress: string;
+  tradeId: string;
+  poolAddress: string;
+  inputToken: string;
+  amountIn: bigint;
+  slippageBps: number;
+}) {
+  if (!Number.isInteger(params.slippageBps) || params.slippageBps < 0 || params.slippageBps > 10_000) {
+    throw new Error('SELL slippageBps must be an integer between 0 and 10000.');
+  }
+  const quotedWsolOut = await params.bridge.quoteSellToWsol({
+    poolAddress: params.poolAddress,
+    inputToken: params.inputToken,
+    amountIn: params.amountIn,
+  });
+  const minimumWsolOut = quotedWsolOut * BigInt(10_000 - params.slippageBps) / 10_000n;
+  if (minimumWsolOut <= 0n) throw new Error('SELL minimum WSOL output must be greater than zero.');
+  const built = await buildAtomicRaydiumSolSell({ ...params, minimumWsolOut });
+  return { ...built, quotedWsolOut, minimumWsolOut };
+}
