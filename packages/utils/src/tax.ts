@@ -1,26 +1,10 @@
 /**
- * Transfer fee math. This is the one module every trade and every
- * launch-config form must go through — no other file should compute a
- * fee split by hand.
+ * Integer-only fee math shared by SIGNAL.
  *
- * CONFIRMED MODEL: 100% of the 1% transfer fee on transfers goes to the
- * token creator. No holder-rewards pool and no platform share. There is
- * nothing to split after collection; the entire fee belongs to the creator.
- *
- * This module computes the TRANSFER fee only. The separate, one-time
- * Launch Fee (charged at token creation, calculated from the real
- * rent-exemption payment — see packages/types' LAUNCH_FEE_BPS and
- * SolanaAdapter.ts's buildCreateTokenTransaction) is a different
- * mechanism with a different trigger and a different calculation base;
- * computeLaunchFeeFromPayment below handles that one specifically,
- * kept in this same module since both are "fee math" but clearly
- * separated so the two are never confused for one another.
- *
- * Everything here is integer (bigint) arithmetic. Spec section 46 bans
- * floating point for financial calculations, for a real reason: a naive
- * `amount * 0.01` in JS floats will silently drift on large enough numbers
- * and can be exploited at the rounding edges. bigint + basis points avoids
- * that entire class of bug.
+ * The current creator trading fee is 1% of the SOL side of SIGNAL-routed
+ * trades and belongs entirely to the token creator. It is not a Token-2022
+ * transfer fee. The separate launch fee is 1% of the fixed 0.1 SOL
+ * launch-price basis, currently 0.001 SOL, paid to SIGNAL.
  */
 import type { TaxConfig, BasisPoints } from '@launchpad/types';
 import { PROTOCOL_MAX_TAX_BPS, LAUNCH_FEE_BPS, LAUNCH_PRICE_LAMPORTS } from '@launchpad/types';
@@ -28,7 +12,7 @@ import { PROTOCOL_MAX_TAX_BPS, LAUNCH_FEE_BPS, LAUNCH_PRICE_LAMPORTS } from '@la
 export class InvalidTaxConfigError extends Error {}
 
 /**
- * Validates a transfer-fee config against the protocol's own rules:
+ * Validates a trading-fee config against the protocol's own rules:
  *   - totalBps must not exceed the protocol maximum
  *   - no negative values
  * No split to validate anymore — there's only one number.
@@ -37,7 +21,7 @@ export function validateTaxConfig(config: TaxConfig): void {
   if (!config.enabled) return;
 
   if (config.totalBps < 0) {
-    throw new InvalidTaxConfigError('Transfer fee basis points cannot be negative.');
+    throw new InvalidTaxConfigError('Trading fee basis points cannot be negative.');
   }
   if (config.totalBps > PROTOCOL_MAX_TAX_BPS) {
     throw new InvalidTaxConfigError(
@@ -55,7 +39,7 @@ export interface TaxSplit {
 }
 
 /**
- * Splits a TRADE amount into net proceeds + the Signal Fee, in base
+ * Splits a SOL-side trade amount into net proceeds + the creator trading fee, in base
  * units. Under the confirmed model this isn't really a "split" (there's
  * only one destination), but the shape is kept so call sites and UI code
  * have a stable, explicit place to read "how much fee", "how much goes
