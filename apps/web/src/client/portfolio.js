@@ -1,6 +1,7 @@
 // Real portfolio data is fetched through Signal's same-origin server endpoint.
 // The RPC provider URL and credentials never enter browser code.
 (function () {
+  const PUBLIC_SOLANA_RPC = "https://api.mainnet-beta.solana.com";
   const btn = document.getElementById("refreshPortfolioBtn");
   const emptyEl = document.getElementById("portfolio-empty");
   const skeletonEl = document.getElementById("portfolio-skeleton");
@@ -55,6 +56,41 @@
     return div;
   }
 
+  async function rpc(method, params) {
+    const response = await fetch(PUBLIC_SOLANA_RPC, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+    if (!response.ok) throw new Error("RPC_HTTP_ERROR");
+    const payload = await response.json();
+    if (payload?.error || payload?.result === undefined) throw new Error("RPC_RESPONSE_ERROR");
+    return payload.result;
+  }
+
+  async function fetchPublicPortfolio(address) {
+    const balance = await rpc("getBalance", [address, { commitment: "confirmed" }]);
+    const programIds = [
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    ];
+    const tokenResults = await Promise.allSettled(programIds.map((programId) =>
+      rpc("getTokenAccountsByOwner", [
+        address,
+        { programId },
+        { encoding: "jsonParsed", commitment: "confirmed" },
+      ])
+    ));
+    const tokens = tokenResults.flatMap((result) => result.status === "fulfilled" ? (result.value?.value || []) : [])
+      .map((entry) => {
+        const info = entry?.account?.data?.parsed?.info;
+        const amount = info?.tokenAmount?.uiAmountString;
+        return info?.mint && amount && amount !== "0" ? { mint: info.mint, amount } : null;
+      })
+      .filter(Boolean);
+    return { lamports: Number(balance?.value || 0), tokens };
+  }
+
   btn.addEventListener("click", async () => {
     const address = window.launchpadWallet?.address || null;
     if (!address) {
@@ -74,8 +110,14 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ address }),
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
+      let payload = await response.json().catch(() => ({}));
+      // Cloudflare currently serves this app as static assets, so its
+      // Vercel-style server route returns 404. Keep the credential-backed
+      // route as the preferred path, but allow a read-only public-RPC
+      // fallback so live balances still work on that deployment. No signer,
+      // seed phrase, or transaction is exposed or submitted here.
+      if (response.status === 404) payload = await fetchPublicPortfolio(address);
+      if (!response.ok && response.status !== 404) {
         const messages = {
           RPC_NOT_CONFIGURED: "Preview RPC is not configured.",
           RPC_INVALID_CONFIG: "Preview RPC configuration is invalid.",
