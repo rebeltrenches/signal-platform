@@ -21,8 +21,9 @@ export interface SolSellSettlementPlan {
  * account, verify the received delta on-chain, then split it 1%/99% atomically.
  *
  * The instruction and atomic composition now exist in Stage 3, but SELL execution
- * remains disabled until the program is deployed to a controlled cluster and the
- * complete Raydium -> settlement -> native SOL flow passes simulation/integration tests.
+ * remains disabled at the product/UI boundary while Stage 3 hardening continues.
+ * The controlled Devnet Raydium -> settlement -> native SOL proof has passed;
+ * enabling user-facing execution is a separate reviewed integration step.
  */
 export function prepareAtomicSolSellPlan(params: {
   grossSolOutputLamports: bigint;
@@ -47,6 +48,6 @@ export function prepareAtomicSolSellPlan(params: {
 
 export function assertAtomicSolSellExecutionAvailable(): never {
   throw new Error(
-    'SELL execution is locked until the trade-specific settlement program is deployed and the complete Raydium-to-native-SOL flow passes integration verification.'
+    'SELL execution remains locked at the product boundary until the reviewed wallet-signing/submission integration is enabled.'
   );
 }
