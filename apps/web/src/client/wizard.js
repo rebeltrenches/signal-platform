@@ -1,7 +1,6 @@
 // Create-token wizard: step navigation, per-step validation, and the
-// chain-dependent tax display. All client-side state only — nothing here
-// calls an API or a chain, since none of that exists to call yet
-// (Stage 5/6/7). Reads CHAIN_CONFIGS from the embedded JSON script tag
+// chain-dependent creator-fee display. Wallet/network execution lives in
+// dedicated client modules; this file only owns wizard state and validation. Reads CHAIN_CONFIGS from the embedded JSON script tag
 // the server rendered, so this never hard-codes chain facts twice.
 (function () {
   const steps = Array.from(document.querySelectorAll('.wizard-step'));
@@ -118,11 +117,11 @@
     const cfg = state.chain ? chainConfigs[state.chain] : null;
     if (cfg && cfg.taxSupported === false) {
       el.innerHTML =
-        '<div class="tax-box tax-unavailable">The Signal Fee isn\u2019t available on ' + cfg.displayName +
+        '<div class="tax-box tax-unavailable">Creator fee routing isn\u2019t available on ' + cfg.displayName +
         ' yet \u2014 trading-only until a custom contract exists and is audited (see /security).</div>';
     }
-    // If the Signal Fee IS supported, the server-rendered default
-    // markup already shows the real 100%-to-platform-wallet breakdown
+    // If creator fee routing IS supported, the server-rendered default
+    // markup already shows the current 100%-to-creator SOL breakdown
     // (see CreatePage.tsx's tax-box) — nothing to swap in here.
   }
 
@@ -139,7 +138,6 @@
       'rv-supply': state.supply || '\u2014',
       'rv-decimals': state.decimals || '\u2014',
       'rv-creator-fee': taxSupported ? pct(dtc.totalBps) : 'Not available on this chain',
-      'rv-platform-fee': taxSupported ? pct(dtc.totalBps) + ' \u2192 Signal platform wallet (100%)' : '\u2014',
       'rv-holder-reward': 'None',
     };
     Object.entries(map).forEach(([id, value]) => {
@@ -155,10 +153,7 @@
     const evmNotice = document.getElementById('launch-evm-notice');
     if (mainnetPanel) mainnetPanel.hidden = !isSolana;
     if (evmNotice) evmNotice.hidden = isSolana;
-    // No launch wiring yet, on any chain. The network target itself is
-    // decided (Solana Mainnet, eventually; devnet permanently excluded)
-    // but implementation is not yet approved to run — see the review
-    // step's own empty-state note and docs/ROADMAP.md Stage 6.
+    // Solana launch wiring is handled by launch-solana.js. Base/BNB remain unavailable.
   }
 
   // ---- Navigation ----
