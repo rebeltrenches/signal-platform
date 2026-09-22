@@ -61,7 +61,7 @@ export const PROTOCOL_MAX_TAX_BPS: BasisPoints = 1000; // 10% hard ceiling, enfo
 export const MINIMUM_TOKEN_SUPPLY = 100_000_000;
 
 /** SUPERSEDED again (see docs/ROADMAP.md for the full history of this
- *  type's changes) — confirmed final: a 1% creator transfer fee, 100% of which goes to the token creator. There is no Signal platform share and no holder-reward split.
+ *  type's changes) — retained as a generic basis-point config for the 1% creator trading fee. The fee is settled in native SOL by SIGNAL-routed trades, not encoded as a token transfer fee.
  *  The two near-duplicate TaxConfig declarations and layered "SUPERSEDED/
  *  CONFIRMED" comments that used to sit here (one per historical
  *  reversal, never cleaned up) are consolidated into this single
@@ -71,7 +71,7 @@ export interface TaxConfig {
   totalBps: BasisPoints;
 }
 
-/** Today's actual default: 1% creator transfer fee. 100% goes to the token creator; Signal receives 0% and holder rewards receive 0%. */
+/** Trading-fee policy: 1% of the SOL side on SIGNAL-routed trades goes to the token creator. This is not a token transfer fee. */
 export const DEFAULT_TAX_CONFIG: TaxConfig = {
   enabled: true,
   totalBps: 100,
