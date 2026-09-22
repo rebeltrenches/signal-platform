@@ -9,6 +9,7 @@
     activeTab: 'new', query: '', chains: new Set(), origin: 'all',
     sort: 'newest', signal: [], external: [],
   };
+  let searchRequestId = 0;
   const chainMap = { solana: 'solana', base: 'base', bsc: 'bnb' };
   const chainLabel = { solana: 'Solana', base: 'Base', bnb: 'BNB Chain' };
 
@@ -153,6 +154,82 @@
       setFeedStatus('Pump.fun live · cross-chain feed reconnecting');
     }
   }
+
+  function marketFromPair(pair) {
+    return {
+      name: pair.baseToken?.name,
+      symbol: pair.baseToken?.symbol,
+      address: pair.baseToken?.address,
+      chain: chainMap[pair.chainId],
+      createdAt: pair.pairCreatedAt,
+      origin: 'External',
+      market: pair.dexId || 'DEX',
+      volume24h: pair.volume?.h24,
+      liquidityUsd: pair.liquidity?.usd,
+      marketCapUsd: pair.marketCap || pair.fdv,
+      url: pair.url,
+    };
+  }
+
+  async function searchAllSources(query) {
+    const requestId = ++searchRequestId;
+    if (query.length < 2) {
+      setFeedStatus('Live: Pump.fun · Solana · Base · BNB Chain');
+      return;
+    }
+    setFeedStatus(`Searching all supported chains for “${query}”…`);
+    try {
+      const requests = [
+        fetch(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(query)}`),
+        fetch(apiPath(`/api/v1/search?q=${encodeURIComponent(query)}`)),
+      ];
+
+      // Contract-address searches also query the exact-address endpoints.
+      // This catches tokens whose name/symbol ranking is too low to appear in
+      // the general search results.
+      if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(query)) {
+        requests.push(fetch(`https://api.dexscreener.com/tokens/v1/solana/${encodeURIComponent(query)}`));
+      } else if (/^0x[a-fA-F0-9]{40}$/.test(query)) {
+        requests.push(fetch(`https://api.dexscreener.com/tokens/v1/base/${encodeURIComponent(query)}`));
+        requests.push(fetch(`https://api.dexscreener.com/tokens/v1/bsc/${encodeURIComponent(query)}`));
+      }
+
+      const responses = await Promise.allSettled(requests);
+      if (requestId !== searchRequestId) return;
+
+      const dexPairs = [];
+      let signalTokens = [];
+      for (let index = 0; index < responses.length; index += 1) {
+        const result = responses[index];
+        if (result.status !== 'fulfilled' || !result.value.ok) continue;
+        const body = await result.value.json();
+        if (index === 0) dexPairs.push(...(body.pairs || []));
+        else if (index === 1) signalTokens = body.tokens || [];
+        else dexPairs.push(...(Array.isArray(body) ? body : body.pairs || []));
+      }
+      if (requestId !== searchRequestId) return;
+
+      state.external = dedupe([
+        ...state.external,
+        ...dexPairs.map(marketFromPair).filter((item) => item.address && item.chain),
+      ]);
+      state.signal = dedupe([
+        ...state.signal,
+        ...signalTokens.map((token) => ({
+          name: token.name, symbol: token.symbol, address: token.address, chain: token.chain,
+          createdAt: Date.parse(token.createdAt), origin: 'Signal', market: 'Signal',
+          url: `/token/${encodeURIComponent(token.address)}`,
+        })),
+      ]);
+      setFeedStatus(`Search complete · ${dexPairs.length + signalTokens.length} market matches received`);
+      render();
+    } catch {
+      if (requestId === searchRequestId) {
+        setFeedStatus('Search service is temporarily unavailable');
+        render();
+      }
+    }
+  }
   function connectPumpFeed() {
     const socket = new WebSocket('wss://pumpportal.fun/api/data');
     socket.addEventListener('open', () => {
@@ -212,10 +289,16 @@
       render();
     });
   });
-  document.getElementById('exploreSearchInput')?.addEventListener('input', (event) => {
-    state.query = event.target.value.trim();
-    render();
-  });
+  const searchInput = document.getElementById('exploreSearchInput');
+  if (searchInput) {
+    let debounceTimer;
+    searchInput.addEventListener('input', (event) => {
+      state.query = event.target.value.trim();
+      render();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => searchAllSources(state.query), 350);
+    });
+  }
 
   loadSignalTokens();
   loadDexScreener();
