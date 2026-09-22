@@ -16,6 +16,7 @@ import {
 import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+  MINT_SIZE,
   createInitializeMintInstruction,
   createAssociatedTokenAccountInstruction,
   createMintToInstruction,
@@ -212,7 +213,7 @@ export class SolanaAdapter implements BlockchainAdapter {
     // New SIGNAL launches use the classic SPL Token mint. Creator trading
     // fees are settled in native SOL by the SIGNAL trade path, never by a
     // Token-2022 transfer-fee extension.
-    const mintLen = 82;
+    const mintLen = MINT_SIZE;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
     const tx = new Transaction().add(
