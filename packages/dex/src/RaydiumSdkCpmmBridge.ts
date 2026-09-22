@@ -5,7 +5,7 @@ import { CurveCalculator, FeeOn, Raydium, TxVersion, getPdaObservationId, makeSw
 import { WRAPPED_SOL_MINT } from './sol-sell-accounts.js';
 import type { RaydiumPoolReader, RaydiumSwapBuilder, PoolReserves } from './RaydiumDexAdapter.js';
 
-const MAINNET_this.cpmmProgramId = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
+const MAINNET_CPMM_PROGRAM_ID = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
 
 type PoolRecord = {
   poolInfo: any;
@@ -24,7 +24,7 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
 
   constructor(
     private readonly raydium: Raydium,
-    private readonly cpmmProgramId: string = MAINNET_this.cpmmProgramId,
+    private readonly cpmmProgramId: string = MAINNET_CPMM_PROGRAM_ID,
   ) {}
 
   private async loadPool(poolId: string): Promise<PoolRecord> {
