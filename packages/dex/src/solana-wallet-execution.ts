@@ -44,6 +44,7 @@ export async function simulateSignAndSendSolanaTrade(params: {
     connection: params.connection,
     transaction: params.transaction,
     payer,
+    preserveBlockhash: true,
   });
   assertSimulationPassed(simulation);
 
