@@ -156,23 +156,51 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
     return { tx, ata };
   }
 
-  /** Sign via the connected wallet, submit, and poll for real confirmation.
-   *  Every state transition here reflects an actual awaited promise —
-   *  no timers, no simulated progress. */
+  /** Simulate the exact transaction, then sign, submit and confirm against
+   *  the same blockhash. Wallet mutation of the simulated message is rejected. */
   async signSubmitConfirm(tx, stepName) {
+    if (!tx.recentBlockhash || !tx.lastValidBlockHeight) {
+      throw new Error("Transaction is missing its confirmation blockhash.");
+    }
+
+    this.setStepState(stepName, "simulating");
+    const simulation = await this.connection.simulateTransaction(tx, {
+      sigVerify: false,
+      replaceRecentBlockhash: false,
+    });
+    if (simulation.value.err) {
+      this.setStepState(stepName, "failed", JSON.stringify(simulation.value.err));
+      throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+    }
+
+    const simulatedMessage = tx.serializeMessage();
     this.setStepState(stepName, "awaiting_signature");
     const signed = await this.wallet.signTransaction(tx);
+    const signedMessage = signed.serializeMessage();
+    if (simulatedMessage.length !== signedMessage.length ||
+        simulatedMessage.some((byte, i) => byte !== signedMessage[i])) {
+      this.setStepState(stepName, "failed", "wallet changed transaction");
+      throw new Error("Wallet changed the simulated transaction message.");
+    }
+
     this.setStepState(stepName, "submitted");
-    const signature = await this.connection.sendRawTransaction(signed.serialize());
+    const signature = await this.connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      maxRetries: 5,
+    });
     this.setStepState(stepName, "confirming", signature);
 
-    const confirmation = await this.connection.confirmTransaction(signature, "confirmed");
+    const confirmation = await this.connection.confirmTransaction({
+      signature,
+      blockhash: tx.recentBlockhash,
+      lastValidBlockHeight: tx.lastValidBlockHeight,
+    }, "confirmed");
     if (confirmation.value.err) {
       this.setStepState(stepName, "failed", JSON.stringify(confirmation.value.err));
       throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
     }
     this.setStepState(stepName, "confirmed", signature);
-    this.log(`\u2713 ${stepName}: <a href="${explorerLink(signature)}" target="_blank">${signature}</a>`);
+    this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
     return signature;
   }
 }
@@ -180,11 +208,8 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
 // Real, persistent record of actually-completed launches — written only
 // here, only after both transactions above have genuinely confirmed.
 // The Dashboard page reads this same key; it never writes to it itself.
-// Includes creatorAddress and decimals (added alongside the fee-collection
-// feature) — collect-fees.js needs both: creatorAddress to gate the
-// "Collect Fees" action to only the wallet that actually launched this
-// token, decimals because Token-2022 amount math requires it and it's
-// not otherwise recoverable without an extra RPC round-trip.
+// Includes creatorAddress and decimals so confirmed launches can be restored
+// and synchronized across the dashboard without inventing missing metadata.
 const LAUNCHES_KEY = "signal_real_launches_v1";
 function recordRealLaunch(entry) {
   try {
