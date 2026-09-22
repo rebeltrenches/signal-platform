@@ -2,6 +2,7 @@ import { traceFundingAncestry } from './FundingAncestry.js';
 import { buildSignalTrace } from './SignalTrace.js';
 import { buildWalletHistoryReplay } from './WalletHistoryReplay.js';
 import { buildWalletRelationshipClusters } from './WalletRelationshipClusters.js';
+import { buildWalletProjectHistory } from './WalletProjectHistory.js';
 import type { WalletIntelligenceRepository } from './WalletIntelligenceRepository.js';
 import { PrismaWalletIntelligenceRepository, type WalletIntelligencePrismaLikeClient } from './PrismaWalletIntelligenceRepository.js';
 import { getSharedPrismaClient } from '../db/prismaClient.js';
@@ -50,4 +51,15 @@ export async function getWalletRelationshipClusters(chain: string, address: stri
   const trace = await getSignalTrace(chain, address, maxDepth);
   if (!trace) return null;
   return buildWalletRelationshipClusters(trace);
+}
+
+export async function getWalletProjectHistory(chain: string, address: string, maxDepth = 3) {
+  const trace = await getSignalTrace(chain, address, maxDepth);
+  if (!trace) return null;
+  const reader = repository as WalletIntelligenceRepository & {
+    indexedProjectsCreatedByWallets?: (chain: string, addresses: string[]) => Promise<any[]>;
+  };
+  if (!reader.indexedProjectsCreatedByWallets) throw new Error('Wallet project history reader is not available.');
+  const projects = await reader.indexedProjectsCreatedByWallets(chain, trace.nodes.map((node) => node.address));
+  return buildWalletProjectHistory(trace, projects);
 }

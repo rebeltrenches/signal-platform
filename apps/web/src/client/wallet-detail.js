@@ -285,6 +285,38 @@
     });
   }
 
+  function renderProjectHistory(history) {
+    const list = document.getElementById('wallet-project-history-list');
+    const empty = document.getElementById('wallet-project-history-empty');
+    if (!list || !history?.projects?.length) return;
+    if (empty) empty.hidden = true;
+    list.innerHTML = history.projects.map((entry) => {
+      const direct = entry.associationType === 'ROOT_CREATOR_RECORD';
+      const status = entry.project.launchStatus || 'No indexed launch status';
+      return `<div class="card" style="margin-bottom:10px">
+        ${reviewRow('Project', `${escapeHtml(entry.project.name)} (${escapeHtml(entry.project.symbol)})`)}
+        ${reviewRow('Token', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(entry.project.address)}</span>`)}
+        ${reviewRow('Creator record', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(entry.creatorWalletAddress)}</span>`)}
+        ${reviewRow('Creator evidence', escapeHtml(entry.creatorEvidenceSource))}
+        ${reviewRow('Connection', direct ? 'Direct creator record for this wallet' : `Observed funding path · ${entry.fundingPath.length} step${entry.fundingPath.length === 1 ? '' : 's'}`)}
+        ${reviewRow('Recorded launch status', escapeHtml(status))}
+        ${entry.observedTxSignatures.length ? reviewRow('Transactions', `<span style="font-family:monospace;font-size:.72rem">${entry.observedTxSignatures.map(escapeHtml).join('<br>')}</span>`) : ''}
+      </div>`;
+    }).join('');
+    list.insertAdjacentHTML('afterend', '<div class="how-box" style="margin:12px 0 18px">Creator links come from indexed creator-provided records. Funding connections come from observed blockchain transactions. These records do not establish common ownership, identity, intent, or an unrecorded project outcome.</div>');
+  }
+
+  (async function loadProjectHistory() {
+    try {
+      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/project-history?depth=3`));
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.projectHistory) renderProjectHistory(body.projectHistory);
+    } catch {
+      // Keep the honest empty state when project evidence is unavailable.
+    }
+  })();
+
   (async function loadHistoryReplay() {
     try {
       const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/history-replay?depth=3`));

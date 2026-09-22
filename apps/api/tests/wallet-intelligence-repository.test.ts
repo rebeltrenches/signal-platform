@@ -5,6 +5,7 @@ async function run() {
   let walletQuery: any;
   let holderQuery: any;
   let firstActivityQuery: any;
+  let projectQuery: any;
   const db: any = {
     wallet: {
       findUnique: async (args: any) => {
@@ -44,6 +45,15 @@ async function run() {
         }];
       },
     },
+    token: {
+      findMany: async (args: any) => {
+        projectQuery = args;
+        return [{
+          id:'t2', chain:'SOLANA', address:'Mint2', name:'Two', symbol:'TWO', createdAt:new Date('2026-01-06T00:00:00Z'),
+          creator:{ address:'WalletB', chain:'SOLANA' }, launch:{ status:'FAILED' },
+        }];
+      },
+    },
   };
 
   const repo = new PrismaWalletIntelligenceRepository(db);
@@ -68,6 +78,16 @@ async function run() {
   assert.equal((result as any).riskScore, undefined);
   assert.equal((result.relationships[0] as any).sameOwner, undefined);
 
+  const projects = await repo.indexedProjectsCreatedByWallets('SOLANA', ['WalletB', 'WalletB']);
+  assert.deepEqual(projectQuery.where, {
+    chain: 'SOLANA',
+    creator: { address: { in: ['WalletB'] }, chain: 'SOLANA' },
+  });
+  assert.deepEqual(projects, [{
+    id:'t2', chain:'SOLANA', address:'Mint2', name:'Two', symbol:'TWO', createdAt:'2026-01-06T00:00:00.000Z',
+    creatorWalletAddress:'WalletB', launchStatus:'FAILED',
+  }]);
+
   const missingDb: any = {
     wallet:{ findUnique: async () => null },
     walletActivity:{ findFirst: async () => { throw new Error('must not query activity for missing wallet'); } },
@@ -82,6 +102,7 @@ async function run() {
   console.log('  ok  - relationship summary counts only observable direct evidence');
   console.log('  ok  - no risk score or wallet-ownership inference is fabricated');
   console.log('  ok  - missing wallets return null without invented data');
-  console.log('\n7 test(s) passed.');
+  console.log('  ok  - project history queries remain chain scoped and preserve stored launch status');
+  console.log('\n8 test(s) passed.');
 }
 run().catch((err) => { console.error(err); process.exit(1); });

@@ -87,6 +87,12 @@ export function WalletDetailPage() {
             <h3>No observed relationships yet</h3>
             <p>Real relationships — funding, shared liquidity, co-signed transactions — populate from indexed on-chain history, each with its own evidence and confidence level. Never a claim that two wallets belong to the same person without that evidence.</p>
           </div>
+          <h3 style={{ font: 'var(--text-h2)', fontSize: '1rem', margin: '20px 0 10px 0' }}>Observed project history</h3>
+          <div id="wallet-project-history-list"></div>
+          <div className="empty-state" id="wallet-project-history-empty">
+            <h3>No evidence-linked project history yet</h3>
+            <p>Indexed project creator records connected to this wallet by direct declaration or observed funding paths appear here.</p>
+          </div>
           <div className="how-box" style={{ marginTop: 14 }}>
             Signal Passport is an information record, not a safety certificate or endorsement.
             See <a href="/transparency" style={{ color: 'var(--brand)' }}>Transparency Center</a>.

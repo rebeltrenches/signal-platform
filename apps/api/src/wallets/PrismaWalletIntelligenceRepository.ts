@@ -5,6 +5,7 @@ export interface WalletIntelligencePrismaLikeClient {
   holder: { findMany(args: any): Promise<any[]> };
   walletActivity: { findFirst(args: any): Promise<any> };
   walletRelationship: { findMany(args: any): Promise<any[]> };
+  token: { findMany(args: any): Promise<any[]> };
 }
 
 const iso = (value: any): string => value instanceof Date ? value.toISOString() : String(value);
@@ -25,6 +26,29 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
       orderBy: { discoveredAt: 'desc' },
       take: 250,
     });
+  }
+
+  async indexedProjectsCreatedByWallets(chain: string, addresses: string[]) {
+    if (addresses.length === 0) return [];
+    const rows = await this.db.token.findMany({
+      where: {
+        chain,
+        creator: { address: { in: [...new Set(addresses)] }, chain },
+      },
+      include: { creator: true, launch: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return rows.map((row: any) => ({
+      id: row.id,
+      chain: row.chain,
+      address: row.address,
+      name: row.name,
+      symbol: row.symbol,
+      createdAt: iso(row.createdAt),
+      creatorWalletAddress: row.creator.address,
+      launchStatus: row.launch?.status ?? null,
+    }));
   }
 
   async getWallet(chain: string, address: string): Promise<WalletIntelligenceRecord | null> {

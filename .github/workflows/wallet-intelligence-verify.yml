@@ -64,6 +64,10 @@ jobs:
         run: pnpm exec tsx apps/api/tests/wallet-relationship-clusters.test.ts
       - name: Stage 3 wallet relationship cluster API tests
         run: pnpm exec tsx apps/api/tests/wallet-relationship-clusters-route.test.ts
+      - name: Stage 3 wallet project history tests
+        run: pnpm exec tsx apps/api/tests/wallet-project-history.test.ts
+      - name: Stage 3 wallet project history API tests
+        run: pnpm exec tsx apps/api/tests/wallet-project-history-route.test.ts
       - name: Stage 3 Wallet History Replay tests
         run: pnpm exec tsx apps/api/tests/wallet-history-replay.test.ts
       - name: Stage 3 Wallet History Replay API tests
