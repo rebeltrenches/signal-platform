@@ -73,6 +73,9 @@ export function computeSwapEstimate(
   feeBps: number,
   slippageBps: number
 ): SwapEstimate {
+  if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10000) {
+    throw new RangeError('slippageBps must be an integer in [0, 10000).');
+  }
   const amountOut = computeConstantProductOutput(amountIn, reserveIn, reserveOut, feeBps);
   const priceImpactPercent = computePriceImpactPercent(amountIn, amountOut, reserveIn, reserveOut);
   const minimumAmountOut = (amountOut * BigInt(10000 - slippageBps)) / 10000n;
