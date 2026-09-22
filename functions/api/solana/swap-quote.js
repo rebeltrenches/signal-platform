@@ -75,10 +75,10 @@ export async function quoteSolanaSwap({ body, apiKey }) {
 
   // BUY: split the trader's gross SOL before routing. SELL: quote the full
   // token amount, then split the actual SOL output when execution is built.
-  const creatorFeeInput = side === "buy" ? grossAmount / 100n : 0n;
-  const routedAmount = side === "buy" ? grossAmount - creatorFeeInput : grossAmount;
-  if (routedAmount <= 0n || (side === "buy" && creatorFeeInput <= 0n)) {
-    return { status: 422, body: { error: "AMOUNT_TOO_SMALL", message: "Amount is too small to calculate the creator fee." } };
+  const signalFeeInput = side === "buy" ? grossAmount / 100n : 0n;
+  const routedAmount = side === "buy" ? grossAmount - signalFeeInput : grossAmount;
+  if (routedAmount <= 0n || (side === "buy" && signalFeeInput <= 0n)) {
+    return { status: 422, body: { error: "AMOUNT_TOO_SMALL", message: "Amount is too small to calculate the Signal fee." } };
   }
 
   const inputMint = side === "buy" ? WRAPPED_SOL_MINT : tokenMint;
@@ -99,8 +99,8 @@ export async function quoteSolanaSwap({ body, apiKey }) {
   }
 
   const grossSolOutput = side === "sell" ? BigInt(order.outAmount) : null;
-  const creatorFeeLamports = side === "buy" ? creatorFeeInput : grossSolOutput / 100n;
-  const traderReceivesLamports = side === "sell" ? grossSolOutput - creatorFeeLamports : null;
+  const signalFeeLamports = side === "buy" ? signalFeeInput : grossSolOutput / 100n;
+  const traderReceivesLamports = side === "sell" ? grossSolOutput - signalFeeLamports : null;
   const decimals = await tokenDecimals(tokenMint);
   return {
     status: 200,
@@ -114,7 +114,7 @@ export async function quoteSolanaSwap({ body, apiKey }) {
       routedAmount: routedAmount.toString(),
       expectedOutput: order.outAmount,
       tokenDecimals: decimals,
-      creatorFeeLamports: creatorFeeLamports.toString(),
+      signalFeeLamports: signalFeeLamports.toString(),
       traderReceivesLamports: traderReceivesLamports?.toString() ?? null,
       router: order.router ?? "Jupiter",
       routeMode: order.mode ?? "quote",

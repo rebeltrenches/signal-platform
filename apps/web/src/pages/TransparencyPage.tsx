@@ -54,7 +54,7 @@ export function TransparencyPage() {
           <div className="review-row"><span className="k">Current Solana launch fee</span><span className="v">0.001 SOL → Signal platform wallet</span></div>
           <div className="review-row"><span className="k">Network costs</span><span className="v">Separate rent and transaction fees shown by the wallet</span></div>
           <div className="review-row"><span className="k">New-token transfer tax</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
-          <div className="review-row"><span className="k">Planned creator trading fee</span><span className="v">1% of SOL side → creator, only on future Signal-routed trades</span></div>
+          <div className="review-row"><span className="k">Signal trading fee</span><span className="v">1% of gross SOL → Signal platform wallet, only on Signal-routed buys</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None promised</span></div>
         </div>
       </section>
@@ -62,9 +62,9 @@ export function TransparencyPage() {
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>What works now — and what comes next</h2>
         <div className="card">
-          <div className="review-row"><span className="k">Live now</span><span className="v">Solana Mainnet creation, Solana/Base/BNB discovery, wallet portfolio, chat, watchlists</span></div>
-          <div className="review-row"><span className="k">External today</span><span className="v">Token purchases and sales open the available source market</span></div>
-          <div className="review-row"><span className="k">Planned</span><span className="v">Non-custodial in-app routing with quote, slippage, price impact, and fees shown before signing</span></div>
+          <div className="review-row"><span className="k">Live now</span><span className="v">Solana Mainnet creation and buys, Solana/Base/BNB discovery, wallet portfolio, chat, watchlists</span></div>
+          <div className="review-row"><span className="k">External today</span><span className="v">Solana sells and non-Solana trades open the available source market</span></div>
+          <div className="review-row"><span className="k">Planned</span><span className="v">Solana sell execution plus in-app Base and BNB routing</span></div>
         </div>
       </section>
 

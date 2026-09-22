@@ -54,7 +54,13 @@ const routes: RouteDef[] = [
     embeddedJson: { chainConfigs: CHAIN_CONFIGS, defaultTaxConfig: DEFAULT_TAX_CONFIG },
   },
   { path: 'explore', title: 'Explore', element: <ExplorePage />, clientScripts: ['/client/explore.js'] },
-  { path: 'token/example', title: 'Token', element: <TokenDetailPage />, clientScripts: ['/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'] },
+  {
+    path: 'token/example',
+    title: 'Token',
+    element: <TokenDetailPage />,
+    clientScripts: ['/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
+    moduleScripts: ['/client/swap-execute.js'],
+  },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {
     path: 'dashboard',
