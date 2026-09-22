@@ -1,6 +1,6 @@
-const RPC_URLS = [
-  "https://solana-rpc.publicnode.com",
+const FALLBACK_RPC_URLS = [
   "https://api.mainnet-beta.solana.com",
+  "https://solana-rpc.publicnode.com",
 ];
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -37,9 +37,17 @@ function isSolanaAddress(value) {
   return bytes + leadingZeroes === 32;
 }
 
-async function rpc(method, params) {
+function rpcUrls(env) {
+  const configured = typeof env?.SOLANA_RPC_URL === "string" ? env.SOLANA_RPC_URL.trim() : "";
+  return [...new Set([
+    ...(configured.startsWith("https://") ? [configured] : []),
+    ...FALLBACK_RPC_URLS,
+  ])];
+}
+
+async function rpc(method, params, env) {
   let lastError = new Error("RPC_HTTP_ERROR");
-  for (const url of RPC_URLS) {
+  for (const url of rpcUrls(env)) {
     try {
       const response = await fetch(url, {
         method: "POST",
@@ -64,7 +72,7 @@ async function rpc(method, params) {
   throw lastError;
 }
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost({ request, env }) {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 8192) return json(413, { error: "Request body too large", code: "BODY_TOO_LARGE" });
 
@@ -79,11 +87,22 @@ export async function onRequestPost({ request }) {
   if (!isSolanaAddress(address)) return json(400, { error: "Invalid Solana wallet address", code: "INVALID_ADDRESS" });
 
   try {
-    const balance = await rpc("getBalance", [address, { commitment: "confirmed" }]);
-    const tokenResults = await Promise.allSettled([
-      rpc("getTokenAccountsByOwner", [address, { programId: TOKEN_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
-      rpc("getTokenAccountsByOwner", [address, { programId: TOKEN_2022_PROGRAM_ID }, { encoding: "jsonParsed", commitment: "confirmed" }]),
-    ]);
+    const balance = await rpc("getBalance", [address, { commitment: "confirmed" }], env);
+    // Query sequentially so public providers do not rate-limit two expensive
+    // token-account scans from the same Worker invocation.
+    const tokenResults = [];
+    for (const programId of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+      try {
+        const result = await rpc("getTokenAccountsByOwner", [
+          address,
+          { programId },
+          { encoding: "jsonParsed", commitment: "confirmed" },
+        ], env);
+        tokenResults.push({ status: "fulfilled", value: result });
+      } catch (reason) {
+        tokenResults.push({ status: "rejected", reason });
+      }
+    }
     const tokens = tokenResults
       .flatMap((result) => result.status === "fulfilled" ? (result.value?.value || []) : [])
       .map((entry) => {

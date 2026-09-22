@@ -90,6 +90,11 @@
       tokensEl.replaceChildren();
       if (Array.isArray(payload.tokens) && payload.tokens.length) {
         for (const token of payload.tokens) tokensEl.append(row(token));
+        if (payload.tokenDataComplete === false) {
+          tokensEl.append(row({ mint: "Status", amount: "Some token balances may be unavailable" }));
+        }
+      } else if (payload.tokenDataComplete === false) {
+        tokensEl.append(row({ mint: "Tokens", amount: "Temporarily unavailable — refresh to retry" }));
       } else {
         tokensEl.append(row({ mint: "Tokens", amount: "None held" }));
       }
