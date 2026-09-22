@@ -24,6 +24,7 @@ export function assembleSolBuyTransaction(params: {
   raydiumTransaction: Transaction | VersionedTransaction;
   addressLookupTableAccounts?: AddressLookupTableAccount[];
 }): SolBuyAssembly {
+  if (params.grossSolLamports <= 0n) throw new RangeError('BUY gross SOL amount must be greater than zero.');
   const buyer = new PublicKey(params.buyerAddress);
   const creator = new PublicKey(params.creatorAddress);
   if (buyer.equals(creator)) {
