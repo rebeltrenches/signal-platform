@@ -60,7 +60,7 @@ jobs:
           grep -q "private readonly cpmmProgramId: string = MAINNET_CPMM_PROGRAM_ID" packages/dex/src/RaydiumSdkCpmmBridge.ts
           ! grep -q "MAINNET_this" packages/dex/src/RaydiumSdkCpmmBridge.ts
       - name: Raydium SDK bridge typecheck
-        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
+        run: pnpm exec tsc --noEmit --skipLibCheck --allowSyntheticDefaultImports --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
       - name: Browser fee-model regression guards
         run: |
           node --check apps/web/src/client/dashboard.js
