@@ -45,6 +45,19 @@ await test('successful simulation signs, sends and confirms in order', async () 
   assert.deepEqual(events, ['simulate', 'sign', 'send', 'confirm']);
 });
 
+await test('confirmation error is surfaced instead of reporting success', async () => {
+  const signer = Keypair.generate();
+  const blockhash = Keypair.generate().publicKey.toBase58();
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => ({ value: { err: null, logs: [], unitsConsumed: 10 } }),
+    sendRawTransaction: async () => 'sig',
+    confirmTransaction: async () => ({ value: { err: { InstructionError: [0, 'Custom'] } } }),
+  };
+  const wallet: any = { publicKey: signer.publicKey, signTransaction: async (tx: Transaction) => { tx.partialSign(signer); return tx; } };
+  await assert.rejects(() => simulateSignAndSendSolanaTrade({ connection, wallet, transaction: makeTx(signer.publicKey) }), /confirmation failed/);
+});
+
 await test('disconnected wallet fails before network execution', async () => {
   let touched = false;
   const connection: any = { getLatestBlockhash: async () => { touched = true; throw new Error('should not run'); } };
