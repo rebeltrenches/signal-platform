@@ -61,6 +61,9 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     if !trader_wallet.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
+    if creator_wallet.key == trader_wallet.key {
+        return Err(ProgramError::InvalidArgument);
+    }
     if token_program.key != &spl_token::id() || mint.key != &spl_token::native_mint::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
@@ -74,6 +77,13 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     );
     if authority.key != &expected_authority {
         return Err(ProgramError::InvalidSeeds);
+    }
+    if settlement.key != &spl_associated_token_account::get_associated_token_address_with_program_id(
+        &expected_authority,
+        &spl_token::native_mint::id(),
+        &spl_token::id(),
+    ) {
+        return Err(ProgramError::InvalidAccountData);
     }
 
     let (expected_receipt, receipt_bump) = Pubkey::find_program_address(
