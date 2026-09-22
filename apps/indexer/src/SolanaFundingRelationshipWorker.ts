@@ -10,6 +10,7 @@ export interface WalletRelationshipClient extends WalletCapableClient {
   walletRelationship: {
     findFirst(args: any): Promise<any>;
     create(args: any): Promise<any>;
+    update(args: any): Promise<any>;
   };
 }
 
@@ -81,7 +82,15 @@ export class SolanaFundingRelationshipWorker {
             observedTxSignature: entry.signature,
           },
         });
-        if (existing) continue;
+        if (existing) {
+          if (!existing.observedAt && tx.blockTime != null) {
+            await this.db.walletRelationship.update({
+              where: { id: existing.id },
+              data: { observedAt: new Date(tx.blockTime * 1000) },
+            });
+          }
+          continue;
+        }
 
         await this.db.walletRelationship.create({
           data: {

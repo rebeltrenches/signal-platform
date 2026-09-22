@@ -54,6 +54,12 @@ class MemoryDb {
         this.relationships.push(row);
         return row;
       },
+      update: async ({ where, data }: any) => {
+        const row = this.relationships.find((relationship) => relationship.id === where.id);
+        if (!row) throw new Error('relationship not found');
+        Object.assign(row, data);
+        return row;
+      },
     };
   }
 }
@@ -97,6 +103,21 @@ async function main() {
   const second = await worker.scanWallet(TARGET);
   assert.equal(second.discovered, 0);
   assert.equal(db.relationships.length, 1, 'duplicate scan must be idempotent');
+
+  const backfillDb = new MemoryDb();
+  let backfillBlockTime: number | null = null;
+  const backfillRpc = {
+    async getSignaturesForAddress() { return [{ signature: 'backfill', err: null }]; },
+    async getParsedTransaction() { return transferTx(TARGET, OTHER, 1, false, backfillBlockTime); },
+  };
+  const backfillWorker = new SolanaFundingRelationshipWorker(backfillRpc as any, backfillDb as any);
+  await backfillWorker.scanWallet(TARGET);
+  assert.equal(backfillDb.relationships[0].observedAt, null);
+  backfillBlockTime = 1_700_000_100;
+  const backfilled = await backfillWorker.scanWallet(TARGET);
+  assert.equal(backfilled.discovered, 0);
+  assert.equal(backfillDb.relationships.length, 1);
+  assert.equal(backfillDb.relationships[0].observedAt.toISOString(), '2023-11-14T22:15:00.000Z');
 
   const reverseDb = new MemoryDb();
   const reverseRpc = {
