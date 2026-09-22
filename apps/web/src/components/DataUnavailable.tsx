@@ -9,7 +9,7 @@ import type { DataPoint } from '@launchpad/types';
  */
 export function DataValue<T>({ point, format }: { point: DataPoint<T>; format: (v: T) => string }) {
   if (point.status === 'unavailable') {
-    return <span className="data-unavailable" title="Not yet available — needs the indexer (Stage 11)">Unavailable</span>;
+    return <span className="data-unavailable" title="Signal does not currently have verified data for this field">Unavailable</span>;
   }
   return <>{format(point.value)}</>;
 }

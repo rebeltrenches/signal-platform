@@ -19,11 +19,15 @@
 .nav-drawer { display: none; }
 
 @media (max-width: 780px) {
+  .topbar-inner { gap: 10px; }
   .nav-links { display: none; }
   .nav-mobile-toggle { display: flex; align-items: center; justify-content: center; }
   .nav-drawer.open { display: flex; flex-direction: column; gap: 2px; padding: 10px 20px 18px 20px; border-bottom: 1px solid var(--line); background: var(--bg); }
   .nav-drawer a { padding: 12px 4px; color: var(--ink-dim); text-decoration: none; border-radius: var(--radius-sm); font: var(--text-small); }
   .nav-drawer a[aria-current="page"] { color: var(--ink); background: var(--surface); }
+}
+@media (max-width: 480px) {
+  .header-social { display: none; }
 }
 
 /* ---- Buttons ---- */

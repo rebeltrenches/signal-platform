@@ -12,7 +12,7 @@ export function CreatePage() {
     <div className="container-narrow" style={{ paddingTop: 36, paddingBottom: 80 }}>
       <div className="page-head" style={{ display: 'block', paddingTop: 0 }}>
         <h1>Create a token</h1>
-        <p>Solana launches use the real wallet flow shown on the review step. Base and BNB launches remain unavailable.</p>
+        <p>Create a real Solana Mainnet token from your own wallet. Base and BNB token creation is planned, not live.</p>
       </div>
 
       {/* Deliberately OUTSIDE the wizard-step hidden system: a mint
@@ -49,7 +49,7 @@ export function CreatePage() {
                 <span className="chain-dot" style={{ background: `var(--chain-${c.chain})` }} />
                 <span className="name">{c.displayName}</span>
                 <span className="tax-note">
-                  {c.taxSupported ? `${totalPct} creator trading fee supported` : 'Trading only — creator fee routing not available yet'}
+                  {c.taxSupported ? `${totalPct} creator trading fee planned for Signal-routed trades` : 'Discovery live — token creation and trading planned'}
                 </span>
               </button>
             );
@@ -104,7 +104,7 @@ export function CreatePage() {
           <div className="field">
             <label htmlFor="tk-logo">Logo</label>
             <input className="input" id="tk-logo" type="file" accept="image/*" />
-            <div className="hint">Preview only in this stage — nothing uploads or persists yet (needs storage, Stage 11+).</div>
+            <div className="hint">Local preview only. The selected image is not uploaded or written on-chain in the current launch flow.</div>
           </div>
         </div>
         <div className="field">
@@ -147,7 +147,7 @@ export function CreatePage() {
               <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
                 The {totalPct} creator trading fee belongs to you, the token creator, and is designed to be
                 paid in SOL rather than withheld in your project token. SIGNAL's separate launch fee is 0.001 SOL.
-                The creator-fee SOL trading path is being completed before production launch.
+                The creator-fee SOL trading path is being completed before it is enabled.
               </p>
             </div>
           </div>
@@ -179,8 +179,8 @@ export function CreatePage() {
         <div className="empty-state" id="launch-evm-notice" style={{ marginTop: 20, textAlign: 'left', padding: 20 }} hidden>
           <strong style={{ color: 'var(--ink-dim)' }}>Not available on this chain yet.</strong>
           <p style={{ marginTop: 6 }}>
-            Base and BNB Chain don't have a real deployment adapter yet (Stage 7, Coming Soon).
-            Solana is the first fully functional deployment chain — select it in Step 1 to launch for real.
+            Base and BNB Chain token creation is not live yet. Solana is the currently supported
+            deployment chain — select it in Step 1 to continue with a real Mainnet launch.
           </p>
         </div>
 

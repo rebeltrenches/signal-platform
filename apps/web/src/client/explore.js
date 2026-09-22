@@ -82,6 +82,7 @@
     const open = safeUrl
       ? `a href="${escapeHtml(safeUrl)}" ${safeUrl.startsWith('http') ? 'target="_blank" rel="noopener noreferrer"' : ''}`
       : 'div';
+    const destination = safeUrl?.startsWith('http') ? '<br><span style="color:var(--ink-faint);">Opens external market</span>' : '';
     return `
       <${open} class="review-row" style="text-decoration:none;color:inherit;align-items:center;gap:12px;">
         <span class="k" style="min-width:0;">
@@ -91,6 +92,7 @@
         <span class="v" style="text-align:right;font-size:.76rem;line-height:1.5;">
           ${escapeHtml(chainLabel[item.chain] || item.chain)} · ${escapeHtml(item.market || item.origin)} · ${escapeHtml(relativeTime(item.createdAt))}
           ${metrics.length ? `<br>${escapeHtml(metrics.join(' · '))}` : ''}
+          ${destination}
         </span>
       </${safeUrl ? 'a' : 'div'}>`;
   }

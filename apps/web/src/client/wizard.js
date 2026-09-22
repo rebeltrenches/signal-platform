@@ -118,7 +118,7 @@
     if (cfg && cfg.taxSupported === false) {
       el.innerHTML =
         '<div class="tax-box tax-unavailable">Creator fee routing isn\u2019t available on ' + cfg.displayName +
-        ' yet \u2014 trading-only until a custom contract exists and is audited (see /security).</div>';
+        ' yet \u2014 discovery is live, while creation and in-app trading remain planned (see /security).</div>';
     }
     // If creator fee routing IS supported, the server-rendered default
     // markup already shows the current 100%-to-creator SOL breakdown

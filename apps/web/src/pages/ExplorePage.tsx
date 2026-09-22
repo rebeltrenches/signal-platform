@@ -19,7 +19,7 @@ export function ExplorePage() {
       <div className="page-head">
         <div>
           <h1>Explore</h1>
-          <p>Launch Radar — new, trending, and graduating tokens across every supported chain.</p>
+          <p>Live token discovery across Solana, Base, and BNB Chain, including Signal launches and external markets.</p>
         </div>
       </div>
 
@@ -65,9 +65,10 @@ export function ExplorePage() {
       </div>
 
       <div className="how-box" style={{ marginTop: 24 }}>
-        Once real tokens are indexed, each card shows a status badge sourced from real data —
-        never a "safe" score. See the <a href="/transparency" style={{ color: 'var(--brand)' }}>Transparency Center</a> for
-        what each evidence label means.
+        Tokens shown here come from Signal records and third-party live market feeds. External token
+        links currently open their source market; non-custodial trading inside Signal is planned but
+        is not live yet. Market data is informational, may be delayed, and is never a "safe" score.
+        See the <a href="/transparency" style={{ color: 'var(--brand)' }}>Transparency Center</a> for how sources are labeled.
       </div>
     </div>
   );

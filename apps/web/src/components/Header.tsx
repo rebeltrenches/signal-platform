@@ -36,7 +36,7 @@ export function Header({ currentPath }: { currentPath: string }) {
         </nav>
         <a
           href="https://x.com/SignalChainpad"
-          className="btn btn-ghost"
+          className="btn btn-ghost header-social"
           aria-label="Signal on X"
           title="Signal on X"
           target="_blank"
@@ -44,6 +44,17 @@ export function Header({ currentPath }: { currentPath: string }) {
           style={{ width: 38, padding: 0, marginLeft: 'auto', fontWeight: 700, fontSize: 16 }}
         >
           𝕏
+        </a>
+        <a
+          href="https://t.me/+1wKw0JsTmzkwZWE0"
+          className="btn btn-ghost header-social"
+          aria-label="Signal on Telegram"
+          title="Join Signal on Telegram"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ width: 38, padding: 0, fontWeight: 800, fontSize: 13 }}
+        >
+          TG
         </a>
         <div id="wallet-connect-root">
           <button className="btn btn-ghost" id="wallet-connect-btn" type="button">
@@ -62,6 +73,8 @@ export function Header({ currentPath }: { currentPath: string }) {
             {item.label}
           </a>
         ))}
+        <a href="https://x.com/SignalChainpad" target="_blank" rel="noopener noreferrer">Signal on X ↗</a>
+        <a href="https://t.me/+1wKw0JsTmzkwZWE0" target="_blank" rel="noopener noreferrer">Join Telegram ↗</a>
       </nav>
     </header>
   );

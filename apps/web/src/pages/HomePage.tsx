@@ -42,7 +42,7 @@ const APPROACH = [
 
 const STEPS = [
   { n: '01', title: 'Connect a wallet', body: 'Phantom for Solana, or an EVM wallet for Base and BNB.' },
-  { n: '02', title: 'Configure your token', body: 'Name, symbol, supply — plus the fixed 1% Signal Fee where supported.' },
+  { n: '02', title: 'Configure your token', body: 'Choose the name, symbol, supply, decimals, and project information.' },
   { n: '03', title: 'Review, then sign', body: 'Every parameter shown before your wallet ever asks for a signature.' },
   { n: '04', title: 'Live once confirmed', body: 'Not before — a launch is never marked done until the chain says so.' },
 ];
@@ -107,21 +107,21 @@ export function HomePage() {
             <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.solana.bg }}>{CHAIN_DOTS.solana.label}</span>
             <div>
               <h4>{solana.displayName}</h4>
-              <p>1.00% Signal Fee supported</p>
+              <p>Live discovery and Mainnet token creation</p>
             </div>
           </div>
           <div className="chain-bar-item">
             <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.base.bg }}>{CHAIN_DOTS.base.label}</span>
             <div>
               <h4>{base.displayName}</h4>
-              <p>Trading only — transfer fee not available yet</p>
+              <p>Live discovery · launching and trading planned</p>
             </div>
           </div>
           <div className="chain-bar-item">
             <span className="chain-bar-dot" style={{ background: CHAIN_DOTS.bnb.bg }}>{CHAIN_DOTS.bnb.label}</span>
             <div>
               <h4>{bnb.displayName}</h4>
-              <p>Trading only — transfer fee not available yet</p>
+              <p>Live discovery · launching and trading planned</p>
             </div>
           </div>
           <span className="chain-bar-more">More chains planned →</span>
@@ -132,7 +132,7 @@ export function HomePage() {
         <span className="section-eyebrow">Our approach</span>
         <h2 style={{ font: 'var(--text-h1)', textAlign: 'center', marginBottom: 8 }}>Built for a more transparent crypto economy.</h2>
         <p style={{ textAlign: 'center', color: 'var(--ink-dim)', maxWidth: '56ch', margin: '0 auto' }}>
-          Signal gives you the facts that matter, directly from the blockchain — so you can make your own decisions with confidence.
+          Signal organizes on-chain facts and clearly labeled third-party data so you can make your own decisions with better context.
         </p>
         <div className="approach-grid">
           {APPROACH.map((a) => (
@@ -147,6 +147,17 @@ export function HomePage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="container" style={{ marginBottom: 64 }}>
+        <span className="section-eyebrow">Signal today and tomorrow</span>
+        <h2 style={{ font: 'var(--text-h1)', textAlign: 'center', marginBottom: 8 }}>One place for the full token journey.</h2>
+        <p style={{ textAlign: 'center', color: 'var(--ink-dim)', maxWidth: '62ch', margin: '0 auto' }}>
+          Today, Signal combines live multi-chain discovery, Solana token creation, wallet portfolios,
+          watchlists, community rooms, and evidence-based wallet intelligence. Next, Signal is building
+          non-custodial in-app trading so users can review a route, sign in their own wallet, and settle
+          directly on-chain without leaving the platform.
+        </p>
       </section>
 
       <div className="section-divider" role="presentation" />
@@ -171,7 +182,7 @@ export function HomePage() {
         <div className="cta-panel">
           <div className="cta-panel-inner">
             <span className="cta-panel-eyebrow">A clearer future</span>
-            <h2>Better information builds a safer tomorrow.</h2>
+            <h2>Better information supports clearer decisions.</h2>
             <p>Join a community that values transparency, education, and real data over hype.</p>
             <div className="hero-actions" style={{ justifyContent: 'flex-start' }}>
               <a href="/explore" className="btn btn-brand btn-lg">Explore launches</a>

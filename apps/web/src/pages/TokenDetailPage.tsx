@@ -24,7 +24,7 @@ export function TokenDetailPage() {
   return (
     <div className="container" style={{ paddingBottom: 80 }}>
       <div className="badge badge-placeholder" style={{ marginTop: 24 }}>
-        Layout template — real per-token data needs Stage 11 (indexer)
+        Token workspace — unavailable fields are never replaced with estimates
       </div>
 
       <div className="page-head">
@@ -76,14 +76,15 @@ export function TokenDetailPage() {
         <div className="review-row"><span className="k">Slippage</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
         <div className="review-row"><span className="k">Minimum received</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
         <div className="review-row"><span className="k">Network fee</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Creator fee</span><span className="v">1% of SOL side — paid in SOL</span></div>
-        <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} disabled title="Needs a real DEX adapter — Stage 10">
+        <div className="review-row"><span className="k">Planned creator fee</span><span className="v">1% of SOL side on future Signal-routed trades</span></div>
+        <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} disabled title="In-app trading is not live yet">
           Trading not available yet
         </button>
         <p className="hint" style={{ marginTop: 10, textTransform: 'none' }}>
-          SIGNAL already has the <code>DexAdapter</code> and Raydium orchestration in <code>packages/dex</code>.
-          The official Raydium SDK bridge is now wired for CPMM transaction construction. Trading stays disabled until the creator-fee settlement and wallet-signing path are integration-tested;
-          SIGNAL never substitutes a simulated fill.
+          Non-custodial trading inside Signal is planned. It will show the route, liquidity source,
+          expected output, price impact, slippage, network cost, and applicable Signal or creator fee
+          before your wallet signs. Until that complete on-chain flow is live, Signal directs discovery
+          users to the external source market and never displays a simulated fill.
         </p>
       </div>
 
@@ -107,21 +108,21 @@ export function TokenDetailPage() {
         <div data-panel="Chart" hidden>
           <div className="empty-state">
             <h3>Historical data unavailable</h3>
-            <p>Chart data comes from indexed trade history — Stage 11. No candles are ever generated to fill the gap.</p>
+            <p>Charts appear only when verified market-history data is available. Signal never generates candles to fill a gap.</p>
           </div>
         </div>
 
         <div data-panel="Trades" hidden>
           <div className="empty-state">
             <h3>No indexed trades yet</h3>
-            <p>Real trade history populates once Stage 9 (trading) and Stage 11 (indexer) exist.</p>
+            <p>Trades appear only when a verified market data source or Signal's future on-chain trading index provides them.</p>
           </div>
         </div>
 
         <div data-panel="Holders" hidden>
           <div className="empty-state">
             <h3>No indexed holders yet</h3>
-            <p>A real holder list and concentration breakdown needs the indexer (Stage 11) or a live on-chain scan.</p>
+            <p>Holder balances and concentration appear only after a successful on-chain read or verified indexed snapshot.</p>
           </div>
         </div>
 
@@ -154,7 +155,7 @@ export function TokenDetailPage() {
         <div data-panel="Transactions" hidden>
           <div className="empty-state">
             <h3>No indexed transactions yet</h3>
-            <p>Deployment and transfer history populates from the indexer — Stage 11.</p>
+            <p>Deployment and transfer history appears only when Signal has verifiable on-chain transaction evidence.</p>
           </div>
         </div>
 

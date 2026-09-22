@@ -53,7 +53,7 @@ export function DashboardPage() {
         <EmptyState
           icon={ICONS.wallet}
           title="Connect a wallet to see your dashboard"
-          body="Your launches, positions, and watchlist are all scoped to your connected wallet — nothing to show until one's connected."
+          body="Your launches, live Solana balances, watchlist, and account settings are scoped to your connected wallet."
           cta={<button className="btn btn-brand" data-action="connect-from-dashboard">Connect wallet</button>}
         />
       </div>
@@ -161,7 +161,7 @@ export function DashboardPage() {
         <div className="section-head">
           <h2>Notifications</h2>
         </div>
-        <EmptyState icon={ICONS.bell} title="Coming Soon" body="Real notifications need something actually happening to notify about — a running indexer (Stage 11) and a delivery mechanism (Stage 15). Not built yet; not faked here." />
+        <EmptyState icon={ICONS.bell} title="Notifications are not live yet" body="You can configure alert rules above, but automated threshold checks and notification delivery are still being built. No alert will be sent until this section explicitly shows that delivery is active." />
       </div>
     </div>
   );
