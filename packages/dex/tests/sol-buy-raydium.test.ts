@@ -40,6 +40,21 @@ async function run() {
     assert.equal(quoted, false);
   });
 
+  await test('BUY rejects zero quote and WSOL-as-output', async () => {
+    const buyerAddress = Keypair.generate().publicKey.toBase58();
+    const creatorAddress = Keypair.generate().publicKey.toBase58();
+    const poolAddress = Keypair.generate().publicKey.toBase58();
+    const bridge: any = { quoteSwap: async () => 0n };
+    await assert.rejects(() => buildAtomicRaydiumSolBuyWithSlippage({
+      bridge, buyerAddress, creatorAddress, poolAddress,
+      outputToken: Keypair.generate().publicKey.toBase58(), grossSolLamports: 1_000_000n, slippageBps: 100,
+    }), /quote must be greater than zero/);
+    await assert.rejects(() => buildAtomicRaydiumSolBuyWithSlippage({
+      bridge, buyerAddress, creatorAddress, poolAddress,
+      outputToken: 'So11111111111111111111111111111111111111112', grossSolLamports: 1_000_000n, slippageBps: 100,
+    }), /must not be WSOL/);
+  });
+
   console.log(`${passed} test(s) passed.`);
 }
 run().catch((e) => { console.error(e); process.exit(1); });
