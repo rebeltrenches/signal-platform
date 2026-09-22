@@ -77,12 +77,21 @@
     if (volume) metrics.push(`24h vol ${volume}`);
     if (liquidity) metrics.push(`Liquidity ${liquidity}`);
     if (marketCap) metrics.push(marketCap);
-    const safeUrl = /^https:\/\//.test(item.url || '') || /^\/token\//.test(item.url || '') ? item.url : null;
+    const sourceUrl = /^https:\/\//.test(item.url || '') ? item.url : null;
+    const workspaceUrl = item.chain === 'solana' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(item.address || '')
+      ? `/token/${encodeURIComponent(item.address)}?${new URLSearchParams({
+        chain: 'solana', name: item.name || '', symbol: item.symbol || '',
+        market: item.market || '', source: sourceUrl || '',
+      })}`
+      : null;
+    const safeUrl = workspaceUrl || (/^\/token\//.test(item.url || '') ? item.url : sourceUrl);
     const identity = `${escapeHtml(item.name || 'New token')} (${escapeHtml(item.symbol || '—')})`;
     const open = safeUrl
       ? `a href="${escapeHtml(safeUrl)}" ${safeUrl.startsWith('http') ? 'target="_blank" rel="noopener noreferrer"' : ''}`
       : 'div';
-    const destination = safeUrl?.startsWith('http') ? '<br><span style="color:var(--ink-faint);">Opens external market</span>' : '';
+    const destination = workspaceUrl
+      ? '<br><span style="color:var(--brand);">Open Signal workspace</span>'
+      : safeUrl?.startsWith('http') ? '<br><span style="color:var(--ink-faint);">Opens external market</span>' : '';
     return `
       <${open} class="review-row" style="text-decoration:none;color:inherit;align-items:center;gap:12px;">
         <span class="k" style="min-width:0;">

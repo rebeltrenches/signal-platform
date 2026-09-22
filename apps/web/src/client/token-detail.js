@@ -28,6 +28,101 @@
     activateTab(matchingTab.getAttribute('data-tab'));
   }
 
+  const params = new URLSearchParams(window.location.search);
+  const pathAddress = window.location.pathname.split('/').filter(Boolean).pop() || '';
+  const tokenMint = params.get('mint') || pathAddress;
+  const tokenName = params.get('name') || '';
+  const tokenSymbol = params.get('symbol') || '';
+  const tokenChain = params.get('chain') || 'solana';
+  const sourceMarket = params.get('source') || '';
+  const solanaMintPattern = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+  if (tokenMint && tokenMint !== 'example') {
+    const name = document.getElementById('token-name');
+    const address = document.getElementById('token-address');
+    const chain = document.getElementById('token-chain');
+    if (name) name.textContent = tokenName ? `${tokenName}${tokenSymbol ? ` (${tokenSymbol})` : ''}` : 'Solana token';
+    if (address) address.textContent = tokenMint;
+    if (chain) chain.textContent = tokenChain === 'solana' ? 'Solana' : tokenChain;
+  }
+  if (/^https:\/\//.test(sourceMarket)) {
+    const link = document.getElementById('token-source-market');
+    if (link) { link.href = sourceMarket; link.hidden = false; }
+  }
+
+  function solToLamports(value) {
+    if (!/^\d+(\.\d{0,9})?$/.test(value)) return null;
+    const [whole, fraction = ''] = value.split('.');
+    const lamports = BigInt(whole) * 1_000_000_000n + BigInt((fraction + '000000000').slice(0, 9));
+    return lamports > 0n ? lamports : null;
+  }
+  function formatBaseUnits(value, decimals) {
+    if (!/^\d+$/.test(String(value)) || !Number.isInteger(decimals)) return `${value} base units`;
+    const padded = String(value).padStart(decimals + 1, '0');
+    const whole = padded.slice(0, -decimals) || '0';
+    const fraction = decimals ? padded.slice(-decimals).replace(/0+$/, '') : '';
+    return fraction ? `${whole}.${fraction}` : whole;
+  }
+  function setQuoteField(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+  document.querySelectorAll('[data-trade-preset]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById('trade-amount');
+      if (input) input.value = button.getAttribute('data-trade-preset') || '';
+    });
+  });
+  const quoteButton = document.getElementById('trade-quote-btn');
+  if (quoteButton) {
+    fetch('/api/solana/swap/quote')
+      .then((response) => response.ok ? response.json() : null)
+      .then((capability) => {
+        if (!capability?.quoteEnabled) {
+          quoteButton.disabled = true;
+          quoteButton.textContent = 'Live route preview coming online';
+          const status = document.getElementById('trade-status');
+          if (status) status.textContent = 'The quote service is not configured yet. Use the source-market link in the meantime.';
+        }
+      })
+      .catch(() => { /* POST still fails closed if capability detection is unavailable. */ });
+  }
+  if (quoteButton) quoteButton.addEventListener('click', async () => {
+    const status = document.getElementById('trade-status');
+    const amountInput = document.getElementById('trade-amount');
+    const lamports = solToLamports(amountInput?.value.trim() || '');
+    if (tokenChain !== 'solana' || !solanaMintPattern.test(tokenMint)) {
+      if (status) status.textContent = 'Live route previews currently support valid Solana token mints only.';
+      return;
+    }
+    if (!lamports) {
+      if (status) status.textContent = 'Enter a valid SOL amount with no more than 9 decimal places.';
+      return;
+    }
+    quoteButton.disabled = true;
+    quoteButton.textContent = 'Loading live route…';
+    if (status) status.textContent = 'Requesting a current market route. No wallet action will occur.';
+    try {
+      const response = await fetch('/api/solana/swap/quote', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ side: 'buy', tokenMint, amount: lamports.toString() }),
+      });
+      const quote = await response.json();
+      if (!response.ok) throw new Error(quote.message || 'Live route unavailable.');
+      setQuoteField('trade-router', `${quote.router} · ${quote.routeMode}`);
+      setQuoteField('trade-routed', `${formatBaseUnits(quote.routedAmount, 9)} SOL`);
+      setQuoteField('trade-output', `${formatBaseUnits(quote.expectedOutput, quote.tokenDecimals)}${tokenSymbol ? ` ${tokenSymbol}` : ''}`);
+      setQuoteField('trade-impact', quote.priceImpactPct == null ? 'Provided at execution review' : `${quote.priceImpactPct}%`);
+      setQuoteField('trade-creator-fee', `${formatBaseUnits(quote.creatorFeeLamports, 9)} SOL (1%)`);
+      if (status) status.textContent = 'Live preview received. Execution remains disabled; no transaction was created.';
+    } catch (error) {
+      if (status) status.textContent = error instanceof Error ? error.message : 'Live route unavailable.';
+    } finally {
+      quoteButton.disabled = false;
+      quoteButton.textContent = 'Refresh live route';
+    }
+  });
+
   // Real "Launched on Signal" check — replaces the static placeholder
   // with an actual lookup against the real registration endpoint
   // (Stage 2). Deliberately does NOT add any RPC/indexer capability:
@@ -41,7 +136,7 @@
   (function checkLaunchedOnSignal() {
     const badge = document.getElementById('signal-launch-badge');
     if (!badge) return;
-    const address = window.location.pathname.split('/').filter(Boolean).pop();
+    const address = tokenMint;
     if (!address) return;
 
     function apiPath(path) {
