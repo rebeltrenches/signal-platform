@@ -35,6 +35,14 @@ test('BUY assembly prepends exact 1% creator SOL transfer', () => {
   assert.ok(result.transaction.instructions[1].programId.equals(raydiumProgram));
 });
 
+test('BUY assembly rejects zero or negative gross SOL amounts', () => {
+  const buyer = Keypair.generate().publicKey.toBase58();
+  const creator = Keypair.generate().publicKey.toBase58();
+  for (const amount of [0n, -1n]) {
+    assert.throws(() => assembleSolBuyTransaction({ buyerAddress: buyer, creatorAddress: creator, grossSolLamports: amount, raydiumTransaction: new Transaction() }), /greater than zero/);
+  }
+});
+
 test('BUY assembly rejects creator self-trade until explicitly handled', () => {
   const wallet = Keypair.generate().publicKey.toBase58();
   assert.throws(() => assembleSolBuyTransaction({
