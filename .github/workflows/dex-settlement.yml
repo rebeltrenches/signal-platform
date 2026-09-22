@@ -11,12 +11,14 @@ on:
       - 'programs/signal-sell-settlement/**'
       - 'packages/dex/**'
       - 'packages/blockchain/src/solana/SolanaAdapter.ts'
+      - 'apps/web/src/client/launch-solana.js'
       - '.github/workflows/dex-settlement.yml'
   pull_request:
     paths:
       - 'programs/signal-sell-settlement/**'
       - 'packages/dex/**'
       - 'packages/blockchain/src/solana/SolanaAdapter.ts'
+      - 'apps/web/src/client/launch-solana.js'
 
 jobs:
   verify:
@@ -47,6 +49,8 @@ jobs:
         run: |
           ! grep -q "createInitializeTransferFeeConfigInstruction" packages/blockchain/src/solana/SolanaAdapter.ts
           grep -q "programId: TOKEN_PROGRAM_ID" packages/blockchain/src/solana/SolanaAdapter.ts
+          ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana.js
+          grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000" apps/web/src/client/launch-solana.js
       - name: BUY transaction assembly tests
         run: pnpm exec tsx packages/dex/tests/sol-trade-transaction.test.ts
       - name: Raydium BUY quote and settlement tests
