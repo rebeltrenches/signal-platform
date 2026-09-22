@@ -5,6 +5,11 @@ the existing `SolanaAdapter` read methods and existing `TokenIndexer`.
 It writes only blockchain-derived token metadata and holder snapshots
 through the existing token repository.
 
+The same paged cycle also scans each distinct registered creator wallet
+for explicit System Program SOL transfers and stores only those observed
+funding relationships with their transaction signature. A transfer is never
+treated as evidence of common ownership, identity, intent, or risk.
+
 ## Deliberate limits
 
 - No fabricated trades, prices, liquidity, or wallet relationships.

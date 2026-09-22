@@ -4,6 +4,8 @@ import { getSharedPrismaClient } from '../../api/src/db/prismaClient.js';
 import { PrismaCheckpointStore } from './CheckpointStore.js';
 import { SolanaTokenRefreshWorker } from './SolanaTokenRefreshWorker.js';
 import { PrismaIndexerStatusStore } from './IndexerStatusStore.js';
+import { Connection } from '@solana/web3.js';
+import { SolanaFundingRelationshipWorker } from './SolanaFundingRelationshipWorker.js';
 
 async function main(): Promise<void> {
   const rpcUrl = process.env.SOLANA_RPC_URL;
@@ -16,10 +18,12 @@ async function main(): Promise<void> {
 
   const prisma = await getSharedPrismaClient();
   const repository = new PrismaTokenRepository(prisma);
+  const fundingWorker = new SolanaFundingRelationshipWorker(new Connection(rpcUrl, 'confirmed'), prisma);
   const worker = new SolanaTokenRefreshWorker(
     new SolanaAdapter({ rpcUrl }),
     repository,
     new PrismaCheckpointStore(prisma),
+    { fundingScanner: fundingWorker },
   );
   const status = new PrismaIndexerStatusStore(prisma);
   const statusKey = 'solana-token-refresh';
