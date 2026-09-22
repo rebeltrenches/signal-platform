@@ -117,10 +117,250 @@
           ${reviewRow('Evidence', escapeHtml(r.evidenceDescription))}
           ${reviewRow('Evidence source', escapeHtml(r.evidenceSource))}
           ${reviewRow('Evidence strength', escapeHtml(r.confidenceLevel))}
+          ${r.observedAt ? reviewRow('Observed on-chain', escapeHtml(new Date(r.observedAt).toLocaleString())) : ''}
           ${r.observedTxSignature ? reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(r.observedTxSignature)}</span>`) : ''}
         </div>`).join('');
     }
   }
+
+
+  function renderBubbleMap(trace, relationshipClusters) {
+    const host = document.getElementById('wallet-bubble-map');
+    const empty = document.getElementById('wallet-bubble-map-empty');
+    if (!host || !trace?.nodes?.length) return;
+    if (empty) empty.hidden = true;
+
+    const clusterByAddress = new Map();
+    (relationshipClusters?.clusters || []).forEach((cluster, index) => {
+      cluster.members.forEach((member) => clusterByAddress.set(member.address, { cluster, index }));
+    });
+    const clusterColors = ['#6d5dfc', '#0f8f7b', '#b86a00', '#b63d6f', '#3478c8', '#7a5c00'];
+
+    const sourceNodes = trace.nodes.filter((n) => n.role !== 'ROOT');
+    const positions = new Map();
+    trace.nodes.forEach((node) => {
+      if (node.role === 'ROOT') {
+        positions.set(node.address, { x: 50, y: 50 });
+        return;
+      }
+      const index = sourceNodes.findIndex((n) => n.address === node.address);
+      const radius = Math.min(38, 17 + (Math.max(1, node.depth) - 1) * 10);
+      const angle = ((index / Math.max(1, sourceNodes.length)) * Math.PI * 2) - Math.PI / 2;
+      positions.set(node.address, { x: 50 + Math.cos(angle) * radius, y: 50 + Math.sin(angle) * radius });
+    });
+
+    const lines = trace.edges.map((edge) => {
+      const from = positions.get(edge.from);
+      const to = positions.get(edge.to);
+      if (!from || !to) return '';
+      return `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" vector-effect="non-scaling-stroke" style="stroke:currentColor;opacity:.22;stroke-width:1.25" />`;
+    }).join('');
+
+    const bubbles = trace.nodes.map((node) => {
+      const p = positions.get(node.address);
+      const size = node.role === 'ROOT' ? 88 : 72;
+      const label = node.address.length <= 12 ? node.address : `${node.address.slice(0, 6)}…${node.address.slice(-4)}`;
+      const grouping = clusterByAddress.get(node.address);
+      const clusterLabel = grouping ? `Group ${grouping.index + 1}` : null;
+      const roleLabel = node.role === 'ROOT' ? 'Root wallet' : `${clusterLabel || 'Funding source'} · depth ${node.depth}`;
+      const clusterStyle = grouping ? `border-color:${clusterColors[grouping.index % clusterColors.length]};box-shadow:inset 0 0 0 2px ${clusterColors[grouping.index % clusterColors.length]}22` : '';
+      return `<button type="button" class="btn btn-ghost" aria-pressed="false" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1;${clusterStyle}"><span style="display:block;font-family:inherit;font-size:.58rem;opacity:.7;margin-bottom:2px">${escapeHtml(roleLabel)}</span>${escapeHtml(label)}</button>`;
+    }).join('');
+
+    const clusterLegend = (relationshipClusters?.clusters || []).map((cluster, index) => `
+      <div class="review-row">
+        <span class="k"><span aria-hidden="true" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${clusterColors[index % clusterColors.length]};margin-right:7px"></span>Group ${index + 1}</span>
+        <span class="v">${cluster.members.length} wallet${cluster.members.length === 1 ? '' : 's'} · ${cluster.summary.transactionEvidenceCount} transaction${cluster.summary.transactionEvidenceCount === 1 ? '' : 's'}</span>
+      </div>`).join('');
+
+    host.insertAdjacentHTML('afterbegin', `
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:12px">
+          <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Signal Bubble Map</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">Observed funding relationships · ${escapeHtml(trace.chain)}</p></div>
+          <span class="badge">${trace.nodes.length} wallets</span>
+        </div>
+        <div style="position:relative;min-height:360px;overflow:hidden;border:1px solid var(--border);border-radius:16px">
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%">${lines}</svg>
+          ${bubbles}
+        </div>
+        ${clusterLegend ? `<div style="margin-top:12px"><strong style="font-size:.82rem">Evidence-connected groups</strong>${clusterLegend}</div>` : ''}
+        <div class="how-box" style="margin-top:12px">Each line represents an observed blockchain transaction path. Bubble size does not represent holdings yet.${trace.truncated ? ' This trace was truncated at its evidence limit.' : ''}</div>
+      </div>`);
+
+    host.querySelectorAll('[data-wallet-address]').forEach((bubble) => {
+      bubble.addEventListener('click', () => {
+        const address = bubble.getAttribute('data-wallet-address');
+        if (!address) return;
+
+        host.querySelectorAll('[data-wallet-address]').forEach((node) => {
+          const selected = node.getAttribute('data-wallet-address') === address;
+          node.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          node.style.outline = selected ? '2px solid var(--brand)' : '';
+          node.style.outlineOffset = selected ? '3px' : '';
+          node.style.transform = selected ? 'translate(-50%,-50%) scale(1.08)' : 'translate(-50%,-50%)';
+        });
+
+        const evidence = trace.edges.filter((edge) => edge.from === address || edge.to === address);
+        const grouping = clusterByAddress.get(address);
+        const existing = document.getElementById('wallet-bubble-evidence');
+        if (existing) existing.remove();
+
+        const details = document.createElement('div');
+        details.id = 'wallet-bubble-evidence';
+        details.className = 'card';
+        details.style.marginTop = '12px';
+        details.innerHTML = `
+          <h3 style="margin-top:0;font:var(--text-h2);font-size:1rem">Wallet evidence</h3>
+          ${reviewRow('Wallet', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(address)}</span>`)}
+          ${grouping ? reviewRow('Relationship group', `Group ${grouping.index + 1} · observed paths only`) : ''}
+          ${evidence.length ? evidence.map((edge) => [
+            reviewRow('Relationship', 'funded'),
+            reviewRow('Evidence source', escapeHtml(edge.evidenceSource)),
+            reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(edge.observedTxSignature)}</span>`)
+          ].join('')).join('') : reviewRow('Evidence', 'Root wallet for this trace')}
+          ${address !== trace.root ? `<div style="margin-top:12px"><a class="btn btn-ghost" href="/wallet/${encodeURIComponent(trace.chain.toLowerCase())}/${encodeURIComponent(address)}">Open wallet intelligence</a></div>` : ''}
+          <div class="how-box" style="margin-top:12px">Observed transaction evidence only. This does not claim common ownership or identity.</div>
+        `;
+        host.appendChild(details);
+      });
+    });
+  }
+
+  function renderHistoryReplay(replay) {
+    const host = document.getElementById('wallet-history-replay');
+    const empty = document.getElementById('wallet-history-replay-empty');
+    if (!host || !replay?.events?.length) return;
+    if (empty) empty.hidden = true;
+
+    const events = replay.events.map((event, index) => {
+      const from = event.from.length <= 16 ? event.from : `${event.from.slice(0, 7)}…${event.from.slice(-5)}`;
+      const to = event.to.length <= 16 ? event.to : `${event.to.slice(0, 7)}…${event.to.slice(-5)}`;
+      return `
+        <div class="card" data-replay-step="${index + 1}" style="margin-bottom:10px">
+          <button type="button" class="btn btn-ghost" data-replay-toggle="${index + 1}" aria-expanded="false" style="width:100%;justify-content:space-between;text-align:left;padding:8px 10px">
+            <span style="display:flex;align-items:center;gap:10px"><span class="badge">Step ${index + 1}</span><strong style="font-size:.88rem">Funding evidence · depth ${escapeHtml(event.depth)}</strong></span>
+            <span aria-hidden="true">+</span>
+          </button>
+          <div data-replay-details="${index + 1}" hidden style="margin-top:10px">
+            ${reviewRow('From', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(from)}</span>`)}
+            ${reviewRow('To', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(to)}</span>`)}
+            ${reviewRow('Relationship', escapeHtml(event.relationshipType))}
+            ${reviewRow('Evidence source', escapeHtml(event.evidenceSource))}
+            ${event.observedAt ? reviewRow('Observed on-chain', escapeHtml(new Date(event.observedAt).toLocaleString())) : ''}
+            ${reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(event.observedTxSignature)}</span>`)}
+          </div>
+        </div>`;
+    }).join('');
+
+    host.insertAdjacentHTML('afterbegin', `
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:12px">
+        <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Wallet History Replay</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">${replay.ordering === 'VERIFIED_BLOCK_TIME' ? 'Verified on-chain chronology' : 'Evidence trace'} · ${escapeHtml(replay.chain)}</p></div>
+        <span class="badge">${replay.events.length} evidence steps</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <button type="button" class="btn btn-ghost" id="replay-prev" disabled>Previous evidence</button>
+        <span id="replay-position" class="badge" aria-live="polite">Step 1 of ${replay.events.length}</span>
+        <button type="button" class="btn btn-ghost" id="replay-next" ${replay.events.length === 1 ? 'disabled' : ''}>Next evidence</button>
+      </div>
+      ${events}
+      <div class="how-box" style="margin-top:12px">${replay.ordering === 'VERIFIED_BLOCK_TIME' ? 'These steps are ordered by verified on-chain block time.' : 'These steps follow the current evidence trace, not transaction chronology, because at least one verified block timestamp is unavailable.'} Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
+    `);
+
+    let activeReplayStep = 1;
+    const replayCards = Array.from(host.querySelectorAll('[data-replay-step]'));
+    const previousButton = document.getElementById('replay-prev');
+    const nextButton = document.getElementById('replay-next');
+    const positionLabel = document.getElementById('replay-position');
+
+    function selectReplayStep(step) {
+      activeReplayStep = Math.max(1, Math.min(replayCards.length, step));
+      replayCards.forEach((card, index) => {
+        const selected = index + 1 === activeReplayStep;
+        card.setAttribute('aria-current', selected ? 'step' : 'false');
+        card.style.opacity = selected ? '1' : '.62';
+        card.style.outline = selected ? '2px solid var(--brand)' : '';
+        card.style.outlineOffset = selected ? '2px' : '';
+      });
+      if (positionLabel) positionLabel.textContent = `Step ${activeReplayStep} of ${replayCards.length}`;
+      if (previousButton) previousButton.disabled = activeReplayStep === 1;
+      if (nextButton) nextButton.disabled = activeReplayStep === replayCards.length;
+      replayCards[activeReplayStep - 1]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    previousButton?.addEventListener('click', () => selectReplayStep(activeReplayStep - 1));
+    nextButton?.addEventListener('click', () => selectReplayStep(activeReplayStep + 1));
+    selectReplayStep(1);
+
+    host.querySelectorAll('[data-replay-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const step = button.getAttribute('data-replay-toggle');
+        const details = host.querySelector(`[data-replay-details="${step}"]`);
+        if (!details) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        button.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        details.hidden = expanded;
+        const marker = button.querySelector('[aria-hidden="true"]');
+        if (marker) marker.textContent = expanded ? '+' : '−';
+      });
+    });
+  }
+
+  function renderProjectHistory(history) {
+    const list = document.getElementById('wallet-project-history-list');
+    const empty = document.getElementById('wallet-project-history-empty');
+    if (!list || !history?.projects?.length) return;
+    if (empty) empty.hidden = true;
+    list.innerHTML = history.projects.map((entry) => {
+      const direct = entry.associationType === 'ROOT_CREATOR_RECORD';
+      const status = entry.project.launchStatus || 'No indexed launch status';
+      return `<div class="card" style="margin-bottom:10px">
+        ${reviewRow('Project', `${escapeHtml(entry.project.name)} (${escapeHtml(entry.project.symbol)})`)}
+        ${reviewRow('Token', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(entry.project.address)}</span>`)}
+        ${reviewRow('Creator record', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(entry.creatorWalletAddress)}</span>`)}
+        ${reviewRow('Creator evidence', escapeHtml(entry.creatorEvidenceSource))}
+        ${reviewRow('Connection', direct ? 'Direct creator record for this wallet' : `Observed funding path · ${entry.fundingPath.length} step${entry.fundingPath.length === 1 ? '' : 's'}`)}
+        ${reviewRow('Recorded launch status', escapeHtml(status))}
+        ${entry.observedTxSignatures.length ? reviewRow('Transactions', `<span style="font-family:monospace;font-size:.72rem">${entry.observedTxSignatures.map(escapeHtml).join('<br>')}</span>`) : ''}
+      </div>`;
+    }).join('');
+    list.insertAdjacentHTML('afterend', '<div class="how-box" style="margin:12px 0 18px">Creator links come from indexed creator-provided records. Funding connections come from observed blockchain transactions. These records do not establish common ownership, identity, intent, or an unrecorded project outcome.</div>');
+  }
+
+  (async function loadProjectHistory() {
+    try {
+      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/project-history?depth=3`));
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.projectHistory) renderProjectHistory(body.projectHistory);
+    } catch {
+      // Keep the honest empty state when project evidence is unavailable.
+    }
+  })();
+
+  (async function loadHistoryReplay() {
+    try {
+      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/history-replay?depth=3`));
+      if (!res.ok) return;
+      const body = await res.json();
+      if (body.replay) renderHistoryReplay(body.replay);
+    } catch {
+      // Keep the honest empty state when replay evidence is unavailable.
+    }
+  })();
+
+  (async function loadSignalTrace() {
+    try {
+      const tracePath = `/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/signal-trace?depth=3`;
+      const clusterPath = `/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/relationship-clusters?depth=3`;
+      const [traceResponse, clusterResponse] = await Promise.all([fetch(apiPath(tracePath)), fetch(apiPath(clusterPath))]);
+      if (!traceResponse.ok) return;
+      const body = await traceResponse.json();
+      const clusterBody = clusterResponse.ok ? await clusterResponse.json() : {};
+      if (body.trace) renderBubbleMap(body.trace, clusterBody.relationshipClusters);
+    } catch {
+      // Keep the honest empty state when trace evidence is unavailable.
+    }
+  })();
 
   (async function loadWalletIntelligence() {
     try {

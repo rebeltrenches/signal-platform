@@ -1,10 +1,14 @@
-name: Wallet Intelligence Stage 1 verification
+name: Wallet Intelligence verification
+
+# verification trigger: history replay interaction
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'apps/api/**'
+      - 'apps/indexer/**'
+      - 'packages/blockchain/**'
       - 'apps/web/**'
       - 'packages/database/**'
       - '.github/workflows/wallet-intelligence-verify.yml'
@@ -48,13 +52,41 @@ jobs:
         run: pnpm exec prisma7 db push
       - name: Wallet Intelligence repository tests
         run: pnpm exec tsx apps/api/tests/wallet-intelligence-repository.test.ts
+      - name: Stage 3 funding ancestry tests
+        run: pnpm exec tsx apps/api/tests/funding-ancestry.test.ts
+      - name: Stage 3 funding ancestry API tests
+        run: pnpm exec tsx apps/api/tests/funding-ancestry-route.test.ts
+      - name: Stage 3 Signal Trace tests
+        run: pnpm exec tsx apps/api/tests/signal-trace.test.ts
+      - name: Stage 3 Signal Trace API tests
+        run: pnpm exec tsx apps/api/tests/signal-trace-route.test.ts
+      - name: Stage 3 wallet relationship cluster tests
+        run: pnpm exec tsx apps/api/tests/wallet-relationship-clusters.test.ts
+      - name: Stage 3 wallet relationship cluster API tests
+        run: pnpm exec tsx apps/api/tests/wallet-relationship-clusters-route.test.ts
+      - name: Stage 3 wallet project history tests
+        run: pnpm exec tsx apps/api/tests/wallet-project-history.test.ts
+      - name: Stage 3 wallet project history API tests
+        run: pnpm exec tsx apps/api/tests/wallet-project-history-route.test.ts
+      - name: Stage 3 Wallet History Replay tests
+        run: pnpm exec tsx apps/api/tests/wallet-history-replay.test.ts
+      - name: Stage 3 Wallet History Replay API tests
+        run: pnpm exec tsx apps/api/tests/wallet-history-replay-route.test.ts
+      - name: Stage 2 Solana relationship detector tests
+        run: pnpm exec tsx apps/indexer/tests/solana-funding-relationship-worker.test.ts
+      - name: Existing indexer regression tests
+        run: pnpm --filter @launchpad/indexer test
       - name: Existing API regression tests
         run: |
+          pnpm exec tsx apps/api/tests/router-security.test.ts
+          pnpm exec tsx apps/api/tests/indexer-status.test.ts
           pnpm exec tsx apps/api/tests/token-repository.test.ts
           pnpm exec tsx apps/api/tests/watchlist-repository.test.ts
           pnpm exec tsx apps/api/tests/alert-repository.test.ts
       - name: TypeScript verification
         run: pnpm typecheck
+      - name: Bubble Map data tests
+        run: pnpm exec tsx apps/web/tests/bubble-map-data.test.ts
       - name: Web build regression check
         run: pnpm --filter @launchpad/web build
       - name: Wallet page regression test

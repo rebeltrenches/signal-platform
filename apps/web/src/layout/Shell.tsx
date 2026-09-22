@@ -10,7 +10,6 @@ export function Shell({
   moduleScripts = [],
   embeddedJson,
   apiBaseUrl,
-  platformWalletAddress,
 }: {
   currentPath: string;
   title: string;
@@ -31,14 +30,6 @@ export function Shell({
    *  run) omits the script entirely — chat.js's own apiUrl() helper
    *  then uses today's exact relative-path, same-origin behavior. */
   apiBaseUrl?: string;
-  /** The Signal platform wallet's PUBLIC address — the sole recipient
-   *  of the Signal Fee (see packages/config/src/platform-wallet.ts).
-   *  Set at build time from SIGNAL_PLATFORM_WALLET so launch-solana.js
-   *  never has this hardcoded in its own source. Not a secret (a
-   *  wallet address is necessarily visible on-chain in every fee-
-   *  bearing transaction regardless), but still configured rather than
-   *  hardcoded so it can be changed without touching client code. */
-  platformWalletAddress?: string;
 }) {
   return (
     <html lang="en">
@@ -51,12 +42,11 @@ export function Shell({
         <link rel="stylesheet" href="/styles/tokens.css" />
         <link rel="stylesheet" href="/styles/base.css" />
         <link rel="stylesheet" href="/styles/components.css" />
-        {(apiBaseUrl || platformWalletAddress) && (
+        {apiBaseUrl && (
           <script
             dangerouslySetInnerHTML={{
               __html:
-                (apiBaseUrl ? `window.SIGNAL_API_BASE_URL=${JSON.stringify(apiBaseUrl)};` : '') +
-                (platformWalletAddress ? `window.SIGNAL_PLATFORM_WALLET=${JSON.stringify(platformWalletAddress)};` : ''),
+                (apiBaseUrl ? `window.SIGNAL_API_BASE_URL=${JSON.stringify(apiBaseUrl)};` : ''),
             }}
           />
         )}

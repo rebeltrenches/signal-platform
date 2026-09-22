@@ -3,17 +3,8 @@
 // reads and displays — it never writes an entry itself, so there's no
 // path for a fake launch to appear here.
 //
-// "Collect Fees" is shown ONLY when the CONNECTED wallet matches the
-// Signal platform wallet (window.SIGNAL_PLATFORM_WALLET, injected at
-// build time) — not when it matches the token's creator. Under the
-// current fee model, 100% of the Signal Fee goes to the platform
-// wallet, so only its own holder can ever actually collect anything;
-// showing this button to an ordinary creator (who will never be able
-// to successfully sign the real withdrawal, since they don't hold
-// withdrawWithheldAuthority) would be misleading UI, not just an
-// unreachable one. The actual click handling lives in collect-fees.js
-// (separate file, separate concern); this file only decides whether
-// the button should exist at all.
+// Creator trading fees are settled in SOL by the trading layer. The old
+// Token-2022 withheld-token collection action is intentionally not rendered.
 (function () {
   const emptyEl = document.getElementById('launches-empty');
   const listEl = document.getElementById('launches-list');
@@ -63,33 +54,18 @@
       return;
     }
 
-    const connectedAddress = (window.launchpadWallet && window.launchpadWallet.address) || null;
-
     emptyEl.hidden = true;
     listEl.innerHTML = launches
-      .slice()
-      .reverse()
-      .map((l) => {
-        const isPlatformWallet = connectedAddress && window.SIGNAL_PLATFORM_WALLET && connectedAddress === window.SIGNAL_PLATFORM_WALLET;
-        // Only the Signal platform wallet's own holder can actually
-        // collect anything now — an ordinary creator, even for their
-        // own launch, never gets this button (they hold no withdraw
-        // authority under the current fee model).
-        const collectButton = isPlatformWallet
-          ? `<button class="btn btn-ghost" data-collect-mint="${escapeHtml(l.mint)}" data-decimals="${escapeHtml(String(l.decimals ?? 6))}" style="padding:4px 12px;">Collect Fees</button>`
-          : '';
-        return `
+      .map((l) => `
       <div class="card" style="margin-bottom:10px;" data-launch-card="${escapeHtml(l.mint)}">
         <div class="review-row"><span class="k">${escapeHtml(l.name)} (${escapeHtml(l.symbol)})</span>
           <span style="display:flex; gap:14px;">
             <a href="/token/example?mint=${encodeURIComponent(l.mint)}#community" style="color:var(--brand)">Chat</a>
-            <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" style="color:var(--brand)">View on Explorer</a>
+            <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" rel="noopener noreferrer" style="color:var(--brand)">View on Explorer</a>
           </span>
         </div>
         <div class="review-row"><span class="k" style="font-family:monospace;font-size:11px">${escapeHtml(l.mint)}</span><span class="v" style="color:var(--ink-faint)">${new Date(l.launchedAt).toLocaleString()}</span></div>
-        ${collectButton ? `<div class="review-row"><span class="k" style="color:var(--ink-faint)">Accumulated Transfer Fee</span>${collectButton}</div><div data-collect-status style="font-size:0.8125rem;color:var(--ink-dim);margin-top:6px;"></div>` : ''}
-      </div>`;
-      })
+      </div>`)
       .join('');
   }
 

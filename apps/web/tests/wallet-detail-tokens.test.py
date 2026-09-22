@@ -55,6 +55,20 @@ def register(api_port, address, name, symbol, creator):
         return resp.status
 
 
+def wait_for_api(api_port, timeout=15):
+    deadline = time.time() + timeout
+    last_error = None
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(f"http://localhost:{api_port}/health", timeout=1) as resp:
+                if resp.status == 200:
+                    return
+        except Exception as error:
+            last_error = error
+            time.sleep(0.2)
+    raise RuntimeError(f"API did not become ready within {timeout}s: {last_error}")
+
+
 def run():
     if not os.path.isdir(DIST_DIR):
         print(f"ERROR: {DIST_DIR} does not exist — run the build first.")
@@ -67,7 +81,7 @@ def run():
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    time.sleep(1.5)
+    wait_for_api(API_PORT)
 
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
@@ -82,7 +96,7 @@ def run():
             page = browser.new_page()
             page.add_init_script(f"window.SIGNAL_API_BASE_URL = 'http://localhost:{API_PORT}';")
 
-            page.goto(f"http://localhost:{STATIC_PORT}/wallet/example/", wait_until="networkidle")
+            page.goto(f"http://localhost:{STATIC_PORT}/wallet/example/", wait_until="domcontentloaded")
             page.wait_for_timeout(500)
             page.click('[data-tab="Created tokens"]')
             page.wait_for_timeout(200)
@@ -97,7 +111,7 @@ def run():
             status = register(API_PORT, "WalletDetailTestMint111", "Wallet Detail Test Token", "WDT", "example")
             check("setup: a real token registered for creator 'example'", status == 201, str(status))
 
-            page.reload(wait_until="networkidle")
+            page.reload(wait_until="domcontentloaded")
             page.wait_for_timeout(500)
 
             page.click('[data-tab="Created tokens"]')
@@ -123,7 +137,7 @@ def run():
 
             console_errors = []
             page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
-            page.reload(wait_until="networkidle")
+            page.reload(wait_until="domcontentloaded")
             page.wait_for_timeout(400)
             # The Wallet Intelligence endpoint intentionally returns 404 when this
             # in-memory test API has no persisted wallet record. That is an

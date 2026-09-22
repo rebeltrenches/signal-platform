@@ -28,7 +28,17 @@ export interface WalletRelationshipRecord {
   evidenceDescription: string;
   confidenceLevel: string;
   observedTxSignature: string | null;
+  observedAt: string | null;
   discoveredAt: string;
+}
+
+export interface WalletRelationshipSummary {
+  directRelationshipCount: number;
+  incomingCount: number;
+  outgoingCount: number;
+  blockchainDerivedCount: number;
+  uniqueRelatedWalletCount: number;
+  transactionEvidenceCount: number;
 }
 
 export interface WalletNoteRecord {
@@ -47,6 +57,7 @@ export interface WalletIntelligenceRecord {
   activities: WalletActivityRecord[];
   createdTokens: Array<{ id: string; chain: string; address: string; name: string; symbol: string; decimals: number; createdAt: string }>;
   relationships: WalletRelationshipRecord[];
+  relationshipSummary: WalletRelationshipSummary;
   notes: WalletNoteRecord[];
 }
 

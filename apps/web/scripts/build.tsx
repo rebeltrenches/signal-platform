@@ -61,7 +61,7 @@ const routes: RouteDef[] = [
     title: 'Dashboard',
     element: <DashboardPage />,
     clientScripts: ['/client/dashboard.js', '/client/auth-client.js', '/client/watchlist.js', '/client/alerts.js'],
-    moduleScripts: ['/client/portfolio.js', '/client/collect-fees.js'],
+    moduleScripts: ['/client/portfolio.js?v=stage3-portfolio-4'],
   },
   { path: 'security', title: 'Security', element: <SecurityPage /> },
   { path: 'transparency', title: 'Transparency', element: <TransparencyPage /> },
@@ -80,19 +80,6 @@ function build() {
   // Unset (the normal case today) means every page omits the script
   // entirely — zero effect on local dev or on any build done without it.
   const apiBaseUrl = process.env.SIGNAL_API_BASE_URL || undefined;
-  // Same build-time-only pattern as apiBaseUrl above — see
-  // packages/config/src/platform-wallet.ts for why this is read from
-  // an env var rather than hardcoded anywhere in this file or in
-  // launch-solana.js. Deliberately does NOT throw here if unset the
-  // way getPlatformWalletAddress() does when actually used server-side
-  // (SolanaAdapter.ts) — failing the ENTIRE site's build, including
-  // every unrelated page, over one missing var would be a
-  // disproportionate, cascading failure. The real enforcement for the
-  // client-side launch flow itself lives in launch-solana.js, which
-  // checks this value at the moment a launch is actually attempted —
-  // the same "loud failure at the point of real use" rule, without
-  // making it impossible to build anything else in the meantime.
-  const platformWalletAddress = process.env.SIGNAL_PLATFORM_WALLET || undefined;
 
   for (const route of routes) {
     const html =
@@ -105,7 +92,6 @@ function build() {
           moduleScripts={route.moduleScripts ?? []}
           embeddedJson={route.embeddedJson}
           apiBaseUrl={apiBaseUrl}
-          platformWalletAddress={platformWalletAddress}
         >
           {route.element}
         </Shell>

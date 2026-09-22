@@ -25,18 +25,32 @@ async function main() {
   };
 
   const checkpoints = new MemoryCheckpointStore();
-  const worker = new SolanaTokenRefreshWorker(chain, repo, checkpoints, { pageSize: 1, holderLimit: 10 });
+  const fundingScans: string[] = [];
+  const worker = new SolanaTokenRefreshWorker(chain, repo, checkpoints, {
+    pageSize: 1,
+    holderLimit: 10,
+    fundingScanner: {
+      async scanWallet(address: string) {
+        fundingScans.push(address);
+        return { scanned: 2, discovered: 1, skipped: 0 };
+      },
+    },
+  });
 
   const first = await worker.runPage();
   assert.equal(first.attempted, 1);
   assert.equal(first.refreshed, 1);
   assert.ok(first.nextCursor);
+  assert.equal(first.fundingWalletsScanned, 1);
+  assert.equal(first.fundingRelationshipsDiscovered, 1);
+  assert.equal(first.fundingScanFailed, 0);
 
   const second = await worker.runPage();
   assert.equal(second.attempted, 1);
   assert.equal(second.refreshed, 1);
   assert.equal(second.nextCursor, null);
   assert.equal(reads.length, 2);
+  assert.deepEqual(fundingScans.sort(), ['CreatorA', 'CreatorB']);
 
   const token = await repo.getTokenByAddress('SOLANA', reads[0]!);
   assert.ok(token);

@@ -4,6 +4,8 @@ import { getSharedPrismaClient } from '../../api/src/db/prismaClient.js';
 import { PrismaCheckpointStore } from './CheckpointStore.js';
 import { SolanaTokenRefreshWorker } from './SolanaTokenRefreshWorker.js';
 import { PrismaIndexerStatusStore } from './IndexerStatusStore.js';
+import { Connection } from '@solana/web3.js';
+import { SolanaFundingRelationshipWorker } from './SolanaFundingRelationshipWorker.js';
 
 async function main(): Promise<void> {
   const rpcUrl = process.env.SOLANA_RPC_URL;
@@ -16,17 +18,22 @@ async function main(): Promise<void> {
 
   const prisma = await getSharedPrismaClient();
   const repository = new PrismaTokenRepository(prisma);
+  const fundingWorker = new SolanaFundingRelationshipWorker(new Connection(rpcUrl, 'confirmed'), prisma);
   const worker = new SolanaTokenRefreshWorker(
     new SolanaAdapter({ rpcUrl }),
     repository,
     new PrismaCheckpointStore(prisma),
+    { fundingScanner: { scanWallet: (address) => fundingWorker.scanFundingAncestry(address, 3, 50) } },
   );
   const status = new PrismaIndexerStatusStore(prisma);
   const statusKey = 'solana-token-refresh';
+  const fundingStatusKey = 'solana-funding-relationships';
 
   async function runCycle(): Promise<void> {
     const totals = { attempted: 0, refreshed: 0, failed: 0 };
+    const fundingTotals = { attempted: 0, refreshed: 0, failed: 0 };
     await status.markStarted(statusKey);
+    await status.markStarted(fundingStatusKey);
     try {
       let result;
       do {
@@ -34,11 +41,16 @@ async function main(): Promise<void> {
         totals.attempted += result.attempted;
         totals.refreshed += result.refreshed;
         totals.failed += result.failed;
+        fundingTotals.attempted += result.fundingWalletsScanned;
+        fundingTotals.refreshed += result.fundingRelationshipsDiscovered;
+        fundingTotals.failed += result.fundingScanFailed;
         console.log('[indexer] page complete', result);
       } while (result.nextCursor);
       await status.markCompleted(statusKey, totals);
+      await status.markCompleted(fundingStatusKey, fundingTotals);
     } catch (error) {
       await status.markFailed(statusKey, error, totals);
+      await status.markFailed(fundingStatusKey, error, fundingTotals);
       throw error;
     }
   }

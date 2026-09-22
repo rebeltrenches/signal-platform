@@ -6,7 +6,7 @@
  * itself. Run with: npx tsx packages/dex/tests/amm-math.test.ts
  */
 import assert from 'node:assert';
-import { computeConstantProductOutput, computePriceImpactPercent, computeSwapEstimate } from '../src/amm-math.js';
+import { computeConstantProductOutput, computePriceImpactPercent, computeSwapEstimate, SIGNAL_CREATOR_FEE_BPS, computeSolCreatorFee, prepareSolBuySettlement, prepareSolSellSettlement } from '../src/amm-math.js';
 
 let passed = 0;
 function test(name: string, fn: () => void) {
@@ -68,6 +68,12 @@ test('computeSwapEstimate applies slippage correctly on a clean number: 100 bps 
   assert.strictEqual(estimate.minimumAmountOut, 990n);
 });
 
+test('swap estimate rejects invalid slippage instead of allowing a negative minimum output', () => {
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, -1), RangeError);
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, 10000), RangeError);
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, 1.5), RangeError);
+});
+
 test('rejects a zero or negative amountIn rather than silently returning a nonsensical result', () => {
   assert.throws(() => computeConstantProductOutput(0n, 1000n, 1000n, 0), RangeError);
   assert.throws(() => computeConstantProductOutput(-1n, 1000n, 1000n, 0), RangeError);
@@ -79,6 +85,48 @@ test('rejects zero or negative reserves — a pool that does not exist yet is no
 
 test('rejects a fee of 100% or more', () => {
   assert.throws(() => computeConstantProductOutput(100n, 1000n, 1000n, 10000), RangeError);
+});
+
+
+
+
+test('creator fee is exactly 1% of 1 SOL in integer lamports', () => {
+  assert.strictEqual(SIGNAL_CREATOR_FEE_BPS, 100);
+  assert.deepStrictEqual(computeSolCreatorFee(1_000_000_000n), {
+    grossSolLamports: 1_000_000_000n,
+    creatorFeeLamports: 10_000_000n,
+    netSolLamports: 990_000_000n,
+  });
+});
+
+test('creator fee uses integer lamport math without floating point', () => {
+  assert.deepStrictEqual(computeSolCreatorFee(123_456_789n), {
+    grossSolLamports: 123_456_789n,
+    creatorFeeLamports: 1_234_567n,
+    netSolLamports: 122_222_222n,
+  });
+});
+
+test('BUY settlement sends 1% to creator and 99% to Raydium', () => {
+  assert.deepStrictEqual(prepareSolBuySettlement(1_000_000_000n), {
+    grossSolLamports: 1_000_000_000n,
+    creatorFeeLamports: 10_000_000n,
+    raydiumInputLamports: 990_000_000n,
+  });
+});
+
+test('SELL settlement sends 1% of gross SOL output to creator and 99% to trader', () => {
+  assert.deepStrictEqual(prepareSolSellSettlement(1_000_000_000n), {
+    grossSolOutputLamports: 1_000_000_000n,
+    creatorFeeLamports: 10_000_000n,
+    traderReceivesLamports: 990_000_000n,
+  });
+});
+
+test('creator fee rejects invalid values', () => {
+  assert.throws(() => computeSolCreatorFee(-1n), RangeError);
+  assert.throws(() => computeSolCreatorFee(1n, -1), RangeError);
+  assert.throws(() => computeSolCreatorFee(1n, 10000), RangeError);
 });
 
 console.log(`${passed} test(s) passed.`);

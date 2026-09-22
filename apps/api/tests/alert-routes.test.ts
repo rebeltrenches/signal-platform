@@ -50,14 +50,14 @@ function sign(privateKey: crypto.KeyObject, message: string): string {
 }
 
 async function signIn(base: string, wallet: ReturnType<typeof makeWallet>): Promise<string> {
-  const challenge = await (await fetch(`${base}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
+  const challenge: any = await (await fetch(`${base}/api/v1/auth/challenge?address=${wallet.address}&chain=solana`)).json();
   const signature = sign(wallet.privateKey, challenge.message);
   const sessionRes = await fetch(`${base}/api/v1/auth/session`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ address: wallet.address, chain: 'solana', nonce: challenge.nonce, timestamp: challenge.timestamp, signature }),
   });
-  return (await sessionRes.json()).sessionToken;
+  return ((await sessionRes.json()) as any).sessionToken;
 }
 
 async function run() {
@@ -101,7 +101,7 @@ async function run() {
       headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenA}` },
       body: JSON.stringify({ tokenChain: 'solana', tokenAddress: 'RealAlertTestMint111', kind: 'price_move', threshold: { percent: 10 } }),
     });
-    const createBody = await createRes.json();
+    const createBody: any = await createRes.json();
     test('POST for a real, registered token succeeds, 201', createRes.status === 201 && createBody.alert?.kind === 'price_move');
 
     // --- Invalid kind rejected ---
@@ -114,11 +114,11 @@ async function run() {
 
     // --- List scoped to the authenticated wallet ---
     const listARes = await fetch(`${BASE}/api/v1/alerts`, { headers: { authorization: `Bearer ${tokenA}` } });
-    const listABody = await listARes.json();
+    const listABody: any = await listARes.json();
     test('GET returns wallet A\'s own alert', listARes.status === 200 && listABody.alerts.length === 1);
 
     const listBRes = await fetch(`${BASE}/api/v1/alerts`, { headers: { authorization: `Bearer ${tokenB}` } });
-    const listBBody = await listBRes.json();
+    const listBBody: any = await listBRes.json();
     test('GET for a different wallet\'s session sees NONE of wallet A\'s alerts', listBBody.alerts.length === 0);
 
     // --- Wallet B cannot delete wallet A's alert ---
@@ -127,7 +127,7 @@ async function run() {
     test('DELETE by a different wallet is rejected with 403', crossDeleteRes.status === 403, String(crossDeleteRes.status));
 
     const stillThereRes = await fetch(`${BASE}/api/v1/alerts`, { headers: { authorization: `Bearer ${tokenA}` } });
-    const stillThereBody = await stillThereRes.json();
+    const stillThereBody: any = await stillThereRes.json();
     test('the alert still exists after the rejected cross-wallet delete attempt', stillThereBody.alerts.length === 1);
 
     // --- Real owner can delete ---

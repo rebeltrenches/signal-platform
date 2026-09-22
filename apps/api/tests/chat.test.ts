@@ -64,12 +64,13 @@ function signedBody(wallet: ReturnType<typeof makeWallet>, roomId: string, actio
 }
 
 async function req(method: string, path: string, body?: unknown) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const json = await res.json().catch(() => null);
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.headers = { 'content-type': 'application/json' };
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(`${BASE}${path}`, init);
+  const json: any = await res.json().catch(() => null);
   return { status: res.status, json };
 }
 
@@ -78,7 +79,7 @@ async function req(method: string, path: string, body?: unknown) {
 async function deleteReq(path: string, fields: { walletAddress: string; signature: string; timestamp: number }) {
   const qs = new URLSearchParams({ walletAddress: fields.walletAddress, signature: fields.signature, timestamp: String(fields.timestamp) });
   const res = await fetch(`${BASE}${path}?${qs}`, { method: 'DELETE' });
-  const json = await res.json().catch(() => null);
+  const json: any = await res.json().catch(() => null);
   return { status: res.status, json };
 }
 

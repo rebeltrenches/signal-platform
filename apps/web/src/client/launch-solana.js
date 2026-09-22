@@ -7,26 +7,20 @@
 // real, correct code and actually executing it against mainnet are two
 // different things; only the first has happened.
 //
-// Matches packages/blockchain/src/solana/SolanaAdapter.ts's exact
-// instruction sequence for the current fee model: mintAuthority stays
-// the connecting (launcher) wallet; transferFeeConfigAuthority and
-// withdrawWithheldAuthority are BOTH the Signal platform wallet
-// (window.SIGNAL_PLATFORM_WALLET, injected at build time — see
-// api-config.js's platformWalletAddress export and build.tsx/Shell.tsx).
-// The launcher receives 0% of the 1% Signal Fee on transfers; 100%
-// goes to the Signal platform wallet. No holder-rewards pool.
+// SIGNAL's 1% creator trading fee is paid in SOL by the trading layer.
+// It is deliberately NOT implemented as Token-2022 TransferFeeConfig,
+// because that mechanism withholds the launched token rather than SOL.
 //
-// Devnet is permanently excluded (docs/ROADMAP.md Stage 6) — there is no
-// devnet option anywhere in this file, intentionally. The RPC below is a
-// public Mainnet endpoint; real use should switch to a paid RPC provider
-// (Helius, Triton, QuickNode) for reliability, since public endpoints
-// rate-limit heavily.
+// Devnet is permanently excluded (docs/ROADMAP.md Stage 6). Browser RPC
+// traffic is routed through SIGNAL's server-side Mainnet proxy so the
+// configured provider URL/key is never exposed to the client.
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
-import { apiUrl, getPlatformWalletAddress } from "./api-config.js";
+import { apiUrl } from "./api-config.js";
 
-const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
-const DEFAULT_TOTAL_TRANSFER_FEE_BPS = 100; // 1.00% — matches DEFAULT_TAX_CONFIG.totalBps in packages/types, kept in sync manually since this file can't import a TS package directly
+const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
+const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
+const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -89,7 +83,7 @@ function explorerLink(signature) {
 class LaunchFlow {
   constructor(rootEl) {
     this.root = rootEl;
-    this.connection = new web3.Connection(MAINNET_RPC, "confirmed");
+    this.connection = new web3.Connection(SIGNAL_SOLANA_RPC_PROXY, "confirmed");
     this.wallet = null;
     this.mintKeypair = null;
   }
@@ -113,86 +107,100 @@ class LaunchFlow {
     return resp.publicKey;
   }
 
-  /** Mirrors SolanaAdapter.buildCreateTokenTransaction exactly: create
-   *  mint account + initialize 1% TransferFeeConfig (mintAuthority stays
-   *  the launcher; both fee authorities are the Signal platform wallet,
-   *  not the launcher) + initialize the mint. Returns the built
-   *  transaction plus the new mint's keypair (needed again for its own
-   *  signature). Throws if the platform wallet isn't configured — never
-   *  silently proceeds with an undefined fee recipient. */
-  async buildCreateTx(launcherPubkey, decimals, transferFeeBps) {
-    const platformWalletStr = getPlatformWalletAddress();
-    if (!platformWalletStr) {
-      throw new Error(
-        "Signal platform wallet is not configured (SIGNAL_PLATFORM_WALLET was not set at build time). " +
-        "Refusing to build a launch transaction with no configured Signal Fee recipient."
-      );
-    }
-    const platformWallet = new web3.PublicKey(platformWalletStr);
-
-    this.mintKeypair = web3.Keypair.generate();
+  /** Create the mint account and initialize the mint.
+   *  SIGNAL's creator trading fee is not a Token-2022 transfer fee:
+   *  it will be collected in SOL by the trading layer. This avoids
+   *  accumulating potentially worthless project tokens.
+   *  The same transaction pays SIGNAL's fixed 0.001 SOL launch fee
+   *  to the public platform wallet. */
+  async buildCreateTx(launcherPubkey, decimals) {
+this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
-    const maxFee = BigInt(1_000_000) * 10n ** BigInt(decimals);
-
-    const extensions = [splToken.ExtensionType.TransferFeeConfig];
-    const mintLen = splToken.getMintLen(extensions);
+    const mintLen = splToken.MINT_SIZE;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
     const tx = new web3.Transaction().add(
+      web3.SystemProgram.transfer({
+        fromPubkey: launcherPubkey,
+        toPubkey: SIGNAL_PLATFORM_WALLET,
+        lamports: SIGNAL_LAUNCH_FEE_LAMPORTS,
+      }),
       web3.SystemProgram.createAccount({
         fromPubkey: launcherPubkey,
         newAccountPubkey: mint,
         space: mintLen,
         lamports,
-        programId: splToken.TOKEN_2022_PROGRAM_ID,
+        programId: splToken.TOKEN_PROGRAM_ID,
       }),
-      splToken.createInitializeTransferFeeConfigInstruction(
-        mint,
-        platformWallet, // transferFeeConfigAuthority -> the Signal platform wallet, not the creator
-        platformWallet, // withdrawWithheldAuthority  -> the Signal platform wallet, not the creator
-        transferFeeBps,
-        maxFee,
-        splToken.TOKEN_2022_PROGRAM_ID
-      ),
-      splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_2022_PROGRAM_ID)
+splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_PROGRAM_ID)
     );
-    const { blockhash } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.feePayer = launcherPubkey;
     tx.partialSign(this.mintKeypair);
     return { tx, mint, lamports };
   }
 
-  /** Mirrors SolanaAdapter.buildMintSupplyTransaction exactly. */
+  /** Mirrors SolanaAdapter.buildMintSupplyTransaction using classic SPL Token. */
   async buildMintSupplyTx(launcherPubkey, mint, totalSupply, decimals) {
-    const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_2022_PROGRAM_ID);
+    const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_PROGRAM_ID);
     const tx = new web3.Transaction().add(
-      splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_2022_PROGRAM_ID),
-      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_2022_PROGRAM_ID)
+      splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_PROGRAM_ID),
+      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_PROGRAM_ID)
     );
-    const { blockhash } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.feePayer = launcherPubkey;
     return { tx, ata };
   }
 
-  /** Sign via the connected wallet, submit, and poll for real confirmation.
-   *  Every state transition here reflects an actual awaited promise —
-   *  no timers, no simulated progress. */
+  /** Simulate the exact transaction, then sign, submit and confirm against
+   *  the same blockhash. Wallet mutation of the simulated message is rejected. */
   async signSubmitConfirm(tx, stepName) {
+    if (!tx.recentBlockhash || !tx.lastValidBlockHeight) {
+      throw new Error("Transaction is missing its confirmation blockhash.");
+    }
+
+    this.setStepState(stepName, "simulating");
+    const simulation = await this.connection.simulateTransaction(tx, {
+      sigVerify: false,
+      replaceRecentBlockhash: false,
+    });
+    if (simulation.value.err) {
+      this.setStepState(stepName, "failed", JSON.stringify(simulation.value.err));
+      throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+    }
+
+    const simulatedMessage = tx.serializeMessage();
     this.setStepState(stepName, "awaiting_signature");
     const signed = await this.wallet.signTransaction(tx);
+    const signedMessage = signed.serializeMessage();
+    if (simulatedMessage.length !== signedMessage.length ||
+        simulatedMessage.some((byte, i) => byte !== signedMessage[i])) {
+      this.setStepState(stepName, "failed", "wallet changed transaction");
+      throw new Error("Wallet changed the simulated transaction message.");
+    }
+
     this.setStepState(stepName, "submitted");
-    const signature = await this.connection.sendRawTransaction(signed.serialize());
+    const signature = await this.connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      maxRetries: 5,
+    });
     this.setStepState(stepName, "confirming", signature);
 
-    const confirmation = await this.connection.confirmTransaction(signature, "confirmed");
+    const confirmation = await this.connection.confirmTransaction({
+      signature,
+      blockhash: tx.recentBlockhash,
+      lastValidBlockHeight: tx.lastValidBlockHeight,
+    }, "confirmed");
     if (confirmation.value.err) {
       this.setStepState(stepName, "failed", JSON.stringify(confirmation.value.err));
       throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
     }
     this.setStepState(stepName, "confirmed", signature);
-    this.log(`\u2713 ${stepName}: <a href="${explorerLink(signature)}" target="_blank">${signature}</a>`);
+    this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
     return signature;
   }
 }
@@ -200,11 +208,8 @@ class LaunchFlow {
 // Real, persistent record of actually-completed launches — written only
 // here, only after both transactions above have genuinely confirmed.
 // The Dashboard page reads this same key; it never writes to it itself.
-// Includes creatorAddress and decimals (added alongside the fee-collection
-// feature) — collect-fees.js needs both: creatorAddress to gate the
-// "Collect Fees" action to only the wallet that actually launched this
-// token, decimals because Token-2022 amount math requires it and it's
-// not otherwise recoverable without an extra RPC round-trip.
+// Includes creatorAddress and decimals so confirmed launches can be restored
+// and synchronized across the dashboard without inventing missing metadata.
 const LAUNCHES_KEY = "signal_real_launches_v1";
 function recordRealLaunch(entry) {
   try {
@@ -389,7 +394,7 @@ function recordRealLaunch(entry) {
         }
         supply = BigInt(wizard.supply);
 
-        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals, DEFAULT_TOTAL_TRANSFER_FEE_BPS);
+        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals);
         mint = newMint;
         await flow.signSubmitConfirm(createTx, "mint");
 

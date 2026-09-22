@@ -17,7 +17,4 @@ export function apiUrl(path) {
  *  build didn't have that env var set; callers that need a real value
  *  (launch-solana.js, at the moment a launch is actually attempted)
  *  check for this explicitly and fail loudly rather than proceeding
- *  with an undefined recipient — see launch-solana.js's own check. */
-export function getPlatformWalletAddress() {
-  return window.SIGNAL_PLATFORM_WALLET;
-}
+ *  with an undefined recipient —

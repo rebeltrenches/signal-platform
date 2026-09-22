@@ -5,6 +5,14 @@ the existing `SolanaAdapter` read methods and existing `TokenIndexer`.
 It writes only blockchain-derived token metadata and holder snapshots
 through the existing token repository.
 
+The same paged cycle also scans each distinct registered creator wallet
+for explicit System Program SOL transfers and stores only those observed
+funding relationships with their transaction signature. A transfer is never
+treated as evidence of common ownership, identity, intent, or risk.
+Incoming sources are followed breadth-first to three levels, with a hard cap
+of 50 scanned wallets per creator. Cycles are ignored and outgoing recipients
+are never expanded, preventing an unbounded wallet-graph crawl.
+
 ## Deliberate limits
 
 - No fabricated trades, prices, liquidity, or wallet relationships.
@@ -39,7 +47,9 @@ interval, so slow RPC/database cycles cannot overlap.
 
 The runner records cycle state in PostgreSQL (`IndexerRunState`), including
 last start/completion/failure, attempted/refreshed/failed counts, and the last
-cycle-level error. The API exposes this read-only at `GET /health/indexer`.
+cycle-level error. Token refresh and funding-relationship discovery use separate
+run-state keys. The API exposes both read-only at `GET /health/indexer` while
+retaining the original token-refresh fields for backward compatibility.
 
 A temporary holder RPC failure is not represented as an empty holder list:
 `SolanaAdapter.getTopHolders` propagates the failure so the indexer skips the

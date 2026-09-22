@@ -45,12 +45,12 @@ export function listAlerts(walletAddress: string) {
   return resolveRepository().listAlerts(walletAddress);
 }
 
-export function createAlert(input: CreateAlertInput) {
-  return resolveRepository().createAlert(input);
+export function createAlert(walletAddress: string, input: CreateAlertInput) {
+  return resolveRepository().createAlert(walletAddress, input);
 }
 
-export function deleteAlert(alertId: string, walletAddress: string) {
-  return resolveRepository().deleteAlert(alertId, walletAddress);
+export function removeAlert(walletAddress: string, alertId: string) {
+  return resolveRepository().removeAlert(walletAddress, alertId);
 }
 
 export function __resetForTests(): void {

@@ -1,15 +1,5 @@
-// Real portfolio: fetches the connected wallet's actual SOL balance and
-// SPL token holdings, live, from Solana Mainnet. This is a read-only
-// operation — no signature needed, no funds at risk, just genuinely
-// public on-chain data about the connected wallet's own public key.
-// Nothing here is fabricated: if the fetch fails or returns nothing,
-// that's what gets shown, never a placeholder number.
-import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
-
-const MAINNET_RPC = "https://api.mainnet-beta.solana.com";
-const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-
+// Real portfolio data is fetched through Signal's same-origin server endpoint.
+// The RPC provider URL and credentials never enter browser code.
 (function () {
   const btn = document.getElementById("refreshPortfolioBtn");
   const emptyEl = document.getElementById("portfolio-empty");
@@ -19,8 +9,54 @@ const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
   const tokensEl = document.getElementById("portfolio-tokens");
   if (!btn) return;
 
+  function shortenMint(mint) {
+    return mint.length > 16 ? mint.slice(0, 8) + "…" + mint.slice(-6) : mint;
+  }
+
+  function formatTokenAmount(amount) {
+    const value = Number(amount);
+    if (!Number.isFinite(value)) return String(amount);
+    if (value === 0) return "0";
+    if (Math.abs(value) < 0.000001) return "<0.000001";
+    return new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: Math.abs(value) < 1 ? 6 : 4,
+      useGrouping: true,
+    }).format(value);
+  }
+
+  function row(token) {
+    const div = document.createElement("div");
+    div.className = "review-row";
+
+    const identity = document.createElement("span");
+    identity.className = "k";
+
+    const primary = document.createElement("span");
+    primary.textContent = token.symbol || token.name || shortenMint(token.mint);
+    primary.title = token.mint;
+    identity.append(primary);
+
+    if (token.symbol || token.name) {
+      const mint = document.createElement("small");
+      mint.textContent = shortenMint(token.mint);
+      mint.title = token.mint;
+      mint.style.display = "block";
+      mint.style.marginTop = "3px";
+      mint.style.fontFamily = "monospace";
+      mint.style.opacity = "0.65";
+      identity.append(mint);
+    }
+
+    const value = document.createElement("span");
+    value.className = "v";
+    value.textContent = formatTokenAmount(token.amount);
+
+    div.append(identity, value);
+    return div;
+  }
+
   btn.addEventListener("click", async () => {
-    const address = (window.launchpadWallet && window.launchpadWallet.address) || null;
+    const address = window.launchpadWallet?.address || null;
     if (!address) {
       btn.textContent = "Connect wallet first";
       return;
@@ -28,46 +64,52 @@ const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
     btn.disabled = true;
     btn.textContent = "Fetching…";
-    // Real loading state for a real, possibly-slow network round trip —
-    // not an instant swap that would make a slow RPC response look like
-    // a freeze. Skeleton replaces the empty-state; results stay hidden
-    // until there's something real to show in them.
     emptyEl.style.display = "none";
     resultsEl.style.display = "none";
     skeletonEl.style.display = "block";
 
     try {
-      const connection = new web3.Connection(MAINNET_RPC, "confirmed");
-      const pubkey = new web3.PublicKey(address);
+      const response = await fetch("/api/solana/portfolio", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const messages = {
+          RPC_NOT_CONFIGURED: "Preview RPC is not configured.",
+          RPC_INVALID_CONFIG: "Preview RPC configuration is invalid.",
+          RPC_HTTP_ERROR: "The Solana RPC provider rejected the request.",
+          RPC_TIMEOUT: "The Solana RPC provider timed out.",
+          RPC_RESPONSE_ERROR: "The Solana RPC provider returned an invalid response.",
+        };
+        throw new Error(`${messages[payload.code] || payload.error || "Live Solana balances are unavailable"} [${payload.code || `HTTP_${response.status}`}]`);
+      }
 
-      const lamports = await connection.getBalance(pubkey);
-      const sol = lamports / web3.LAMPORTS_PER_SOL;
-
-      const [legacyAccounts, token2022Accounts] = await Promise.all([
-        connection.getParsedTokenAccountsByOwner(pubkey, { programId: new web3.PublicKey(TOKEN_PROGRAM_ID) }),
-        connection.getParsedTokenAccountsByOwner(pubkey, { programId: new web3.PublicKey(TOKEN_2022_PROGRAM_ID) }),
-      ]);
-      const allAccounts = [...legacyAccounts.value, ...token2022Accounts.value].filter(
-        (a) => a.account.data.parsed.info.tokenAmount.uiAmount > 0
-      );
-
-      solEl.textContent = `${sol} SOL`;
-      tokensEl.innerHTML = allAccounts.length
-        ? allAccounts
-            .map((a) => {
-              const info = a.account.data.parsed.info;
-              return `<div class="review-row"><span class="k" style="font-family:monospace;font-size:12px">${info.mint}</span><span class="v">${info.tokenAmount.uiAmountString}</span></div>`;
-            })
-            .join("")
-        : '<div class="review-row"><span class="k">Tokens</span><span class="v" style="color:var(--ink-faint)">None held</span></div>';
+      solEl.textContent = `${Number(payload.lamports) / 1_000_000_000} SOL`;
+      tokensEl.replaceChildren();
+      if (Array.isArray(payload.tokens) && payload.tokens.length) {
+        for (const token of payload.tokens) tokensEl.append(row(token));
+      } else {
+        tokensEl.append(row({ mint: "Tokens", amount: "None held" }));
+      }
 
       skeletonEl.style.display = "none";
       resultsEl.style.display = "block";
       btn.textContent = "Refresh";
     } catch (err) {
       skeletonEl.style.display = "none";
+      resultsEl.style.display = "none";
       emptyEl.style.display = "block";
-      emptyEl.innerHTML = `<div class="empty-state"><h3>Fetch failed</h3><p>${err.message}</p></div>`;
+      emptyEl.replaceChildren();
+      const box = document.createElement("div");
+      box.className = "empty-state";
+      const h = document.createElement("h3");
+      h.textContent = "Fetch failed";
+      const p = document.createElement("p");
+      p.textContent = err instanceof Error ? err.message : "Live Solana balances are unavailable";
+      box.append(h, p);
+      emptyEl.append(box);
       btn.textContent = "Retry";
     } finally {
       btn.disabled = false;

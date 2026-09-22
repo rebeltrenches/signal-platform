@@ -1,0 +1,104 @@
+name: DEX settlement verification
+
+concurrency:
+  group: dex-settlement-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [wallet-intelligence-stage3]
+    paths:
+      - 'programs/signal-sell-settlement/**'
+      - 'packages/dex/**'
+      - 'packages/blockchain/src/solana/SolanaAdapter.ts'
+      - 'packages/types/src/index.ts'
+      - 'packages/config/src/chains.ts'
+      - 'packages/config/src/platform-wallet.ts'
+      - 'packages/blockchain/src/core/BlockchainAdapter.ts'
+      - 'packages/utils/tests/tax.test.ts'
+      - 'packages/utils/src/tax.ts'
+      - 'apps/web/src/client/launch-solana.js'
+      - 'apps/web/src/client/wizard.js'
+      - 'apps/web/src/client/dashboard.js'
+      - 'apps/web/src/client/collect-fees.js'
+      - 'apps/web/tests/fee-rate-and-authority.test.py'
+      - 'apps/web/tests/collect-fees.test.py'
+      - 'apps/web/src/pages/CreatePage.tsx'
+      - '.github/workflows/dex-settlement.yml'
+  pull_request:
+    paths:
+      - 'programs/signal-sell-settlement/**'
+      - 'packages/dex/**'
+      - 'packages/blockchain/src/solana/SolanaAdapter.ts'
+      - 'packages/types/src/index.ts'
+      - 'packages/config/src/chains.ts'
+      - 'packages/config/src/platform-wallet.ts'
+      - 'packages/blockchain/src/core/BlockchainAdapter.ts'
+      - 'packages/utils/tests/tax.test.ts'
+      - 'packages/utils/src/tax.ts'
+      - 'apps/web/src/client/launch-solana.js'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: pnpm install --no-frozen-lockfile
+      - name: DEX math tests
+        run: pnpm exec tsx packages/dex/tests/amm-math.test.ts
+      - name: Raydium adapter tests
+        run: pnpm exec tsx packages/dex/tests/RaydiumDexAdapter.test.ts
+      - name: Guard configurable CPMM bridge
+        run: |
+          grep -q "const MAINNET_CPMM_PROGRAM_ID" packages/dex/src/RaydiumSdkCpmmBridge.ts
+          grep -q "private readonly cpmmProgramId: string = MAINNET_CPMM_PROGRAM_ID" packages/dex/src/RaydiumSdkCpmmBridge.ts
+          ! grep -q "MAINNET_this" packages/dex/src/RaydiumSdkCpmmBridge.ts
+      - name: Raydium SDK bridge typecheck
+        run: pnpm exec tsc --noEmit --skipLibCheck --allowSyntheticDefaultImports --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
+      - name: Browser fee-model regression guards
+        run: |
+          node --check apps/web/src/client/dashboard.js
+          node --check apps/web/src/client/wizard.js
+          python3 apps/web/tests/fee-rate-and-authority.test.py
+          python3 apps/web/tests/collect-fees.test.py
+      - name: Shared fee math tests
+        run: pnpm exec tsx packages/utils/tests/tax.test.ts
+      - name: Solana adapter fee-model typecheck
+        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/blockchain/src/solana/SolanaAdapter.ts
+      - name: Guard new launches against Token-2022 transfer fees
+        run: |
+          ! grep -q "createInitializeTransferFeeConfigInstruction" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "programId: TOKEN_PROGRAM_ID" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" packages/config/src/platform-wallet.ts
+          grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS" packages/blockchain/src/solana/SolanaAdapter.ts
+          ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana.js
+          grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000" apps/web/src/client/launch-solana.js
+          grep -q "totalBps: 100" packages/types/src/index.ts
+          grep -q "LAUNCH_PRICE_LAMPORTS = 100_000_000n" packages/types/src/index.ts
+      - name: BUY transaction assembly tests
+        run: pnpm exec tsx packages/dex/tests/sol-trade-transaction.test.ts
+      - name: Raydium BUY quote and settlement tests
+        run: pnpm exec tsx packages/dex/tests/sol-buy-raydium.test.ts
+      - name: SELL settlement tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-settlement.test.ts
+      - name: SELL instruction binding tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-instruction.test.ts
+      - name: Atomic SELL transaction tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-transaction.test.ts
+      - name: Raydium SELL slippage tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-raydium.test.ts
+      - name: Wallet execution safety tests
+        run: pnpm exec tsx packages/dex/tests/solana-wallet-execution.test.ts
+      - name: Test on-chain SELL settlement program
+        working-directory: programs/signal-sell-settlement
+        run: cargo test
+      - name: Compile on-chain SELL settlement program
+        working-directory: programs/signal-sell-settlement
+        run: cargo check

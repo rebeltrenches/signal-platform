@@ -3,15 +3,17 @@
   "private": true,
   "version": "0.1.0",
   "description": "Multi-chain token launchpad and trading terminal (Solana, Base, BNB Chain)",
+  "packageManager": "pnpm@9.15.9",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --build --dry",
+    "typecheck": "tsc --noEmit",
     "test:utils": "tsx packages/utils/tests/tax.test.ts"
   },
   "devDependencies": {
+    "@types/bn.js": "^5.1.6",
     "typescript": "^5.6.0",
     "tsx": "^4.19.0",
     "@types/node": "^22.0.0"

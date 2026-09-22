@@ -31,19 +31,10 @@ export interface PoolReserves {
 }
 
 /**
- * The genuinely protocol-specific pieces this adapter does NOT
- * implement itself: finding a pool for a token pair, and reading its
- * live reserves. Raydium's own official documentation confirms why —
- * even their own code demos delegate this to @raydium-io/raydium-sdk-v2
- * (`raydium.liquidity.getPoolInfoFromRpc`), which decodes the pool
- * account's specific byte layout internally. That layout is real,
- * versioned, and non-trivial; hand-transcribing it from memory here
- * (no internet to install or verify against the real SDK) risks
- * something that resembles a working implementation without actually
- * being one — exactly the kind of unverifiable financial code this
- * project has avoided throughout. A real implementation of this
- * interface, backed by the real SDK, is the one piece of glue needed
- * once real infrastructure exists.
+ * Protocol-specific pool discovery and reserve reads are delegated to
+ * a concrete SDK-backed implementation. SIGNAL now carries Raydium SDK
+ * V2 as a dependency; this interface remains the boundary that keeps
+ * live Raydium account decoding out of the generic DEX orchestration.
  */
 export interface RaydiumPoolReader {
   findPool(tokenA: string, tokenB: string): Promise<{ poolAddress: string } | null>;
@@ -51,12 +42,9 @@ export interface RaydiumPoolReader {
 }
 
 /**
- * Similarly not hand-rolled: the actual swap instruction's exact
- * account list and ordering (Raydium's own docs: "poolKeys ... carries
- * every AMM v4 and OpenBook account in the order the program expects,"
- * produced by the SDK, not written by hand). This adapter constructs
- * the parts around it (fee payer, recent-blockhash placeholder,
- * human-readable summary) but delegates the actual instruction bytes.
+ * The actual Raydium swap transaction is deliberately delegated to the
+ * official SDK-backed builder rather than hand-rolling Raydium account
+ * ordering or instruction bytes.
  */
 export interface RaydiumSwapBuilder {
   buildSwapInstruction(params: {
@@ -70,18 +58,12 @@ export interface RaydiumSwapBuilder {
 }
 
 /**
- * Real orchestration and real constant-product math (amm-math.ts),
- * around two protocol-specific operations that are deliberately NOT
- * implemented here (see RaydiumPoolReader/RaydiumSwapBuilder above).
- * Without a real PoolReader/SwapBuilder supplied, every method returns
- * an honest empty/unavailable result — never a fabricated quote or
- * pool — matching DexAdapter's own documented "never invent a route"
- * contract.
+ * DEX orchestration around protocol-specific SDK-backed pool reading
+ * and swap construction. Without a configured PoolReader/SwapBuilder,
+ * methods fail closed or return unavailable — never a fabricated route.
  *
- * NEVER RUN AGAINST REAL SOLANA MAINNET. No internet exists anywhere
- * this project has been built, so no real pool has ever actually been
- * read, and no real swap has ever actually been constructed or
- * executed through this class.
+ * Mainnet execution must remain disabled until the SDK-backed reader and
+ * builder have been integration-tested against real Raydium pools.
  */
 export class RaydiumDexAdapter implements DexAdapter {
   readonly dexId = 'raydium';
@@ -157,6 +139,9 @@ export class RaydiumDexAdapter implements DexAdapter {
   }
 
   async swap(quote: Quote, walletAddress: string, slippageBps: number): Promise<unknown> {
+    if (!Number.isInteger(slippageBps) || slippageBps < 0 || slippageBps >= 10_000) {
+      throw new RangeError('slippageBps must be an integer in [0, 10000).');
+    }
     if (!this.swapBuilder) {
       throw new Error('No swap builder configured — this adapter does not construct swap instructions itself (see class doc).');
     }
@@ -164,7 +149,9 @@ export class RaydiumDexAdapter implements DexAdapter {
       throw new Error('This adapter only supports a direct single-pool swap, not a multi-hop route.');
     }
     const [inputToken, outputToken] = quote.route;
+    if (quote.estimatedOutputAmount.raw <= 0n) throw new Error('Quoted output must be greater than zero.');
     const minimumAmountOut = (quote.estimatedOutputAmount.raw * BigInt(10000 - slippageBps)) / 10000n;
+    if (minimumAmountOut <= 0n) throw new Error('Minimum output must be greater than zero.');
     const found = await (this.poolReader as RaydiumPoolReader | undefined)?.findPool(inputToken!, outputToken!);
     if (!found) throw new Error('Could not re-resolve the pool for this quote.');
 

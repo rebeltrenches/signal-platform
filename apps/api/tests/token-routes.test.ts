@@ -34,7 +34,7 @@ async function run() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chain: 'solana', address: 'MintABC', name: 'Test Token', symbol: 'TT', decimals: 6, creatorWalletAddress: 'CreatorABC' }),
     });
-    const registerBody = await registerRes.json();
+    const registerBody: any = await registerRes.json();
     test('registering a new token returns 201', registerRes.status === 201, String(registerRes.status));
     test('the registered token is returned with the submitted fields', registerBody.token?.symbol === 'TT');
 
@@ -42,7 +42,7 @@ async function run() {
     // must be findable via the uppercase-normalized lookup path. This
     // is the exact bug caught and fixed during implementation. ---
     const lookupRes = await fetch(`${BASE}/api/v1/tokens/solana/MintABC`);
-    const lookupBody = await lookupRes.json();
+    const lookupBody: any = await lookupRes.json();
     test('a token registered as "solana" (lowercase) is findable via GET (case-normalization regression)', lookupRes.status === 200, String(lookupRes.status));
     test('the looked-up token matches what was registered', lookupBody.token?.address === 'MintABC');
 
@@ -52,12 +52,12 @@ async function run() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chain: 'solana', address: 'MintABC', name: 'Test Token', symbol: 'TT', decimals: 6, creatorWalletAddress: 'CreatorABC' }),
     });
-    const secondBody = await secondRegisterRes.json();
+    const secondBody: any = await secondRegisterRes.json();
     test('registering the same token twice returns the same id, not a duplicate', secondBody.token?.id === registerBody.token?.id);
 
     // --- Honest 404, never a fabricated token ---
     const notFoundRes = await fetch(`${BASE}/api/v1/tokens/solana/NeverRegisteredMint`);
-    const notFoundBody = await notFoundRes.json();
+    const notFoundBody: any = await notFoundRes.json();
     test('an unregistered token address returns a real 404, not a fabricated result', notFoundRes.status === 404, String(notFoundRes.status));
     test('the 404 body clearly says NOT_FOUND', notFoundBody.error === 'NOT_FOUND');
 
@@ -71,7 +71,7 @@ async function run() {
 
     // --- listMyTokensRoute ---
     const mineRes = await fetch(`${BASE}/api/v1/tokens/mine?creatorWalletAddress=CreatorABC`);
-    const mineBody = await mineRes.json();
+    const mineBody: any = await mineRes.json();
     test('listing a creator\'s tokens returns the one they registered', mineRes.status === 200 && mineBody.tokens?.length === 1, JSON.stringify(mineBody));
 
     const mineMissingRes = await fetch(`${BASE}/api/v1/tokens/mine`);
@@ -89,14 +89,14 @@ async function run() {
     });
 
     const listRes = await fetch(`${BASE}/api/v1/tokens`); // deliberately no Authorization header at all
-    const listBody = await listRes.json();
+    const listBody: any = await listRes.json();
     test('GET /api/v1/tokens works with NO Authorization header — genuinely public', listRes.status === 200);
     test('the two just-registered tokens both appear', listBody.tokens.some((t: any) => t.address === 'DiscoveryMintA') && listBody.tokens.some((t: any) => t.address === 'DiscoveryMintB'));
     test('newest-registered token sorts first', listBody.tokens[0].address === 'DiscoveryMintB');
     test('only real registration fields are present — no fabricated holderCount/volume anywhere in the response', !JSON.stringify(listBody).includes('holderCount') && !JSON.stringify(listBody).includes('volume'));
 
     const pagedRes = await fetch(`${BASE}/api/v1/tokens?limit=1`);
-    const pagedBody = await pagedRes.json();
+    const pagedBody: any = await pagedRes.json();
     test('limit=1 returns exactly 1 token with a real nextCursor', pagedBody.tokens.length === 1 && !!pagedBody.nextCursor);
 
     const badLimitRes = await fetch(`${BASE}/api/v1/tokens?limit=-5`);
@@ -109,16 +109,16 @@ async function run() {
     });
 
     const searchRes = await fetch(`${BASE}/api/v1/search?q=dragon`); // no Authorization header at all
-    const searchBody = await searchRes.json();
+    const searchBody: any = await searchRes.json();
     test('GET /api/v1/search works with NO Authorization header — genuinely public', searchRes.status === 200);
     test('a case-insensitive name search finds the real registered token', searchBody.tokens.some((t: any) => t.address === 'SearchableDragonMint'));
 
     const symbolSearchRes = await fetch(`${BASE}/api/v1/search?q=DRGN`);
-    const symbolSearchBody = await symbolSearchRes.json();
+    const symbolSearchBody: any = await symbolSearchRes.json();
     test('searching by symbol also finds it', symbolSearchBody.tokens.some((t: any) => t.address === 'SearchableDragonMint'));
 
     const noMatchRes = await fetch(`${BASE}/api/v1/search?q=DefinitelyNotRegisteredZZZ`);
-    const noMatchBody = await noMatchRes.json();
+    const noMatchBody: any = await noMatchRes.json();
     test('a genuinely non-matching search returns an empty array, not an error or fabricated result', noMatchRes.status === 200 && noMatchBody.tokens.length === 0);
 
     const emptyQueryRes = await fetch(`${BASE}/api/v1/search?q=`);

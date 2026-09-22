@@ -4,12 +4,52 @@ export interface WalletIntelligencePrismaLikeClient {
   wallet: { findUnique(args: any): Promise<any> };
   holder: { findMany(args: any): Promise<any[]> };
   walletActivity: { findFirst(args: any): Promise<any> };
+  walletRelationship: { findMany(args: any): Promise<any[]> };
+  token: { findMany(args: any): Promise<any[]> };
 }
 
 const iso = (value: any): string => value instanceof Date ? value.toISOString() : String(value);
 
 export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRepository {
   constructor(private readonly db: WalletIntelligencePrismaLikeClient) {}
+
+  async incomingFunding(chain: string, address: string) {
+    return this.db.walletRelationship.findMany({
+      where: {
+        relationshipType: 'funded',
+        evidenceSource: 'BLOCKCHAIN_DERIVED',
+        observedTxSignature: { not: null },
+        walletB: { address, chain },
+        walletA: { chain },
+      },
+      include: { walletA: true, walletB: true },
+      orderBy: { discoveredAt: 'desc' },
+      take: 250,
+    });
+  }
+
+  async indexedProjectsCreatedByWallets(chain: string, addresses: string[]) {
+    if (addresses.length === 0) return [];
+    const rows = await this.db.token.findMany({
+      where: {
+        chain,
+        creator: { address: { in: [...new Set(addresses)] }, chain },
+      },
+      include: { creator: true, launch: true },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return rows.map((row: any) => ({
+      id: row.id,
+      chain: row.chain,
+      address: row.address,
+      name: row.name,
+      symbol: row.symbol,
+      createdAt: iso(row.createdAt),
+      creatorWalletAddress: row.creator.address,
+      launchStatus: row.launch?.status ?? null,
+    }));
+  }
 
   async getWallet(chain: string, address: string): Promise<WalletIntelligenceRecord | null> {
     const wallet = await this.db.wallet.findUnique({
@@ -51,8 +91,16 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
       evidenceDescription: row.evidenceDescription,
       confidenceLevel: row.confidenceLevel,
       observedTxSignature: row.observedTxSignature ?? null,
+      observedAt: row.observedAt ? iso(row.observedAt) : null,
       discoveredAt: iso(row.discoveredAt),
     });
+
+    const relationships = [
+      ...(wallet.relationshipsAsA ?? []).map((r: any) => mapRelationship(r, 'outgoing', r.walletB)),
+      ...(wallet.relationshipsAsB ?? []).map((r: any) => mapRelationship(r, 'incoming', r.walletA)),
+    ].sort((a, b) => b.discoveredAt.localeCompare(a.discoveredAt));
+    const uniqueRelatedWallets = new Set(relationships.map((r) => `${r.relatedWallet.chain}:${r.relatedWallet.address}`));
+    const transactionEvidence = new Set(relationships.flatMap((r) => r.observedTxSignature ? [r.observedTxSignature] : []));
 
     return {
       address: wallet.address,
@@ -75,10 +123,15 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
         id: t.id, chain: t.chain, address: t.address, name: t.name,
         symbol: t.symbol, decimals: t.decimals, createdAt: iso(t.createdAt),
       })),
-      relationships: [
-        ...(wallet.relationshipsAsA ?? []).map((r: any) => mapRelationship(r, 'outgoing', r.walletB)),
-        ...(wallet.relationshipsAsB ?? []).map((r: any) => mapRelationship(r, 'incoming', r.walletA)),
-      ].sort((a, b) => b.discoveredAt.localeCompare(a.discoveredAt)),
+      relationships,
+      relationshipSummary: {
+        directRelationshipCount: relationships.length,
+        incomingCount: relationships.filter((r) => r.direction === 'incoming').length,
+        outgoingCount: relationships.filter((r) => r.direction === 'outgoing').length,
+        blockchainDerivedCount: relationships.filter((r) => r.evidenceSource === 'BLOCKCHAIN_DERIVED').length,
+        uniqueRelatedWalletCount: uniqueRelatedWallets.size,
+        transactionEvidenceCount: transactionEvidence.size,
+      },
       notes: (wallet.notes ?? []).map((n: any) => ({
         id: n.id, note: n.note, evidenceSource: n.evidenceSource,
         evidenceTxSignature: n.evidenceTxSignature ?? null, createdAt: iso(n.createdAt),

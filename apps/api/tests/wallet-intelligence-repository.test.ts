@@ -5,6 +5,7 @@ async function run() {
   let walletQuery: any;
   let holderQuery: any;
   let firstActivityQuery: any;
+  let projectQuery: any;
   const db: any = {
     wallet: {
       findUnique: async (args: any) => {
@@ -19,7 +20,12 @@ async function run() {
             confidenceLevel:'high', observedTxSignature:'Sig1', discoveredAt:new Date('2026-01-04T00:00:00Z'),
             walletB:{ address:'WalletB', chain:'SOLANA' },
           }],
-          relationshipsAsB: [],
+          relationshipsAsB: [{
+            id:'r2', relationshipType:'funded', evidenceSource:'BLOCKCHAIN_DERIVED',
+            evidenceDescription:'WalletC sent SOL to WalletA in transaction Sig2',
+            confidenceLevel:'high', observedTxSignature:'Sig2', discoveredAt:new Date('2026-01-02T00:00:00Z'),
+            walletA:{ address:'WalletC', chain:'SOLANA' },
+          }],
           notes: [],
         };
       },
@@ -39,6 +45,15 @@ async function run() {
         }];
       },
     },
+    token: {
+      findMany: async (args: any) => {
+        projectQuery = args;
+        return [{
+          id:'t2', chain:'SOLANA', address:'Mint2', name:'Two', symbol:'TWO', createdAt:new Date('2026-01-06T00:00:00Z'),
+          creator:{ address:'WalletB', chain:'SOLANA' }, launch:{ status:'FAILED' },
+        }];
+      },
+    },
   };
 
   const repo = new PrismaWalletIntelligenceRepository(db);
@@ -52,8 +67,26 @@ async function run() {
   assert.equal(result.relationships[0]?.direction, 'outgoing');
   assert.equal(result.relationships[0]?.evidenceSource, 'BLOCKCHAIN_DERIVED');
   assert.equal(result.relationships[0]?.observedTxSignature, 'Sig1');
+  assert.deepEqual(result.relationshipSummary, {
+    directRelationshipCount: 2,
+    incomingCount: 1,
+    outgoingCount: 1,
+    blockchainDerivedCount: 2,
+    uniqueRelatedWalletCount: 2,
+    transactionEvidenceCount: 2,
+  });
   assert.equal((result as any).riskScore, undefined);
   assert.equal((result.relationships[0] as any).sameOwner, undefined);
+
+  const projects = await repo.indexedProjectsCreatedByWallets('SOLANA', ['WalletB', 'WalletB']);
+  assert.deepEqual(projectQuery.where, {
+    chain: 'SOLANA',
+    creator: { address: { in: ['WalletB'] }, chain: 'SOLANA' },
+  });
+  assert.deepEqual(projects, [{
+    id:'t2', chain:'SOLANA', address:'Mint2', name:'Two', symbol:'TWO', createdAt:'2026-01-06T00:00:00.000Z',
+    creatorWalletAddress:'WalletB', launchStatus:'FAILED',
+  }]);
 
   const missingDb: any = {
     wallet:{ findUnique: async () => null },
@@ -66,8 +99,10 @@ async function run() {
   console.log('  ok  - first observed activity is queried independently of the 100-row activity window');
   console.log('  ok  - holder balances remain exact strings');
   console.log('  ok  - relationships preserve evidence and direction');
+  console.log('  ok  - relationship summary counts only observable direct evidence');
   console.log('  ok  - no risk score or wallet-ownership inference is fabricated');
   console.log('  ok  - missing wallets return null without invented data');
-  console.log('\n6 test(s) passed.');
+  console.log('  ok  - project history queries remain chain scoped and preserve stored launch status');
+  console.log('\n8 test(s) passed.');
 }
 run().catch((err) => { console.error(err); process.exit(1); });

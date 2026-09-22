@@ -3,7 +3,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { SourcedRow } from '../components/SourcedValue.js';
 import { sourcedUnavailable } from '@launchpad/types';
 
-const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport'];
+const TABS = ['Holdings', 'Trades', 'Created tokens', 'Signal Passport', 'Bubble Map', 'History Replay'];
 
 /** Layout template for /wallet/[chain]/[address] — master spec sections
  *  14 ("Wallet Intelligence") and 15 ("Signal Passport"). Real
@@ -52,6 +52,28 @@ export function WalletDetailPage() {
             <EmptyState title="No launches indexed for this wallet yet" body="Tokens created by this wallet, once indexed." />
           </div>
         </div>
+        <div data-panel="Bubble Map" hidden>
+          <div id="wallet-bubble-map">
+            <div className="empty-state" id="wallet-bubble-map-empty">
+              <h3>No Signal Trace available yet</h3>
+              <p>The Bubble Map appears only when blockchain-derived funding relationships with transaction evidence are available.</p>
+            </div>
+          </div>
+          <div className="how-box" style={{ marginTop: 14 }}>
+            Bubble Map connections represent observed transaction paths only. They do not claim common ownership or identity.
+          </div>
+        </div>
+        <div data-panel="History Replay" hidden>
+          <div id="wallet-history-replay">
+            <div className="empty-state" id="wallet-history-replay-empty">
+              <h3>No Wallet History Replay available yet</h3>
+              <p>Replay appears only when blockchain-derived funding relationships with transaction evidence are available.</p>
+            </div>
+          </div>
+          <div className="how-box" style={{ marginTop: 14 }}>
+            Replay uses verified on-chain chronology only when every displayed transaction has an indexed block timestamp; otherwise it clearly falls back to trace order.
+          </div>
+        </div>
         <div data-panel="Signal Passport" hidden>
           <div className="card">
             <div id="wallet-tokens-launched-row">
@@ -64,6 +86,12 @@ export function WalletDetailPage() {
           <div className="empty-state" id="wallet-relationships-empty">
             <h3>No observed relationships yet</h3>
             <p>Real relationships — funding, shared liquidity, co-signed transactions — populate from indexed on-chain history, each with its own evidence and confidence level. Never a claim that two wallets belong to the same person without that evidence.</p>
+          </div>
+          <h3 style={{ font: 'var(--text-h2)', fontSize: '1rem', margin: '20px 0 10px 0' }}>Observed project history</h3>
+          <div id="wallet-project-history-list"></div>
+          <div className="empty-state" id="wallet-project-history-empty">
+            <h3>No evidence-linked project history yet</h3>
+            <p>Indexed project creator records connected to this wallet by direct declaration or observed funding paths appear here.</p>
           </div>
           <div className="how-box" style={{ marginTop: 14 }}>
             Signal Passport is an information record, not a safety certificate or endorsement.
