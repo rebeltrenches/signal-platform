@@ -48,6 +48,9 @@ export interface PrismaLikeClient {
     findFirst(args: any): Promise<any>;
     create(args: any): Promise<any>;
   };
+  token: {
+    findFirst(args: any): Promise<any>;
+  };
 }
 
 function mapRoom(row: any): ChatRoomRecord {
@@ -129,8 +132,30 @@ export class PrismaChatRepository implements ChatRepository {
     const id = `token:${tokenAddress}`;
     const existing = await this.db.chatRoom.findUnique({ where: { id }, include: { token: true } });
     if (existing) return mapRoom(existing);
-    const created = await this.db.chatRoom.create({ data: { id, kind: 'token' } });
-    return mapRoom({ ...created, tokenId: null });
+
+    // A token room must be linked to the real Signal Token row. Without
+    // this lookup Prisma would create a room with tokenId=null, making
+    // every token room indistinguishable after a server restart.
+    const token = await this.db.token.findFirst({ where: { address: tokenAddress } });
+    if (!token) {
+      throw new ValidationError('No Signal-registered token exists at this address.');
+    }
+
+    try {
+      const created = await this.db.chatRoom.create({
+        data: { id, kind: 'token', tokenId: token.id },
+        include: { token: true },
+      });
+      return mapRoom(created);
+    } catch (err: any) {
+      // Two first visitors can race to create the same room. Re-read the
+      // unique id rather than turning that harmless race into a 500.
+      if (err?.code === 'P2002') {
+        const raced = await this.db.chatRoom.findUnique({ where: { id }, include: { token: true } });
+        if (raced) return mapRoom(raced);
+      }
+      throw err;
+    }
   }
 
   async getRoomById(roomId: string): Promise<ChatRoomRecord | null> {

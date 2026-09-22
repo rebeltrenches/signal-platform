@@ -3,11 +3,9 @@
 // tab). One file, parameterized by room, rather than two near-duplicate
 // implementations.
 //
-// REAL, WORKING, HONEST LIMITS (see apps/api/src/chat/store.ts's own
-// header for the full reasoning):
-//  - Persistence is real for as long as the apps/api process stays
-//    running — in-memory, not a database (none is connected anywhere in
-//    this project).
+// REAL, WORKING LIMITS:
+//  - Production persistence is database-backed through apps/api's chat
+//    repository. The in-memory repository remains available for tests/local use.
 //  - "Real-time" here means polling (re-fetching on an interval), not a
 //    WebSocket push — there is no persistent-connection server in this
 //    project. This is disclosed, not hidden: the UI never claims to be
@@ -267,12 +265,12 @@
     });
 
     renderConnectionGate();
-    document.addEventListener('launchpad:wallet-connected', async () => {
-      renderConnectionGate();
-      // Real check against the server's own allowlist — never assumed
-      // client-side. This only controls whether the "Remove" button is
-      // offered at all; the actual authorization happens again, for
-      // real, on the server when it's clicked (see deleteChatMessage).
+    async function refreshModeratorStatus() {
+      if (!isConnected()) {
+        window.__signalIsModerator = false;
+        renderMessages();
+        return;
+      }
       try {
         const res = await fetch(apiUrl(`/api/v1/chat/is-moderator?walletAddress=${encodeURIComponent(window.launchpadWallet.address)}`));
         const data = await res.json();
@@ -280,8 +278,22 @@
       } catch {
         window.__signalIsModerator = false;
       }
-      renderMessages(); // re-render so "mine"/moderator affordances reflect the now-known wallet
+      renderMessages();
+    }
+
+    document.addEventListener('launchpad:wallet-connected', async () => {
+      renderConnectionGate();
+      // Real check against the server's own allowlist — never assumed
+      // client-side. This only controls whether the "Remove" button is
+      // offered at all; the actual authorization happens again, for
+      // real, on the server when it's clicked (see deleteChatMessage).
+      await refreshModeratorStatus();
     });
+
+    // wallet-connect.js may have connected before chat.js mounted, in
+    // which case the event has already fired. Resolve moderator state
+    // immediately as well so controls are correct on first render.
+    if (isConnected()) refreshModeratorStatus();
     startPolling();
   }
 
