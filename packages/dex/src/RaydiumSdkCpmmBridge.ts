@@ -5,7 +5,7 @@ import { CurveCalculator, FeeOn, Raydium, TxVersion, getPdaObservationId, makeSw
 import { WRAPPED_SOL_MINT } from './sol-sell-accounts.js';
 import type { RaydiumPoolReader, RaydiumSwapBuilder, PoolReserves } from './RaydiumDexAdapter.js';
 
-const CPMM_PROGRAM_ID = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
+const MAINNET_this.cpmmProgramId = 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C';
 
 type PoolRecord = {
   poolInfo: any;
@@ -22,14 +22,17 @@ type PoolRecord = {
 export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuilder {
   private readonly pools = new Map<string, PoolRecord>();
 
-  constructor(private readonly raydium: Raydium) {}
+  constructor(
+    private readonly raydium: Raydium,
+    private readonly cpmmProgramId: string = MAINNET_this.cpmmProgramId,
+  ) {}
 
   private async loadPool(poolId: string): Promise<PoolRecord> {
     const cached = this.pools.get(poolId);
     if (cached) return cached;
 
     const data = await this.raydium.cpmm.getPoolInfoFromRpc(poolId);
-    if (data.poolInfo.programId !== CPMM_PROGRAM_ID) {
+    if (data.poolInfo.programId !== this.cpmmProgramId) {
       throw new Error('Resolved Raydium pool is not a CPMM pool.');
     }
     const record = { poolInfo: data.poolInfo, poolKeys: data.poolKeys, rpcData: data.rpcData };
@@ -49,7 +52,7 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
       page: 1,
     } as any);
 
-    const candidate = (pools as any)?.data?.find((p: any) => p.programId === CPMM_PROGRAM_ID);
+    const candidate = (pools as any)?.data?.find((p: any) => p.programId === this.cpmmProgramId);
     if (!candidate?.id) return null;
     return { poolAddress: candidate.id };
   }
