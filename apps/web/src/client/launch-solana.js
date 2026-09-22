@@ -130,9 +130,9 @@ this.mintKeypair = web3.Keypair.generate();
         newAccountPubkey: mint,
         space: mintLen,
         lamports,
-        programId: splToken.TOKEN_2022_PROGRAM_ID,
+        programId: splToken.TOKEN_PROGRAM_ID,
       }),
-splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_2022_PROGRAM_ID)
+splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_PROGRAM_ID)
     );
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -142,12 +142,12 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
     return { tx, mint, lamports };
   }
 
-  /** Mirrors SolanaAdapter.buildMintSupplyTransaction exactly. */
+  /** Mirrors SolanaAdapter.buildMintSupplyTransaction using classic SPL Token. */
   async buildMintSupplyTx(launcherPubkey, mint, totalSupply, decimals) {
-    const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_2022_PROGRAM_ID);
+    const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_PROGRAM_ID);
     const tx = new web3.Transaction().add(
-      splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_2022_PROGRAM_ID),
-      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_2022_PROGRAM_ID)
+      splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_PROGRAM_ID),
+      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_PROGRAM_ID)
     );
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
