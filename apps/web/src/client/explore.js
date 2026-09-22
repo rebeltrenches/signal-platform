@@ -1,143 +1,224 @@
-// Explore page tab + filter chip switching, PLUS a real data fetch for
-// the "New" tab specifically — the only one with an actual data source
-// today (registered tokens, Stage 2). Momentum and graduating stay
-// visual-only: neither has a real backend yet (live RPC data, and the
-// bonding curve respectively), so this deliberately does not touch
-// those two panels at all.
+// Live cross-chain discovery. Signal registrations remain first-party data;
+// external markets come from DEX Screener, and new Pump.fun launches arrive
+// from PumpPortal's documented realtime websocket.
 (function () {
   const tabs = document.querySelectorAll('#explore-tabs [role="tab"]');
   if (tabs.length === 0) return;
+
+  const state = {
+    activeTab: 'new', query: '', chains: new Set(), origin: 'all',
+    sort: 'newest', signal: [], external: [],
+  };
+  const chainMap = { solana: 'solana', base: 'base', bsc: 'bnb' };
+  const chainLabel = { solana: 'Solana', base: 'Base', bnb: 'BNB Chain' };
 
   function apiPath(path) {
     const base = window.SIGNAL_API_BASE_URL;
     return base ? `${base.replace(/\/$/, '')}${path}` : path;
   }
-  function escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-  function shortAddress(addr) {
-    return addr.length > 10 ? `${addr.slice(0, 4)}\u2026${addr.slice(-4)}` : addr;
+  function shortAddress(address) {
+    const value = String(address || '');
+    return value.length > 12 ? `${value.slice(0, 5)}…${value.slice(-5)}` : value;
   }
-  function formatTime(iso) {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  function compactUsd(value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return null;
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1,
+    }).format(amount);
   }
-
-  /** Real fetch, real render — only registration facts that actually
-   *  exist (name, symbol, address, chain, creation time). No holder
-   *  count, no volume, no supply data: this endpoint doesn't return
-   *  any of that (see routes/tokens.ts's own comment on why), so
-   *  there's nothing here to accidentally fabricate.
-   *
-   *  With no query, shows the most recent registered tokens. With a
-   *  query, searches name/symbol/address (simple substring, no fuzzy/
-   *  ranked matching, as scoped) — the New tab is the only one with a
-   *  real data source, so search only ever affects it. */
-  async function loadNewTab(query) {
-    const listEl = document.getElementById('explore-new-list');
-    const emptyEl = document.getElementById('explore-new-empty');
-    if (!listEl || !emptyEl) return;
-    const trimmed = (query || '').trim();
-    try {
-      const url = trimmed
-        ? apiPath(`/api/v1/search?q=${encodeURIComponent(trimmed)}`)
-        : apiPath('/api/v1/tokens?limit=20');
-      const res = await fetch(url);
-      if (!res.ok) return; // leave the honest empty state showing
-      const { tokens } = await res.json();
-      if (!tokens || tokens.length === 0) {
-        // Distinguishes "nothing registered at all" from "nothing
-        // matched this search" — the same honest-empty-state
-        // discipline as everywhere else, not just reusing one generic
-        // message for both cases.
-        listEl.innerHTML = '';
-        emptyEl.hidden = false;
-        const heading = emptyEl.querySelector('h3');
-        const body = emptyEl.querySelector('p');
-        if (trimmed && heading && body) {
-          heading.textContent = 'No matches';
-          body.textContent = `No registered token matched "${trimmed}".`;
-        } else if (heading && body) {
-          heading.textContent = 'No indexed launches yet';
-          body.textContent = 'Recently created tokens will appear here once the indexer (Stage 11) is connected to a live chain.';
-        }
-        return;
+  function relativeTime(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp)) return 'Live';
+    const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+    if (seconds < 60) return `${seconds}s ago`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  }
+  function dedupe(items) {
+    const byKey = new Map();
+    items.forEach((item) => {
+      const key = `${item.chain}:${String(item.address).toLowerCase()}`;
+      const current = byKey.get(key);
+      if (!current || (item.createdAt || 0) >= (current.createdAt || 0)) {
+        byKey.set(key, { ...current, ...item });
       }
-
-      emptyEl.hidden = true;
-      listEl.innerHTML = tokens
-        .map(
-          (t) => `
-        <div class="review-row">
-          <span class="k">${escapeHtml(t.name)} (${escapeHtml(t.symbol)})</span>
-          <span class="v" style="font-family:monospace;font-size:0.75rem;">${escapeHtml(shortAddress(t.address))} \u00b7 ${escapeHtml(t.chain)} \u00b7 ${escapeHtml(formatTime(t.createdAt))}</span>
-        </div>`
-        )
-        .join('');
+    });
+    return [...byKey.values()];
+  }
+  function visibleItems() {
+    let items = state.origin === 'signal' ? state.signal
+      : state.origin === 'external' ? state.external : [...state.signal, ...state.external];
+    if (state.chains.size) items = items.filter((item) => state.chains.has(item.chain));
+    if (state.query) {
+      const needle = state.query.toLowerCase();
+      items = items.filter((item) => [item.name, item.symbol, item.address]
+        .some((value) => String(value || '').toLowerCase().includes(needle)));
+    }
+    if (state.activeTab === 'momentum') items = items.filter((item) => Number(item.volume24h) > 0);
+    if (state.activeTab === 'graduating') items = items.filter((item) => item.market === 'pump.fun bonding curve');
+    return items.sort((a, b) => {
+      if (state.sort === 'volume') return (Number(b.volume24h) || 0) - (Number(a.volume24h) || 0);
+      return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
+    });
+  }
+  function card(item) {
+    const metrics = [];
+    const volume = compactUsd(item.volume24h);
+    const liquidity = compactUsd(item.liquidityUsd);
+    const marketCap = item.marketCapUsd ? compactUsd(item.marketCapUsd)
+      : item.marketCapSol ? `${Number(item.marketCapSol).toFixed(1)} SOL MC` : null;
+    if (volume) metrics.push(`24h vol ${volume}`);
+    if (liquidity) metrics.push(`Liquidity ${liquidity}`);
+    if (marketCap) metrics.push(marketCap);
+    const safeUrl = /^https:\/\//.test(item.url || '') || /^\/token\//.test(item.url || '') ? item.url : null;
+    const identity = `${escapeHtml(item.name || 'New token')} (${escapeHtml(item.symbol || '—')})`;
+    const open = safeUrl
+      ? `a href="${escapeHtml(safeUrl)}" ${safeUrl.startsWith('http') ? 'target="_blank" rel="noopener noreferrer"' : ''}`
+      : 'div';
+    return `
+      <${open} class="review-row" style="text-decoration:none;color:inherit;align-items:center;gap:12px;">
+        <span class="k" style="min-width:0;">
+          <strong>${identity}</strong><br>
+          <span style="font-family:monospace;font-size:.72rem;color:var(--ink-faint);">${escapeHtml(shortAddress(item.address))}</span>
+        </span>
+        <span class="v" style="text-align:right;font-size:.76rem;line-height:1.5;">
+          ${escapeHtml(chainLabel[item.chain] || item.chain)} · ${escapeHtml(item.market || item.origin)} · ${escapeHtml(relativeTime(item.createdAt))}
+          ${metrics.length ? `<br>${escapeHtml(metrics.join(' · '))}` : ''}
+        </span>
+      </${safeUrl ? 'a' : 'div'}>`;
+  }
+  function render() {
+    const list = document.getElementById(`explore-${state.activeTab}-list`);
+    const empty = document.getElementById(`explore-${state.activeTab}-empty`);
+    if (!list || !empty) return;
+    const items = visibleItems();
+    list.innerHTML = items.slice(0, 60).map(card).join('');
+    empty.hidden = items.length > 0;
+    list.hidden = items.length === 0;
+  }
+  function setFeedStatus(message) {
+    const status = document.getElementById('explore-live-status');
+    if (status) status.textContent = message;
+  }
+  async function loadSignalTokens() {
+    try {
+      const response = await fetch(apiPath('/api/v1/tokens?limit=50'));
+      if (!response.ok) return;
+      const body = await response.json();
+      state.signal = (body.tokens || []).map((token) => ({
+        name: token.name, symbol: token.symbol, address: token.address, chain: token.chain,
+        createdAt: Date.parse(token.createdAt), origin: 'Signal', market: 'Signal',
+        url: `/token/${encodeURIComponent(token.address)}`,
+      }));
+      render();
+    } catch { /* External feeds can still populate discovery. */ }
+  }
+  async function loadDexScreener() {
+    try {
+      const profilesResponse = await fetch('https://api.dexscreener.com/token-profiles/latest/v1');
+      if (!profilesResponse.ok) throw new Error('DEX Screener profiles unavailable');
+      const profiles = await profilesResponse.json();
+      const supported = (Array.isArray(profiles) ? profiles : [])
+        .filter((profile) => chainMap[profile.chainId]);
+      const groups = new Map();
+      supported.forEach((profile) => {
+        if (!groups.has(profile.chainId)) groups.set(profile.chainId, []);
+        groups.get(profile.chainId).push(profile.tokenAddress);
+      });
+      const requests = [...groups.entries()].flatMap(([chainId, addresses]) =>
+        Array.from({ length: Math.ceil(addresses.length / 30) }, (_, index) =>
+          addresses.slice(index * 30, index * 30 + 30)).map(async (batch) => {
+            const joined = batch.map(encodeURIComponent).join(',');
+            const response = await fetch(`https://api.dexscreener.com/tokens/v1/${encodeURIComponent(chainId)}/${joined}`);
+            return response.ok ? response.json() : [];
+          }));
+      const markets = (await Promise.all(requests)).flat();
+      const external = markets.map((pair) => ({
+        name: pair.baseToken?.name, symbol: pair.baseToken?.symbol,
+        address: pair.baseToken?.address, chain: chainMap[pair.chainId],
+        createdAt: pair.pairCreatedAt, origin: 'External', market: pair.dexId || 'DEX',
+        volume24h: pair.volume?.h24, liquidityUsd: pair.liquidity?.usd,
+        marketCapUsd: pair.marketCap || pair.fdv, url: pair.url,
+      })).filter((item) => item.address && item.chain);
+      state.external = dedupe([...state.external, ...external]);
+      setFeedStatus('Live: Pump.fun · Solana · Base · BNB Chain');
+      render();
     } catch {
-      // fetch failed (no backend reachable) — the honest empty state
-      // this panel already shows is the correct fallback, not an error
+      setFeedStatus('Pump.fun live · cross-chain feed reconnecting');
     }
   }
-
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.setAttribute('aria-selected', 'false'));
-      tab.setAttribute('aria-selected', 'true');
-      const target = tab.getAttribute('data-tab');
-      document.querySelectorAll('#explore-panels [data-panel]').forEach((panel) => {
-        const isTarget = panel.getAttribute('data-panel') === target;
-        panel.hidden = !isTarget;
-        if (isTarget) {
-          // Restart the fade even if this panel was already shown before —
-          // re-triggering the class is what makes repeated clicks each
-          // get their own brief settle-in rather than only the first.
-          panel.classList.remove('panel-enter');
-          void panel.offsetWidth;
-          panel.classList.add('panel-enter');
-        }
-      });
+  function connectPumpFeed() {
+    const socket = new WebSocket('wss://pumpportal.fun/api/data');
+    socket.addEventListener('open', () => {
+      socket.send(JSON.stringify({ method: 'subscribeNewToken' }));
+      setFeedStatus('Live: Pump.fun · Solana · Base · BNB Chain');
     });
-  });
+    socket.addEventListener('message', (event) => {
+      try {
+        const token = JSON.parse(event.data);
+        if (!token.mint || token.txType !== 'create') return;
+        state.external = dedupe([{
+          name: token.name, symbol: token.symbol, address: token.mint, chain: 'solana',
+          createdAt: Date.now(), origin: 'External', market: 'pump.fun bonding curve',
+          marketCapSol: token.marketCapSol,
+          url: `https://pump.fun/coin/${encodeURIComponent(token.mint)}`,
+        }, ...state.external]).slice(0, 150);
+        render();
+      } catch { /* Ignore malformed third-party messages. */ }
+    });
+    socket.addEventListener('close', () => {
+      setFeedStatus('Live feed reconnecting…');
+      setTimeout(connectPumpFeed, 3000);
+    });
+    socket.addEventListener('error', () => socket.close());
+  }
 
+  tabs.forEach((tab) => tab.addEventListener('click', () => {
+    tabs.forEach((item) => item.setAttribute('aria-selected', 'false'));
+    tab.setAttribute('aria-selected', 'true');
+    state.activeTab = tab.getAttribute('data-tab');
+    document.querySelectorAll('#explore-panels [data-panel]').forEach((panel) => {
+      panel.hidden = panel.getAttribute('data-panel') !== state.activeTab;
+    });
+    render();
+  }));
   document.querySelectorAll('.chip[data-filter-chain]').forEach((chip) => {
     chip.addEventListener('click', () => {
-      const pressed = chip.getAttribute('aria-pressed') === 'true';
-      chip.setAttribute('aria-pressed', String(!pressed));
+      const chain = chip.getAttribute('data-filter-chain');
+      if (state.chains.has(chain)) state.chains.delete(chain); else state.chains.add(chain);
+      chip.setAttribute('aria-pressed', String(state.chains.has(chain)));
+      render();
     });
   });
-
-  // Sort chips are mutually exclusive (only one active sort at a time),
-  // unlike the chain filter chips above which are independent toggles.
-  const sortChips = document.querySelectorAll('.chip[data-sort]');
-  sortChips.forEach((chip) => {
+  document.querySelectorAll('.chip[data-sort]').forEach((chip) => {
     chip.addEventListener('click', () => {
-      sortChips.forEach((c) => c.setAttribute('aria-pressed', 'false'));
-      chip.setAttribute('aria-pressed', 'true');
+      state.sort = chip.getAttribute('data-sort');
+      document.querySelectorAll('.chip[data-sort]').forEach((item) =>
+        item.setAttribute('aria-pressed', String(item === chip)));
+      render();
     });
   });
-
-  // Origin chips (All / Signal-launched / External) are also mutually
-  // exclusive — master spec section 23's Signal-vs-external distinction.
-  const originChips = document.querySelectorAll('.chip[data-origin]');
-  originChips.forEach((chip) => {
+  document.querySelectorAll('.chip[data-origin]').forEach((chip) => {
     chip.addEventListener('click', () => {
-      originChips.forEach((c) => c.setAttribute('aria-pressed', 'false'));
-      chip.setAttribute('aria-pressed', 'true');
+      state.origin = chip.getAttribute('data-origin');
+      document.querySelectorAll('.chip[data-origin]').forEach((item) =>
+        item.setAttribute('aria-pressed', String(item === chip)));
+      render();
     });
   });
+  document.getElementById('exploreSearchInput')?.addEventListener('input', (event) => {
+    state.query = event.target.value.trim();
+    render();
+  });
 
-  loadNewTab();
-
-  // Search: simple substring matching only (as scoped — no fuzzy/
-  // ranked logic). Only affects the New tab, the only one with a real
-  // data source; debounced so it doesn't fire a request per keystroke.
-  const searchInput = document.getElementById('exploreSearchInput');
-  if (searchInput) {
-    let debounceTimer = null;
-    searchInput.addEventListener('input', () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => loadNewTab(searchInput.value), 250);
-    });
-  }
+  loadSignalTokens();
+  loadDexScreener();
+  connectPumpFeed();
+  setInterval(loadDexScreener, 60000);
 })();

@@ -8,9 +8,9 @@ const TABS = [
 ];
 
 const EMPTY_COPY: Record<string, { title: string; body: string }> = {
-  new: { title: 'No indexed launches yet', body: 'Recently created tokens will appear here once the indexer (Stage 11) is connected to a live chain.' },
-  momentum: { title: 'No momentum data yet', body: 'Volume, buyer activity, and holder growth need the indexer running — Stage 11.' },
-  graduating: { title: 'No bonding curves yet', body: 'Bonding curves ship in Stage 8; graduation progress will show here once tokens exist to track.' },
+  new: { title: 'Waiting for live launches', body: 'New Signal and external launches will appear here as the market feeds update.' },
+  momentum: { title: 'No momentum matches', body: 'No token with reported trading volume currently matches these filters.' },
+  graduating: { title: 'No live bonding curves', body: 'New Pump.fun bonding-curve launches will appear here in real time.' },
 };
 
 export function ExplorePage() {
@@ -22,6 +22,8 @@ export function ExplorePage() {
           <p>Launch Radar — new, trending, and graduating tokens across every supported chain.</p>
         </div>
       </div>
+
+      <p id="explore-live-status" className="hint" aria-live="polite">Connecting live market feeds…</p>
 
       <div className="toolbar">
         <input className="input" id="exploreSearchInput" placeholder="Search name, symbol, or address" aria-label="Search tokens" />
@@ -41,7 +43,6 @@ export function ExplorePage() {
         <span className="hint" style={{ textTransform: 'none' }}>Sort:</span>
         <button className="chip" data-sort="newest" aria-pressed="true">Newest</button>
         <button className="chip" data-sort="volume" aria-pressed="false">Volume</button>
-        <button className="chip" data-sort="holders" aria-pressed="false">Holders</button>
       </div>
 
       <div className="tabbar" id="explore-tabs" role="tablist">
@@ -55,23 +56,10 @@ export function ExplorePage() {
       <div style={{ marginTop: 24 }} id="explore-panels">
         {TABS.map((t, i) => (
           <div key={t.id} data-panel={t.id} hidden={i !== 0}>
-            {t.id === 'new' ? (
-              <>
-                {/* Real registered tokens render here (explore.js) —
-                    EmptyState below stays the default until real data
-                    actually loads, and reappears if the list is
-                    genuinely empty. Momentum/graduating are unchanged:
-                    still honest, static empty states — neither has a
-                    real data source yet (live RPC / the bonding curve,
-                    respectively). */}
-                <div id="explore-new-list"></div>
-                <div id="explore-new-empty">
-                  <EmptyState title={EMPTY_COPY.new!.title} body={EMPTY_COPY.new!.body} />
-                </div>
-              </>
-            ) : (
+            <div id={`explore-${t.id}-list`}></div>
+            <div id={`explore-${t.id}-empty`}>
               <EmptyState title={EMPTY_COPY[t.id]!.title} body={EMPTY_COPY[t.id]!.body} />
-            )}
+            </div>
           </div>
         ))}
       </div>
