@@ -65,11 +65,12 @@
    *  the wallet or this specific capability isn't available, so callers
    *  can show an honest "can't sign" state instead of a silent failure. */
   async function signPayload(canonical) {
-    if (!window.solana || !window.solana.isPhantom || typeof window.solana.signMessage !== 'function') {
+    const provider = window.phantom?.solana || window.solana;
+    if (!provider?.isPhantom || typeof provider.signMessage !== 'function') {
       return null;
     }
     const encoded = new TextEncoder().encode(canonical);
-    const { signature } = await window.solana.signMessage(encoded, 'utf8');
+    const { signature } = await provider.signMessage(encoded, 'utf8');
     return base58Encode(signature instanceof Uint8Array ? signature : new Uint8Array(signature));
   }
 
@@ -281,6 +282,11 @@
         window.__signalIsModerator = false;
       }
       renderMessages(); // re-render so "mine"/moderator affordances reflect the now-known wallet
+    });
+    document.addEventListener('launchpad:wallet-disconnected', () => {
+      window.__signalIsModerator = false;
+      renderConnectionGate();
+      renderMessages();
     });
     startPolling();
   }
