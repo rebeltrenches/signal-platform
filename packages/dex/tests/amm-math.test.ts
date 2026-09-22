@@ -68,6 +68,12 @@ test('computeSwapEstimate applies slippage correctly on a clean number: 100 bps 
   assert.strictEqual(estimate.minimumAmountOut, 990n);
 });
 
+test('swap estimate rejects invalid slippage instead of allowing a negative minimum output', () => {
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, -1), RangeError);
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, 10000), RangeError);
+  assert.throws(() => computeSwapEstimate(1000n, 1000n, 2000n, 0, 1.5), RangeError);
+});
+
 test('rejects a zero or negative amountIn rather than silently returning a nonsensical result', () => {
   assert.throws(() => computeConstantProductOutput(0n, 1000n, 1000n, 0), RangeError);
   assert.throws(() => computeConstantProductOutput(-1n, 1000n, 1000n, 0), RangeError);
