@@ -28,6 +28,41 @@ assert.equal(response.status, 200);
 assert.equal(body.lamports, 5_127_142);
 assert.deepEqual(methods, ["getBalance", "getTokenAccountsByOwner", "getTokenAccountsByOwner"]);
 
+const jupiterUrls = [];
+globalThis.fetch = async (url, init) => {
+  jupiterUrls.push(url);
+  assert.equal(init.headers["x-api-key"], "test-jupiter-key");
+  return Response.json({
+    amount: "4958999",
+    uiAmount: 0.004958999,
+    uiAmountString: "0.004958999",
+    tokens: {
+      D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE: [
+        { account: "token-account-1", amount: "1171441157503", decimals: 6, uiAmount: 1171441.157503, uiAmountString: "1171441.157503" },
+      ],
+      "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3": [
+        { account: "token-account-2", amount: "553420613222526", decimals: 6, uiAmount: 553420613.222526, uiAmountString: "553420613.222526" },
+      ],
+    },
+  });
+};
+const jupiterResponse = await portfolio.onRequestPost({
+  request: new Request("https://signal.example/api/solana/portfolio", {
+    method: "POST",
+    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+  }),
+  env: { JUPITER_API_KEY: "test-jupiter-key" },
+});
+const jupiterBody = await jupiterResponse.json();
+assert.equal(jupiterResponse.status, 200);
+assert.equal(jupiterBody.lamports, 4_958_999);
+assert.equal(jupiterBody.tokenDataComplete, true);
+assert.deepEqual(jupiterBody.tokens, [
+  { mint: "D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE", amount: "1171441.157503" },
+  { mint: "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3", amount: "553420613.222526" },
+]);
+assert.deepEqual(jupiterUrls, ["https://api.jup.ag/ultra/v1/holdings/FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"]);
+
 const requestedUrls = [];
 globalThis.fetch = async (url, init) => {
   requestedUrls.push(url);

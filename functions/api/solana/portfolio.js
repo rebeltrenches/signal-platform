@@ -45,6 +45,50 @@ function rpcUrls(env) {
   ])];
 }
 
+function formatAtomicAmount(amount, decimals) {
+  const raw = BigInt(amount);
+  const places = Number(decimals);
+  if (!Number.isInteger(places) || places < 0 || places > 30) throw new Error("JUPITER_RESPONSE_ERROR");
+  if (places === 0) return raw.toString();
+  const padded = raw.toString().padStart(places + 1, "0");
+  const whole = padded.slice(0, -places);
+  const fraction = padded.slice(-places).replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
+}
+
+async function jupiterPortfolio(address, env) {
+  const apiKey = typeof env?.JUPITER_API_KEY === "string" ? env.JUPITER_API_KEY.trim() : "";
+  if (!apiKey) return null;
+
+  const response = await fetch(`https://api.jup.ag/ultra/v1/holdings/${address}`, {
+    headers: { "x-api-key": apiKey, accept: "application/json" },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error("JUPITER_HTTP_ERROR");
+  const payload = await response.json();
+  if (!/^\d+$/.test(String(payload?.amount || "")) || !payload?.tokens || typeof payload.tokens !== "object") {
+    throw new Error("JUPITER_RESPONSE_ERROR");
+  }
+
+  const tokens = [];
+  for (const [mint, accounts] of Object.entries(payload.tokens)) {
+    if (!isSolanaAddress(mint) || !Array.isArray(accounts) || accounts.length === 0) continue;
+    let total = 0n;
+    let decimals = null;
+    for (const account of accounts) {
+      if (!/^\d+$/.test(String(account?.amount || ""))) continue;
+      const accountDecimals = Number(account?.decimals);
+      if (!Number.isInteger(accountDecimals)) continue;
+      if (decimals === null) decimals = accountDecimals;
+      if (decimals !== accountDecimals) continue;
+      total += BigInt(account.amount);
+    }
+    if (total > 0n && decimals !== null) tokens.push({ mint, amount: formatAtomicAmount(total, decimals) });
+  }
+
+  return { lamports: Number(payload.amount), tokens, tokenDataComplete: true };
+}
+
 async function rpc(method, params, env) {
   let lastError = new Error("RPC_HTTP_ERROR");
   for (const url of rpcUrls(env)) {
@@ -87,6 +131,14 @@ export async function onRequestPost({ request, env }) {
   if (!isSolanaAddress(address)) return json(400, { error: "Invalid Solana wallet address", code: "INVALID_ADDRESS" });
 
   try {
+    try {
+      const holdings = await jupiterPortfolio(address, env);
+      if (holdings) return json(200, holdings);
+    } catch {
+      // Jupiter holdings is the reliable primary path. Retain the RPC route
+      // below so portfolios still work during a temporary Jupiter outage.
+    }
+
     const balance = await rpc("getBalance", [address, { commitment: "confirmed" }], env);
     // Query sequentially so public providers do not rate-limit two expensive
     // token-account scans from the same Worker invocation.
