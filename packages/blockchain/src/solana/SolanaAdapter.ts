@@ -48,26 +48,18 @@ import {
   Transaction,
 } from '@solana/web3.js';
 import {
-  ExtensionType,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createInitializeMintInstruction,
-  createInitializeTransferFeeConfigInstruction,
   createAssociatedTokenAccountInstruction,
   createMintToInstruction,
   createSetAuthorityInstruction,
-  createWithdrawWithheldTokensFromMintInstruction,
-  createAssociatedTokenAccountIdempotentInstruction,
   AuthorityType,
   getAssociatedTokenAddressSync,
-  getMintLen,
   getMint,
-  getTransferFeeConfig,
-  getTransferFeeAmount,
   unpackAccount,
 } from '@solana/spl-token';
 import type { Chain, TokenIdentity, TxResult, DataPoint } from '@launchpad/types';
-import { DEFAULT_TAX_CONFIG } from '@launchpad/types';
 import type {
   BlockchainAdapter,
   CreateTokenParams,
@@ -259,31 +251,11 @@ export class SolanaAdapter implements BlockchainAdapter {
     const mintKeypair = Keypair.generate();
     const mint = mintKeypair.publicKey;
 
-    const feeBasisPoints = params.taxBps ?? DEFAULT_TAX_CONFIG.totalBps;
-    const maxFee = BigInt(1_000_000) * 10n ** BigInt(params.decimals);
-
-    const extensions = [ExtensionType.TransferFeeConfig];
-    const mintLen = getMintLen(extensions);
+    // New SIGNAL launches use the classic SPL Token mint. Creator trading
+    // fees are settled in native SOL by the SIGNAL trade path, never by a
+    // Token-2022 transfer-fee extension.
+    const mintLen = 82;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
-    // `lamports` above is real Solana network rent — a "normal network
-    // fee" the user's own fee-model clarification explicitly says stays
-    // separate from the Launch Fee, not something to charge 1% of. An
-    // earlier version of this method did exactly that (mistakenly
-    // treating rent as "the launch payment"); corrected after a direct,
-    // explicit clarification that no such conflation was intended.
-    //
-    // The Launch Fee itself (1% of "the creator's actual launch/creation
-    // payment" — see packages/utils/src/tax.ts's computeLaunchFeeFromPayment,
-    // which is real, tested, and ready) is NOT charged here. Verified
-    // directly, not assumed: no base launch payment — a defined SOL
-    // price Signal charges to launch, separate from network rent/gas —
-    // has ever existed anywhere in this product (grepped the whole
-    // repository for one; found none). Inventing a number here (1 SOL,
-    // or any other figure) to have something to take 1% of would be
-    // exactly the kind of fabrication this project has avoided
-    // throughout. Once a real base launch payment is defined as an
-    // actual product decision, wiring computeLaunchFeeFromPayment() in
-    // here is a small, mechanical change — not a redesign.
 
     const tx = new Transaction().add(
       SystemProgram.createAccount({
@@ -291,17 +263,9 @@ export class SolanaAdapter implements BlockchainAdapter {
         newAccountPubkey: mint,
         space: mintLen,
         lamports,
-        programId: TOKEN_2022_PROGRAM_ID,
+        programId: TOKEN_PROGRAM_ID,
       }),
-      createInitializeTransferFeeConfigInstruction(
-        mint,
-        launcher, // creator controls transfer-fee configuration
-        launcher, // creator controls and receives withheld transfer fees
-        feeBasisPoints,
-        maxFee,
-        TOKEN_2022_PROGRAM_ID
-      ),
-      createInitializeMintInstruction(mint, params.decimals, launcher, null, TOKEN_2022_PROGRAM_ID)
+      createInitializeMintInstruction(mint, params.decimals, launcher, null, TOKEN_PROGRAM_ID)
     );
 
     const { blockhash } = await this.connection.getLatestBlockhash();
@@ -317,9 +281,9 @@ export class SolanaAdapter implements BlockchainAdapter {
         `Mint address (new): ${mint.toBase58()}`,
         `Decimals: ${params.decimals}`,
         `Network rent for this mint account: ${lamports} lamports — paid to Solana itself, not to Signal.`,
-        `Transfer fee on future transfers: ${(feeBasisPoints / 100).toFixed(2)}% total — 100% goes to you, the token creator; Signal receives 0%.`,
+        `Creator trading fee: 1% of the SOL side on SIGNAL-routed trades — paid in native SOL to the token creator.`,
         `You (${params.launcherAddress}) will be the mint authority — you can mint additional supply.`,
-        `You (${params.launcherAddress}) will hold both transfer-fee authorities and can collect the withheld creator fees.`,
+
       ],
       metadata: { mintAddress: mint.toBase58() },
     };
@@ -336,11 +300,11 @@ export class SolanaAdapter implements BlockchainAdapter {
   ): Promise<UnsignedTransaction> {
     const launcher = new PublicKey(launcherAddress);
     const mint = new PublicKey(mintAddress);
-    const ata = getAssociatedTokenAddressSync(mint, launcher, false, TOKEN_2022_PROGRAM_ID);
+    const ata = getAssociatedTokenAddressSync(mint, launcher, false, TOKEN_PROGRAM_ID);
 
     const tx = new Transaction().add(
-      createAssociatedTokenAccountInstruction(launcher, ata, launcher, mint, TOKEN_2022_PROGRAM_ID),
-      createMintToInstruction(mint, ata, launcher, totalSupply * 10n ** BigInt(decimals), [], TOKEN_2022_PROGRAM_ID)
+      createAssociatedTokenAccountInstruction(launcher, ata, launcher, mint, TOKEN_PROGRAM_ID),
+      createMintToInstruction(mint, ata, launcher, totalSupply * 10n ** BigInt(decimals), [], TOKEN_PROGRAM_ID)
     );
     const { blockhash } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -367,7 +331,7 @@ export class SolanaAdapter implements BlockchainAdapter {
     const mint = new PublicKey(mintAddress);
 
     const tx = new Transaction().add(
-      createSetAuthorityInstruction(mint, launcher, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID)
+      createSetAuthorityInstruction(mint, launcher, AuthorityType.MintTokens, null, [], TOKEN_PROGRAM_ID)
     );
     const { blockhash } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
@@ -409,106 +373,17 @@ export class SolanaAdapter implements BlockchainAdapter {
    * meaning.
    */
   async buildHarvestAndWithdrawTransactions(
-    mintAddress: string,
-    decimals: number,
-    creatorAddress: string
+    _mintAddress: string,
+    _decimals: number,
+    _creatorAddress: string
   ): Promise<{ transactions: UnsignedTransaction[]; hasWithheldBalance: boolean }> {
-    const creatorWallet = new PublicKey(creatorAddress);
-    const mint = new PublicKey(mintAddress);
-
-    const allAccounts = await this.connection.getProgramAccounts(TOKEN_2022_PROGRAM_ID, {
-      filters: [{ memcmp: { offset: 0, bytes: mintAddress } }],
-    });
-    const accountsWithFees = allAccounts
-      .map(({ pubkey, account }) => {
-        const unpacked = unpackAccount(pubkey, account, TOKEN_2022_PROGRAM_ID);
-        const feeAmount = getTransferFeeAmount(unpacked);
-        return { pubkey, withheld: feeAmount?.withheldAmount ?? 0n };
-      })
-      .filter((a) => a.withheld > 0n);
-
-    const transactions: UnsignedTransaction[] = [];
-
-    // Nothing withheld anywhere — stop here. Building a withdraw
-    // transaction anyway (even a nominally "harmless" zero-amount one)
-    // would be a real transaction the UI could confuse with an actual
-    // collection. Requirement: never look like a successful collection
-    // when nothing was collected.
-    if (accountsWithFees.length === 0) {
-      return { transactions: [], hasWithheldBalance: false };
-    }
-
-    const { blockhash } = await this.connection.getLatestBlockhash();
-
-    const { createHarvestWithheldTokensToMintInstruction } = await import('@solana/spl-token');
-
-    for (let i = 0; i < accountsWithFees.length; i += HARVEST_BATCH_SIZE) {
-      const batch = accountsWithFees.slice(i, i + HARVEST_BATCH_SIZE).map((a) => a.pubkey);
-      const harvestTx = new Transaction().add(
-        createHarvestWithheldTokensToMintInstruction(mint, batch, TOKEN_2022_PROGRAM_ID)
-      );
-      harvestTx.recentBlockhash = blockhash;
-      // Harvest itself is permissionless on Token-2022 (no specific
-      // authority required) — the creator wallet pays its own gas for
-      // initiating its own collection, the same "you pay gas for your
-      // own action" symmetry the old creator-collects model had.
-      harvestTx.feePayer = creatorWallet;
-      transactions.push({
-        chain: this.chain,
-        opaquePayload: harvestTx,
-        humanSummary: [`Harvest withheld fees from ${batch.length} account(s) into the mint`],
-      });
-    }
-
-    const ata = getAssociatedTokenAddressSync(mint, creatorWallet, false, TOKEN_2022_PROGRAM_ID);
-    const withdrawTx = new Transaction().add(
-      createAssociatedTokenAccountIdempotentInstruction(creatorWallet, ata, creatorWallet, mint, TOKEN_2022_PROGRAM_ID),
-      createWithdrawWithheldTokensFromMintInstruction(mint, ata, creatorWallet, [], TOKEN_2022_PROGRAM_ID)
-    );
-    withdrawTx.recentBlockhash = blockhash;
-    withdrawTx.feePayer = creatorWallet;
-    transactions.push({
-      chain: this.chain,
-      opaquePayload: withdrawTx,
-      humanSummary: [`Withdraw the accumulated Signal Fee to the token creator's own token account (${ata.toBase58()})`],
-      metadata: { destinationAta: ata.toBase58() },
-    });
-
-    return { transactions, hasWithheldBalance: true };
+    // Disabled by design. SIGNAL no longer creates Token-2022 transfer-fee
+    // mints; creator trading fees are paid in native SOL during routed trades.
+    return { transactions: [], hasWithheldBalance: false };
   }
 
-  /**
-   * Reads the transfer-fee configuration back from the chain — the
-   * verification step: confirming what's actually enforced on-chain.
-   * Returns null if the mint can't be read or has no TransferFeeConfig
-   * extension. Under the current model, a healthy mint should show
-   * withdrawWithheldAuthority equal to the token creator's
-   * address, not the creator's.
-   */
-  async readTransferFeeConfig(mintAddress: string): Promise<{
-    transferFeeBasisPoints: number;
-    maximumFee: bigint;
-    withdrawWithheldAuthority: string | null;
-    transferFeeConfigAuthority: string | null;
-  } | null> {
-    try {
-      const mint = await getMint(this.connection, new PublicKey(mintAddress), 'confirmed', TOKEN_2022_PROGRAM_ID);
-      const feeConfig = getTransferFeeConfig(mint);
-      if (!feeConfig) return null;
-      const newerFee = feeConfig.newerTransferFee;
-      return {
-        transferFeeBasisPoints: newerFee.transferFeeBasisPoints,
-        maximumFee: newerFee.maximumFee,
-        withdrawWithheldAuthority: feeConfig.withdrawWithheldAuthority.equals(PublicKey.default)
-          ? null
-          : feeConfig.withdrawWithheldAuthority.toBase58(),
-        transferFeeConfigAuthority: feeConfig.transferFeeConfigAuthority.equals(PublicKey.default)
-          ? null
-          : feeConfig.transferFeeConfigAuthority.toBase58(),
-      };
-    } catch {
-      return null;
-    }
+  async readTransferFeeConfig(_mintAddress: string): Promise<null> {
+    return null;
   }
 
   async submitTransaction(signedTx: SignedTransaction): Promise<TxResult> {
