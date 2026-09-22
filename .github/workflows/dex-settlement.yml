@@ -73,6 +73,8 @@ jobs:
         run: |
           ! grep -q "createInitializeTransferFeeConfigInstruction" packages/blockchain/src/solana/SolanaAdapter.ts
           grep -q "programId: TOKEN_PROGRAM_ID" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS" packages/blockchain/src/solana/SolanaAdapter.ts
           ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana.js
           grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000" apps/web/src/client/launch-solana.js
           grep -q "totalBps: 100" packages/types/src/index.ts
