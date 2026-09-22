@@ -1,4 +1,7 @@
-const RPC_URL = "https://api.mainnet-beta.solana.com";
+const RPC_URLS = [
+  "https://solana-rpc.publicnode.com",
+  "https://api.mainnet-beta.solana.com",
+];
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -35,15 +38,30 @@ function isSolanaAddress(value) {
 }
 
 async function rpc(method, params) {
-  const response = await fetch(RPC_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  if (!response.ok) throw new Error("RPC_HTTP_ERROR");
-  const payload = await response.json();
-  if (payload?.error || payload?.result === undefined) throw new Error("RPC_RESPONSE_ERROR");
-  return payload.result;
+  let lastError = new Error("RPC_HTTP_ERROR");
+  for (const url of RPC_URLS) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!response.ok) {
+        lastError = new Error("RPC_HTTP_ERROR");
+        continue;
+      }
+      const payload = await response.json();
+      if (payload?.error || payload?.result === undefined) {
+        lastError = new Error("RPC_RESPONSE_ERROR");
+        continue;
+      }
+      return payload.result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("RPC_HTTP_ERROR");
+    }
+  }
+  throw lastError;
 }
 
 export async function onRequestPost({ request }) {
