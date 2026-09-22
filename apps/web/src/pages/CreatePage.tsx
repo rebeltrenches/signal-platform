@@ -49,7 +49,7 @@ export function CreatePage() {
                 <span className="chain-dot" style={{ background: `var(--chain-${c.chain})` }} />
                 <span className="name">{c.displayName}</span>
                 <span className="tax-note">
-                  {c.taxSupported ? `${totalPct} transfer fee supported` : 'Trading only — transfer fee not available yet'}
+                  {c.taxSupported ? `${totalPct} creator trading fee supported` : 'Trading only — creator fee routing not available yet'}
                 </span>
               </button>
             );
@@ -133,12 +133,12 @@ export function CreatePage() {
         </div>
 
         <div className="field">
-          <label>Transfer fee</label>
+          <label>Creator trading fee</label>
           <div id="tax-display">
             <div className="tax-box">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ font: 'var(--text-h2)' }}>{totalPct}</span>
-                <span className="hint" style={{ textTransform: 'none' }}>Transfer Fee — fixed, not adjustable per launch</span>
+                <span className="hint" style={{ textTransform: 'none' }}>Creator trading fee — fixed, not adjustable per launch</span>
               </div>
               <div className="review-row" style={{ marginTop: 10 }}><span className="k">Token creator</span><span className="v">100% of the creator trading fee</span></div>
               <div className="review-row"><span className="k">SIGNAL platform share</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of creator trading fee</span></div>
@@ -217,7 +217,7 @@ export function CreatePage() {
             </button>
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
-              <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 1% Signal Fee</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
               <div className="review-row" data-launch-step="supply"><span className="k">2. Mint total supply</span><span className="v" data-state>Not started</span></div>
             </div>
             <div id="launch-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>
