@@ -50,3 +50,15 @@ export function assertSimulationPassed(result: SolanaSimulationResult): void {
     throw new Error(`Solana trade simulation failed: ${JSON.stringify(result.error)}${tail ? `\n${tail}` : ''}`);
   }
 }
+
+/** Build then simulate an unsigned trade and fail closed before any signing/submission. */
+export async function requireSolanaTradeSimulation<T extends { transaction: Transaction | VersionedTransaction }>(params: {
+  connection: Connection;
+  payer: PublicKey;
+  build: () => Promise<T>;
+}): Promise<T & { simulation: SolanaSimulationResult }> {
+  const built = await params.build();
+  const simulation = await simulateUnsignedSolanaTrade({ connection: params.connection, transaction: built.transaction, payer: params.payer });
+  assertSimulationPassed(simulation);
+  return { ...built, simulation };
+}
