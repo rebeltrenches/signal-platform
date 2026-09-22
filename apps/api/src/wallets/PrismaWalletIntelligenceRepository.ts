@@ -91,6 +91,7 @@ export class PrismaWalletIntelligenceRepository implements WalletIntelligenceRep
       evidenceDescription: row.evidenceDescription,
       confidenceLevel: row.confidenceLevel,
       observedTxSignature: row.observedTxSignature ?? null,
+      observedAt: row.observedAt ? iso(row.observedAt) : null,
       discoveredAt: iso(row.discoveredAt),
     });
 

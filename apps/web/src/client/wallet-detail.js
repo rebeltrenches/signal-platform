@@ -117,6 +117,7 @@
           ${reviewRow('Evidence', escapeHtml(r.evidenceDescription))}
           ${reviewRow('Evidence source', escapeHtml(r.evidenceSource))}
           ${reviewRow('Evidence strength', escapeHtml(r.confidenceLevel))}
+          ${r.observedAt ? reviewRow('Observed on-chain', escapeHtml(new Date(r.observedAt).toLocaleString())) : ''}
           ${r.observedTxSignature ? reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(r.observedTxSignature)}</span>`) : ''}
         </div>`).join('');
     }
@@ -245,6 +246,7 @@
             ${reviewRow('To', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(to)}</span>`)}
             ${reviewRow('Relationship', escapeHtml(event.relationshipType))}
             ${reviewRow('Evidence source', escapeHtml(event.evidenceSource))}
+            ${event.observedAt ? reviewRow('Observed on-chain', escapeHtml(new Date(event.observedAt).toLocaleString())) : ''}
             ${reviewRow('Transaction', `<span style="font-family:monospace;font-size:.72rem">${escapeHtml(event.observedTxSignature)}</span>`)}
           </div>
         </div>`;
@@ -252,7 +254,7 @@
 
     host.insertAdjacentHTML('afterbegin', `
       <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:12px">
-        <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Wallet History Replay</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">Evidence trace · ${escapeHtml(replay.chain)}</p></div>
+        <div><h3 style="margin:0;font:var(--text-h2);font-size:1rem">Wallet History Replay</h3><p style="margin:5px 0 0;font-size:.82rem;opacity:.72">${replay.ordering === 'VERIFIED_BLOCK_TIME' ? 'Verified on-chain chronology' : 'Evidence trace'} · ${escapeHtml(replay.chain)}</p></div>
         <span class="badge">${replay.events.length} evidence steps</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
@@ -261,7 +263,7 @@
         <button type="button" class="btn btn-ghost" id="replay-next" ${replay.events.length === 1 ? 'disabled' : ''}>Next evidence</button>
       </div>
       ${events}
-      <div class="how-box" style="margin-top:12px">These steps replay the current evidence trace, not verified transaction time. Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
+      <div class="how-box" style="margin-top:12px">${replay.ordering === 'VERIFIED_BLOCK_TIME' ? 'These steps are ordered by verified on-chain block time.' : 'These steps follow the current evidence trace, not transaction chronology, because at least one verified block timestamp is unavailable.'} Every step retains its blockchain evidence and transaction signature.${replay.truncated ? ' This replay was truncated at its evidence limit.' : ''}</div>
     `);
 
     let activeReplayStep = 1;

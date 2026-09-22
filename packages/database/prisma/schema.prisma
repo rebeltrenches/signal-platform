@@ -484,6 +484,7 @@ model WalletRelationship {
   evidenceDescription String         // human-readable: what was actually observed, e.g. "Wallet A sent 12 SOL to Wallet B in tx <sig>"
   confidenceLevel     String         // 'low' | 'medium' | 'high' — how strong the observed evidence is, never "certain"
   observedTxSignature String?        // the real transaction this relationship is derived from, when applicable
+  observedAt          DateTime?      // verified block time from the observed transaction, when RPC provides it
   discoveredAt        DateTime       @default(now())
 
   @@index([walletAId])

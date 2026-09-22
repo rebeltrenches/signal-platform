@@ -92,6 +92,7 @@ export class SolanaFundingRelationshipWorker {
             evidenceDescription: `Observed direct System Program transfer of ${transfer.lamports} lamports from ${transfer.from} to ${transfer.to}.`,
             confidenceLevel: 'high',
             observedTxSignature: entry.signature,
+            observedAt: tx.blockTime == null ? null : new Date(tx.blockTime * 1000),
           },
         });
         discovered += 1;

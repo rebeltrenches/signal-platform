@@ -28,6 +28,7 @@ export interface WalletRelationshipRecord {
   evidenceDescription: string;
   confidenceLevel: string;
   observedTxSignature: string | null;
+  observedAt: string | null;
   discoveredAt: string;
 }
 

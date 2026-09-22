@@ -14,6 +14,7 @@ export interface SignalTraceEdge {
   relationshipType: 'funded';
   evidenceSource: WalletEvidenceSource;
   observedTxSignature: string;
+  observedAt?: string | null;
 }
 
 export interface SignalTraceResult {

@@ -6,8 +6,9 @@ const TARGET = '11111111111111111111111111111111';
 const OTHER = 'Vote111111111111111111111111111111111111111';
 const UPSTREAM = 'Stake11111111111111111111111111111111111111';
 
-function transferTx(from: string, to: string, lamports: number, failed = false): any {
+function transferTx(from: string, to: string, lamports: number, failed = false, blockTime: number | null = null): any {
   return {
+    blockTime,
     meta: { err: failed ? { InstructionError: [0, 'Custom'] } : null },
     transaction: { message: { instructions: [{
       program: 'system',
@@ -60,7 +61,7 @@ class MemoryDb {
 async function main() {
   const db = new MemoryDb();
   const txs: Record<string, any> = {
-    good: transferTx(TARGET, OTHER, 125000000),
+    good: transferTx(TARGET, OTHER, 125000000, false, 1_700_000_000),
     failed: transferTx(TARGET, OTHER, 5, true),
     unrelated: unrelatedTx(),
   };
@@ -88,6 +89,7 @@ async function main() {
   assert.equal(relationship.evidenceSource, 'BLOCKCHAIN_DERIVED');
   assert.equal(relationship.confidenceLevel, 'high');
   assert.equal(relationship.observedTxSignature, 'good');
+  assert.equal(relationship.observedAt.toISOString(), '2023-11-14T22:13:20.000Z');
   assert.match(relationship.evidenceDescription, /125000000 lamports/);
   assert.ok(!('sameOwner' in relationship));
   assert.notEqual(relationship.relationshipType, 'same_owner_as');

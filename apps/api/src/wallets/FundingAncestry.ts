@@ -6,6 +6,7 @@ export interface FundingAncestryEdge {
   depth: number;
   evidenceSource: WalletEvidenceSource;
   observedTxSignature: string;
+  observedAt?: string | null;
 }
 
 export interface FundingAncestryNode {
@@ -27,6 +28,7 @@ export interface FundingAncestryRelationship {
   relationshipType: string;
   evidenceSource: WalletEvidenceSource;
   observedTxSignature: string | null;
+  observedAt?: Date | string | null;
 }
 
 export interface FundingAncestryReader {
@@ -75,6 +77,7 @@ export async function traceFundingAncestry(
           depth,
           evidenceSource: row.evidenceSource,
           observedTxSignature: row.observedTxSignature,
+          observedAt: row.observedAt instanceof Date ? row.observedAt.toISOString() : row.observedAt ?? null,
         });
 
         if (!nodes.has(row.walletA.address)) {

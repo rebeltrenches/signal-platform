@@ -71,7 +71,7 @@ export function WalletDetailPage() {
             </div>
           </div>
           <div className="how-box" style={{ marginTop: 14 }}>
-            Replay order follows the current evidence trace. It is not presented as transaction chronology until verified block timestamps are indexed.
+            Replay uses verified on-chain chronology only when every displayed transaction has an indexed block timestamp; otherwise it clearly falls back to trace order.
           </div>
         </div>
         <div data-panel="Signal Passport" hidden>
