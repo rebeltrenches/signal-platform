@@ -27,9 +27,9 @@ export function buildCreateSolSellSettlementAccountInstruction(params: {
 
 /**
  * Must be placed after the Raydium SELL in the SAME transaction.
- * The on-chain program closes the trade-specific native WSOL account,
- * pays the creator 1% in native SOL, pays the trader 99% in native SOL,
- * and returns the temporary account rent to the trader.
+ * The on-chain program permanently records the consumed trade ID, closes the
+ * trade-specific native WSOL account, pays the creator 1% in native SOL, pays
+ * the trader 99% in native SOL, and returns the temporary token-account rent.
  */
 export function buildSolSellSettlementInstruction(params: {
   programId: string;
@@ -46,6 +46,7 @@ export function buildSolSellSettlementInstruction(params: {
     keys: [
       { pubkey: accounts.authority, isSigner: false, isWritable: true },
       { pubkey: accounts.settlementWsolAccount, isSigner: false, isWritable: true },
+      { pubkey: accounts.receipt, isSigner: false, isWritable: true },
       { pubkey: accounts.creator, isSigner: false, isWritable: true },
       { pubkey: accounts.trader, isSigner: true, isWritable: true },
       { pubkey: WRAPPED_SOL_MINT, isSigner: false, isWritable: false },
