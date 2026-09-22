@@ -15,12 +15,13 @@ export async function simulateUnsignedSolanaTrade(params: {
   connection: Connection;
   transaction: Transaction | VersionedTransaction;
   payer: PublicKey;
+  preserveBlockhash?: boolean;
 }): Promise<SolanaSimulationResult> {
-  const { blockhash } = await params.connection.getLatestBlockhash('confirmed');
+  const blockhash = params.preserveBlockhash ? null : (await params.connection.getLatestBlockhash('confirmed')).blockhash;
 
   if (params.transaction instanceof Transaction) {
     params.transaction.feePayer = params.payer;
-    params.transaction.recentBlockhash = blockhash;
+    if (blockhash) params.transaction.recentBlockhash = blockhash;
     const result = await params.connection.simulateTransaction(params.transaction);
     return {
       ok: result.value.err == null,
@@ -34,7 +35,7 @@ export async function simulateUnsignedSolanaTrade(params: {
   // assembler before signing. Never mutate a compiled message here.
   const result = await params.connection.simulateTransaction(params.transaction, {
     sigVerify: false,
-    replaceRecentBlockhash: true,
+    replaceRecentBlockhash: !params.preserveBlockhash,
   });
   return {
     ok: result.value.err == null,
