@@ -123,11 +123,17 @@
   }
 
 
-  function renderBubbleMap(trace) {
+  function renderBubbleMap(trace, relationshipClusters) {
     const host = document.getElementById('wallet-bubble-map');
     const empty = document.getElementById('wallet-bubble-map-empty');
     if (!host || !trace?.nodes?.length) return;
     if (empty) empty.hidden = true;
+
+    const clusterByAddress = new Map();
+    (relationshipClusters?.clusters || []).forEach((cluster, index) => {
+      cluster.members.forEach((member) => clusterByAddress.set(member.address, { cluster, index }));
+    });
+    const clusterColors = ['#6d5dfc', '#0f8f7b', '#b86a00', '#b63d6f', '#3478c8', '#7a5c00'];
 
     const sourceNodes = trace.nodes.filter((n) => n.role !== 'ROOT');
     const positions = new Map();
@@ -153,9 +159,18 @@
       const p = positions.get(node.address);
       const size = node.role === 'ROOT' ? 88 : 72;
       const label = node.address.length <= 12 ? node.address : `${node.address.slice(0, 6)}…${node.address.slice(-4)}`;
-      const roleLabel = node.role === 'ROOT' ? 'Root wallet' : `Funding source · depth ${node.depth}`;
-      return `<button type="button" class="btn btn-ghost" aria-pressed="false" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1"><span style="display:block;font-family:inherit;font-size:.58rem;opacity:.7;margin-bottom:2px">${escapeHtml(roleLabel)}</span>${escapeHtml(label)}</button>`;
+      const grouping = clusterByAddress.get(node.address);
+      const clusterLabel = grouping ? `Group ${grouping.index + 1}` : null;
+      const roleLabel = node.role === 'ROOT' ? 'Root wallet' : `${clusterLabel || 'Funding source'} · depth ${node.depth}`;
+      const clusterStyle = grouping ? `border-color:${clusterColors[grouping.index % clusterColors.length]};box-shadow:inset 0 0 0 2px ${clusterColors[grouping.index % clusterColors.length]}22` : '';
+      return `<button type="button" class="btn btn-ghost" aria-pressed="false" data-wallet-address="${escapeHtml(node.address)}" title="${escapeHtml(node.address)}" style="position:absolute;left:${p.x}%;top:${p.y}%;transform:translate(-50%,-50%);width:${size}px;height:${size}px;border-radius:50%;padding:6px;font-family:monospace;font-size:.68rem;z-index:1;${clusterStyle}"><span style="display:block;font-family:inherit;font-size:.58rem;opacity:.7;margin-bottom:2px">${escapeHtml(roleLabel)}</span>${escapeHtml(label)}</button>`;
     }).join('');
+
+    const clusterLegend = (relationshipClusters?.clusters || []).map((cluster, index) => `
+      <div class="review-row">
+        <span class="k"><span aria-hidden="true" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${clusterColors[index % clusterColors.length]};margin-right:7px"></span>Group ${index + 1}</span>
+        <span class="v">${cluster.members.length} wallet${cluster.members.length === 1 ? '' : 's'} · ${cluster.summary.transactionEvidenceCount} transaction${cluster.summary.transactionEvidenceCount === 1 ? '' : 's'}</span>
+      </div>`).join('');
 
     host.insertAdjacentHTML('afterbegin', `
       <div class="card">
@@ -167,6 +182,7 @@
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%">${lines}</svg>
           ${bubbles}
         </div>
+        ${clusterLegend ? `<div style="margin-top:12px"><strong style="font-size:.82rem">Evidence-connected groups</strong>${clusterLegend}</div>` : ''}
         <div class="how-box" style="margin-top:12px">Each line represents an observed blockchain transaction path. Bubble size does not represent holdings yet.${trace.truncated ? ' This trace was truncated at its evidence limit.' : ''}</div>
       </div>`);
 
@@ -184,6 +200,7 @@
         });
 
         const evidence = trace.edges.filter((edge) => edge.from === address || edge.to === address);
+        const grouping = clusterByAddress.get(address);
         const existing = document.getElementById('wallet-bubble-evidence');
         if (existing) existing.remove();
 
@@ -194,6 +211,7 @@
         details.innerHTML = `
           <h3 style="margin-top:0;font:var(--text-h2);font-size:1rem">Wallet evidence</h3>
           ${reviewRow('Wallet', `<span style="font-family:monospace;font-size:.75rem">${escapeHtml(address)}</span>`)}
+          ${grouping ? reviewRow('Relationship group', `Group ${grouping.index + 1} · observed paths only`) : ''}
           ${evidence.length ? evidence.map((edge) => [
             reviewRow('Relationship', 'funded'),
             reviewRow('Evidence source', escapeHtml(edge.evidenceSource)),
@@ -330,10 +348,13 @@
 
   (async function loadSignalTrace() {
     try {
-      const res = await fetch(apiPath(`/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/signal-trace?depth=3`));
-      if (!res.ok) return;
-      const body = await res.json();
-      if (body.trace) renderBubbleMap(body.trace);
+      const tracePath = `/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/signal-trace?depth=3`;
+      const clusterPath = `/api/v1/wallets/${encodeURIComponent(identity.chain)}/${encodeURIComponent(identity.address)}/relationship-clusters?depth=3`;
+      const [traceResponse, clusterResponse] = await Promise.all([fetch(apiPath(tracePath)), fetch(apiPath(clusterPath))]);
+      if (!traceResponse.ok) return;
+      const body = await traceResponse.json();
+      const clusterBody = clusterResponse.ok ? await clusterResponse.json() : {};
+      if (body.trace) renderBubbleMap(body.trace, clusterBody.relationshipClusters);
     } catch {
       // Keep the honest empty state when trace evidence is unavailable.
     }

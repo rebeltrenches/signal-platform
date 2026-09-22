@@ -4,6 +4,7 @@ export interface BubbleMapNode {
   depth: number;
   role: 'ROOT' | 'FUNDING_SOURCE';
   label: string;
+  relationshipClusterId: string | null;
 }
 
 export interface BubbleMapEdge {
@@ -37,6 +38,10 @@ interface SignalTraceLike {
   truncated: boolean;
 }
 
+interface RelationshipClustersLike {
+  clusters: Array<{ id: string; members: Array<{ address: string }> }>;
+}
+
 function shortAddress(address: string): string {
   if (address.length <= 12) return address;
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -47,7 +52,11 @@ function shortAddress(address: string): string {
  * Bubble size/holdings are deliberately absent until reliable holder data
  * exists. Every edge retains its transaction evidence.
  */
-export function buildBubbleMapData(trace: SignalTraceLike): BubbleMapData {
+export function buildBubbleMapData(trace: SignalTraceLike, relationshipClusters?: RelationshipClustersLike): BubbleMapData {
+  const clusterByAddress = new Map<string, string>();
+  for (const cluster of relationshipClusters?.clusters ?? []) {
+    for (const member of cluster.members) clusterByAddress.set(member.address, cluster.id);
+  }
   return {
     root: trace.root,
     chain: trace.chain,
@@ -57,6 +66,7 @@ export function buildBubbleMapData(trace: SignalTraceLike): BubbleMapData {
       depth: node.depth,
       role: node.role,
       label: shortAddress(node.address),
+      relationshipClusterId: clusterByAddress.get(node.address) ?? null,
     })),
     edges: trace.edges.map((edge) => ({
       id: `${edge.observedTxSignature}:${edge.from}:${edge.to}`,
