@@ -1,6 +1,6 @@
 import assert from 'node:assert';
-import { Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
-import { simulateSignAndSendSolanaTrade } from '../src/solana-wallet-execution.js';
+import { Keypair, PublicKey, Transaction, SystemProgram, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
+import { buildSimulateSignAndSendSolanaTrade, simulateSignAndSendSolanaTrade } from '../src/solana-wallet-execution.js';
 
 let passed = 0;
 async function test(name: string, fn: () => Promise<void>) {
@@ -56,6 +56,44 @@ await test('confirmation error is surfaced instead of reporting success', async 
   };
   const wallet: any = { publicKey: signer.publicKey, signTransaction: async (tx: Transaction) => { tx.partialSign(signer); return tx; } };
   await assert.rejects(() => simulateSignAndSendSolanaTrade({ connection, wallet, transaction: makeTx(signer.publicKey) }), /confirmation failed/);
+});
+
+await test('stale V0 transaction fails before simulation, signing or sending', async () => {
+  const payer = Keypair.generate().publicKey;
+  const fresh = Keypair.generate().publicKey.toBase58();
+  const stale = Keypair.generate().publicKey.toBase58();
+  let simulated = false, signed = false, sent = false;
+  const message = new TransactionMessage({ payerKey: payer, recentBlockhash: stale, instructions: [] }).compileToV0Message();
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash: fresh, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => { simulated = true; return { value: { err: null } }; },
+    sendRawTransaction: async () => { sent = true; return 'sig'; },
+  };
+  const wallet: any = { publicKey: payer, signTransaction: async (tx: VersionedTransaction) => { signed = true; return tx; } };
+  await assert.rejects(() => simulateSignAndSendSolanaTrade({ connection, wallet, transaction: new VersionedTransaction(message) }), /latest blockhash/);
+  assert.equal(simulated, false); assert.equal(signed, false); assert.equal(sent, false);
+});
+
+await test('fresh-blockhash builder supports V0 and preserves simulate -> sign -> send -> confirm order', async () => {
+  const signer = Keypair.generate();
+  const blockhash = Keypair.generate().publicKey.toBase58();
+  const events: string[] = [];
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => { events.push('simulate'); return { value: { err: null, logs: [], unitsConsumed: 7 } }; },
+    sendRawTransaction: async () => { events.push('send'); return 'v0sig'; },
+    confirmTransaction: async () => { events.push('confirm'); return { value: { err: null } }; },
+  };
+  const wallet: any = {
+    publicKey: signer.publicKey,
+    signTransaction: async (tx: VersionedTransaction) => { events.push('sign'); tx.sign([signer]); return tx; },
+  };
+  const result = await buildSimulateSignAndSendSolanaTrade({
+    connection, wallet,
+    build: async (fresh) => new VersionedTransaction(new TransactionMessage({ payerKey: signer.publicKey, recentBlockhash: fresh, instructions: [] }).compileToV0Message()),
+  });
+  assert.equal(result.signature, 'v0sig');
+  assert.deepEqual(events, ['simulate', 'sign', 'send', 'confirm']);
 });
 
 await test('disconnected wallet fails before network execution', async () => {
