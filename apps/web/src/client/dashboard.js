@@ -54,17 +54,18 @@
       return;
     }
 
-        return `
+    emptyEl.hidden = true;
+    listEl.innerHTML = launches
+      .map((l) => `
       <div class="card" style="margin-bottom:10px;" data-launch-card="${escapeHtml(l.mint)}">
         <div class="review-row"><span class="k">${escapeHtml(l.name)} (${escapeHtml(l.symbol)})</span>
           <span style="display:flex; gap:14px;">
             <a href="/token/example?mint=${encodeURIComponent(l.mint)}#community" style="color:var(--brand)">Chat</a>
-            <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" style="color:var(--brand)">View on Explorer</a>
+            <a href="https://explorer.solana.com/address/${escapeHtml(l.mint)}" target="_blank" rel="noopener noreferrer" style="color:var(--brand)">View on Explorer</a>
           </span>
         </div>
         <div class="review-row"><span class="k" style="font-family:monospace;font-size:11px">${escapeHtml(l.mint)}</span><span class="v" style="color:var(--ink-faint)">${new Date(l.launchedAt).toLocaleString()}</span></div>
-      </div>`;
-      })
+      </div>`)
       .join('');
   }
 
