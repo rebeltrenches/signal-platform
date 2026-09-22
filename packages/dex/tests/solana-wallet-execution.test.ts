@@ -101,6 +101,42 @@ await test('fresh-blockhash builder supports V0 and preserves simulate -> sign -
   assert.deepEqual(events, ['simulate', 'sign', 'send', 'confirm']);
 });
 
+await test('fresh V0 builder simulation failure never signs or sends', async () => {
+  const payer = Keypair.generate().publicKey;
+  const blockhash = Keypair.generate().publicKey.toBase58();
+  let signed = false, sent = false;
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => ({ value: { err: { InstructionError: [0, 'Custom'] }, logs: ['v0 failed'], unitsConsumed: 4 } }),
+    sendRawTransaction: async () => { sent = true; return 'unexpected'; },
+  };
+  const wallet: any = { publicKey: payer, signTransaction: async (tx: VersionedTransaction) => { signed = true; return tx; } };
+  await assert.rejects(() => buildSimulateSignAndSendSolanaTrade({
+    connection, wallet,
+    build: async (fresh) => new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: fresh, instructions: [] }).compileToV0Message()),
+  }), /simulation failed/);
+  assert.equal(signed, false);
+  assert.equal(sent, false);
+});
+
+await test('fresh V0 builder rejects wrong blockhash before simulation/sign/send', async () => {
+  const payer = Keypair.generate().publicKey;
+  const fresh = Keypair.generate().publicKey.toBase58();
+  const wrong = Keypair.generate().publicKey.toBase58();
+  let simulated = false, signed = false, sent = false;
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash: fresh, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => { simulated = true; return { value: { err: null } }; },
+    sendRawTransaction: async () => { sent = true; return 'unexpected'; },
+  };
+  const wallet: any = { publicKey: payer, signTransaction: async (tx: VersionedTransaction) => { signed = true; return tx; } };
+  await assert.rejects(() => buildSimulateSignAndSendSolanaTrade({
+    connection, wallet,
+    build: async () => new VersionedTransaction(new TransactionMessage({ payerKey: payer, recentBlockhash: wrong, instructions: [] }).compileToV0Message()),
+  }), /required fresh blockhash/);
+  assert.equal(simulated, false); assert.equal(signed, false); assert.equal(sent, false);
+});
+
 await test('disconnected wallet fails before network execution', async () => {
   let touched = false;
   const connection: any = { getLatestBlockhash: async () => { touched = true; throw new Error('should not run'); } };
