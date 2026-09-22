@@ -3,14 +3,10 @@ import { computeTaxSplit, InvalidTaxConfigError } from '@launchpad/utils';
 import { DEFAULT_TAX_CONFIG, type TaxConfig } from '@launchpad/types';
 
 /**
- * Real computation, not a stub — wired directly to the same
- * computeTaxSplit() that has 9 passing tests. Lets the frontend (or you,
- * with curl) preview the exact Signal Fee breakdown for an amount
- * before any wallet ever gets a signing prompt, per spec section 7's
- * "always show fee before confirmation" requirement.
- *
- * Current model: 100% of the 1% transfer fee goes to the token creator.
- * `creatorTax` and `totalTax` are therefore equal in this response.
+ * Legacy-named preview endpoint for the creator trading-fee math.
+ * The current fee is 1% of the SOL side of SIGNAL-routed trades and belongs
+ * entirely to the token creator. This endpoint performs integer math only;
+ * it does not imply an arbitrary token-transfer fee.
  */
 export const previewTax: Handler = (req) => {
   const body = (req.body ?? {}) as { amount?: string; taxConfig?: Partial<TaxConfig> };
