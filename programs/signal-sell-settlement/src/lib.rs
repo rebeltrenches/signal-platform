@@ -7,6 +7,7 @@ use solana_program::{
     pubkey::Pubkey,
     system_instruction,
     system_program,
+    sysvar::{rent::Rent, Sysvar},
 };
 use solana_program::program_pack::Pack;
 use spl_token::{instruction::close_account, state::{Account as TokenAccount, Mint}};
@@ -29,18 +30,18 @@ fn split_creator_fee(gross: u64) -> Result<(u64, u64), ProgramError> {
 /// Accounts:
 /// 0 authority PDA (writable; receives unwrapped SOL temporarily)
 /// 1 trade-specific WSOL settlement account (writable)
-/// 2 creator wallet (writable)
-/// 3 trader wallet (signer, writable)
-/// 4 canonical WSOL mint
-/// 5 SPL Token program
-/// 6 System program
+/// 2 permanent replay-receipt PDA (writable)
+/// 3 creator wallet (writable)
+/// 4 trader wallet (signer, writable)
+/// 5 canonical WSOL mint
+/// 6 SPL Token program
+/// 7 System program
 ///
-/// The client must create the trade-specific settlement ATA with a NON-idempotent
-/// create instruction in the same atomic transaction before the Raydium swap.
-/// That makes an already-existing/pre-funded settlement account fail the transaction.
-/// Raydium then sends WSOL to it and this instruction closes/unwraps it and splits
-/// only its native WSOL amount: 1% creator, 99% trader. Rent reclaimed by closing
-/// the temporary token account is returned to the trader.
+/// The client creates the trade-specific settlement ATA non-idempotently in the
+/// same atomic transaction before the Raydium swap. On settlement, this program
+/// creates a permanent program-owned receipt PDA keyed by trader + creator +
+/// trade ID. A consumed trade ID therefore cannot be reused after the temporary
+/// WSOL account is closed.
 pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if data.len() != 33 || data[0] != SETTLE_SELL {
         return Err(ProgramError::InvalidInstructionData);
@@ -50,6 +51,7 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     let mut it = accounts.iter();
     let authority = next_account_info(&mut it)?;
     let settlement = next_account_info(&mut it)?;
+    let receipt = next_account_info(&mut it)?;
     let creator_wallet = next_account_info(&mut it)?;
     let trader_wallet = next_account_info(&mut it)?;
     let mint = next_account_info(&mut it)?;
@@ -73,6 +75,40 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     if authority.key != &expected_authority {
         return Err(ProgramError::InvalidSeeds);
     }
+
+    let (expected_receipt, receipt_bump) = Pubkey::find_program_address(
+        &[b"sell-receipt", trader_wallet.key.as_ref(), creator_wallet.key.as_ref(), trade_id],
+        program_id,
+    );
+    if receipt.key != &expected_receipt {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    if receipt.owner != &system_program::id() || !receipt.data_is_empty() || receipt.lamports() != 0 {
+        return Err(ProgramError::AccountAlreadyInitialized);
+    }
+
+    let receipt_bump_seed = [receipt_bump];
+    let receipt_seeds: &[&[u8]] = &[
+        b"sell-receipt",
+        trader_wallet.key.as_ref(),
+        creator_wallet.key.as_ref(),
+        trade_id,
+        &receipt_bump_seed,
+    ];
+    let receipt_lamports = Rent::get()?.minimum_balance(1);
+    invoke_signed(
+        &system_instruction::create_account(
+            trader_wallet.key,
+            receipt.key,
+            receipt_lamports,
+            1,
+            program_id,
+        ),
+        &[trader_wallet.clone(), receipt.clone(), system_program_info.clone()],
+        &[receipt_seeds],
+    )?;
+    receipt.try_borrow_mut_data()?[0] = SETTLE_SELL;
+
     if authority.owner != &system_program::id() || !authority.data_is_empty() {
         return Err(ProgramError::IllegalOwner);
     }
@@ -100,8 +136,6 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
         b"sell-settlement", trader_wallet.key.as_ref(), creator_wallet.key.as_ref(), trade_id, &bump_seed,
     ];
 
-    // Closing a native WSOL account unwraps its SOL and returns all lamports
-    // (WSOL backing + rent) to the authority PDA.
     invoke_signed(
         &close_account(token_program.key, settlement.key, authority.key, authority.key, &[])?,
         &[settlement.clone(), authority.clone(), authority.clone(), token_program.clone()],
@@ -119,8 +153,6 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
         &[seeds],
     )?;
 
-    // Return the temporary token-account rent (and only any harmless donated
-    // lamports at this unique PDA) to the trader so no SOL remains trapped.
     let remainder = authority.lamports();
     if remainder > 0 {
         invoke_signed(
