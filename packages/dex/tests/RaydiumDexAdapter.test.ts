@@ -115,6 +115,21 @@ async function run() {
     assert.strictEqual(capturedParams.poolAddress, POOL_ADDRESS);
   });
 
+  await test('swap() rejects invalid slippage before building a transaction', async () => {
+    const reader = mockReader({
+      poolAddress: POOL_ADDRESS, tokenA: TOKEN_A, tokenB: TOKEN_B,
+      reserveA: 1000n, reserveB: 2000n, feeBps: 0, liquidityUsd: 10000,
+    });
+    let called = false;
+    const builder: RaydiumSwapBuilder = { async buildSwapInstruction() { called = true; return {}; } };
+    const adapter = new RaydiumDexAdapter('solana' as any, reader, builder);
+    const quote = await adapter.quote(TOKEN_A, TOKEN_B, { raw: 1000n, decimals: 9 });
+    await assert.rejects(() => adapter.swap(quote, 'WalletXYZ', -1), /slippageBps/);
+    await assert.rejects(() => adapter.swap(quote, 'WalletXYZ', 10000), /slippageBps/);
+    await assert.rejects(() => adapter.swap(quote, 'WalletXYZ', 1.5), /slippageBps/);
+    assert.equal(called, false);
+  });
+
   await test('the existing compareRoutes() correctly integrates with this new adapter and sorts by real output', async () => {
     const goodReader = mockReader({
       poolAddress: 'Pool1', tokenA: TOKEN_A, tokenB: TOKEN_B,
