@@ -90,7 +90,12 @@ export async function buildSimulateSignAndSendSolanaTrade(params: {
     throw new Error('Versioned trade builder did not use the required fresh blockhash.');
   }
 
-  const simulation = await simulateUnsignedSolanaTrade({ connection: params.connection, transaction, payer });
+  const simulation = await simulateUnsignedSolanaTrade({
+    connection: params.connection,
+    transaction,
+    payer,
+    preserveBlockhash: true,
+  });
   assertSimulationPassed(simulation);
 
   const signed = await params.wallet.signTransaction(transaction);
