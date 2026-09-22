@@ -27,10 +27,13 @@ async function main(): Promise<void> {
   );
   const status = new PrismaIndexerStatusStore(prisma);
   const statusKey = 'solana-token-refresh';
+  const fundingStatusKey = 'solana-funding-relationships';
 
   async function runCycle(): Promise<void> {
     const totals = { attempted: 0, refreshed: 0, failed: 0 };
+    const fundingTotals = { attempted: 0, refreshed: 0, failed: 0 };
     await status.markStarted(statusKey);
+    await status.markStarted(fundingStatusKey);
     try {
       let result;
       do {
@@ -38,11 +41,16 @@ async function main(): Promise<void> {
         totals.attempted += result.attempted;
         totals.refreshed += result.refreshed;
         totals.failed += result.failed;
+        fundingTotals.attempted += result.fundingWalletsScanned;
+        fundingTotals.refreshed += result.fundingRelationshipsDiscovered;
+        fundingTotals.failed += result.fundingScanFailed;
         console.log('[indexer] page complete', result);
       } while (result.nextCursor);
       await status.markCompleted(statusKey, totals);
+      await status.markCompleted(fundingStatusKey, fundingTotals);
     } catch (error) {
       await status.markFailed(statusKey, error, totals);
+      await status.markFailed(fundingStatusKey, error, fundingTotals);
       throw error;
     }
   }

@@ -47,7 +47,9 @@ interval, so slow RPC/database cycles cannot overlap.
 
 The runner records cycle state in PostgreSQL (`IndexerRunState`), including
 last start/completion/failure, attempted/refreshed/failed counts, and the last
-cycle-level error. The API exposes this read-only at `GET /health/indexer`.
+cycle-level error. Token refresh and funding-relationship discovery use separate
+run-state keys. The API exposes both read-only at `GET /health/indexer` while
+retaining the original token-refresh fields for backward compatibility.
 
 A temporary holder RPC failure is not represented as an empty holder list:
 `SolanaAdapter.getTopHolders` propagates the failure so the indexer skips the

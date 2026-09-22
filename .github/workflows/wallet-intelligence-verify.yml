@@ -78,6 +78,7 @@ jobs:
         run: pnpm --filter @launchpad/indexer test
       - name: Existing API regression tests
         run: |
+          pnpm exec tsx apps/api/tests/indexer-status.test.ts
           pnpm exec tsx apps/api/tests/token-repository.test.ts
           pnpm exec tsx apps/api/tests/watchlist-repository.test.ts
           pnpm exec tsx apps/api/tests/alert-repository.test.ts
