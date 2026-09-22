@@ -65,8 +65,8 @@ export class SolanaAdapter implements BlockchainAdapter {
 
   /**
    * Read paths must support both the original SPL Token program and
-   * Token-2022. Signal-created mints use Token-2022, but Stage 11 may
-   * index already-registered Solana tokens that use the legacy program.
+   * Token-2022. New SIGNAL-created mints use classic SPL Token; externally
+   * discovered historical tokens may use either program.
    */
   private async getMintProgramId(mintPubkey: PublicKey): Promise<PublicKey> {
     const account = await this.connection.getAccountInfo(mintPubkey, 'confirmed');
@@ -90,7 +90,7 @@ export class SolanaAdapter implements BlockchainAdapter {
       return {
         chain: this.chain,
         address: tokenAddress,
-        name: '', // Token-2022 base mint has no name field; needs the metadata extension or an off-chain source (Stage 11)
+        name: '', // Base mint accounts have no name field; metadata requires a separate on/off-chain source.
         symbol: '',
         decimals: mint.decimals,
         logoUrl: null,
