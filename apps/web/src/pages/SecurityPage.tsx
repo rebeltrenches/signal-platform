@@ -45,9 +45,8 @@ const LAUNCH_VERIFY_POINTS = [
   'Mint authority — who can mint additional supply',
   'Freeze authority — who can freeze a holder\u2019s token account',
   'Total supply and decimals as configured at launch',
-  "The creator wallet that holds mint authority",
-  "The Signal platform wallet that holds the transfer-fee authorities",
-  'Transfer-fee configuration, where the chain supports it',
+  'The creator wallet that submitted the launch',
+  'The fee recipient and exact amount before signing',
   'Token metadata as provided at creation',
   'Other on-chain state relevant to that specific mint',
 ];
@@ -55,19 +54,19 @@ const LAUNCH_VERIFY_POINTS = [
 const AUTHORITIES = [
   {
     title: 'Mint authority',
-    body: 'Controls whether more of the token can ever be minted. Held by the token\u2019s creator — if held, supply is not fixed until this authority is revoked or renounced — verify its current state on-chain rather than assuming.',
+    body: 'Controls whether more tokens can be minted. In the current Solana launch flow this remains with the creator, so supply can increase until that authority is revoked. Verify its current state on-chain.',
   },
   {
     title: 'Freeze authority',
-    body: "Controls whether a specific holder's token account can be frozen, blocking transfers from it. Its presence and holder matter for understanding what could restrict a token's transferability later.",
+    body: "Controls whether a holder's token account can be frozen. New tokens created through Signal set no freeze authority, but externally indexed tokens may differ — always inspect the mint itself.",
   },
   {
-    title: 'Transfer-fee configuration authority',
-    body: 'Controls the transfer-fee parameters on Token-2022 mints. On Signal, this is assigned to the Signal platform wallet, not the creator — the same wallet for every token launched through Signal, never a per-creator address.',
+    title: 'Update and metadata control',
+    body: 'Metadata and update authority depend on how a token was created. Signal never treats a creator-provided name, image, description, or social link as independently verified.',
   },
   {
-    title: 'Withdraw-withheld authority',
-    body: 'Controls who can withdraw the Signal Fee that Token-2022 withholds during transfers. On Signal, this is also the Signal platform wallet — the token\u2019s creator holds no authority over this fee at all.',
+    title: 'Trading and liquidity permissions',
+    body: 'Liquidity pools, bonding curves, and trading venues have their own rules and authorities. These are separate from the token mint and must be checked at the venue or on-chain program involved.',
   },
 ];
 
@@ -82,7 +81,7 @@ const NOT_DO_POINTS: Array<{ text: string; icon: React.ReactNode }> = [
 
 const PROOF_EXAMPLES = [
   'Holder concentration', 'Liquidity', 'Mint authority', 'Freeze authority',
-  'Total supply', 'Creator wallet', 'Transfer-fee configuration', 'Other available on-chain data',
+  'Total supply', 'Creator wallet', 'Market source', 'Other available on-chain data',
 ];
 
 const SIGNING_TIPS = [
@@ -152,40 +151,34 @@ export function SecurityPage() {
 
         <div className="section-divider" role="presentation" />
 
-        {/* ---- 4. The Signal Fee (transfers) + Launch Fee (creation) ---- */}
+        {/* ---- 4. Current and planned fees ---- */}
         <section className="security-section">
           <div className="security-section-head">
-            <span className="kicker">The Signal Fee</span>
-            <h2>1.00% Signal Fee, 100% to the Signal platform wallet.</h2>
+            <span className="kicker">Fees</span>
+            <h2>Current charges and planned routing, stated separately.</h2>
           </div>
           <div className="card">
-            <div className="review-row"><span className="k">Signal Fee (on applicable transfers)</span><span className="v">1.00%</span></div>
-            <div className="review-row"><span className="k">Goes to</span><span className="v">The Signal platform wallet — 100%</span></div>
-            <div className="review-row"><span className="k">Creator share</span><span className="v">0% — the creator receives none of this fee</span></div>
-            <div className="review-row"><span className="k">Holder rewards</span><span className="v">0%</span></div>
-            <div className="review-row"><span className="k">Enforced by</span><span className="v">Solana Token-2022's TransferFeeConfig extension</span></div>
-            <div className="review-row"><span className="k">Base &amp; BNB Chain</span><span className="v">Do not use this transfer-fee mechanism</span></div>
+            <div className="review-row"><span className="k">Current Solana launch fee</span><span className="v">0.001 SOL, one time</span></div>
+            <div className="review-row"><span className="k">Recipient</span><span className="v">Signal platform wallet</span></div>
+            <div className="review-row"><span className="k">Network costs</span><span className="v">Separate Solana rent and transaction fees</span></div>
+            <div className="review-row"><span className="k">Token transfer tax</span><span className="v">None on new Signal launches</span></div>
           </div>
           <p style={{ color: 'var(--ink-faint)', font: 'var(--text-small)', marginTop: 14, lineHeight: 1.6 }}>
-            Signal charges a 1.00% Signal Fee on applicable Solana token transfers. The fee is enforced through
-            Solana Token-2022's TransferFeeConfig extension — an existing, audited feature of the base program,
-            not custom code written for this platform. 100% of the configured Signal Fee is directed to the
-            Signal platform wallet; the token's own creator receives none of it. Holder rewards are currently 0%.
-            Base and BNB currently do not use this transfer-fee mechanism.
+            The current browser launch flow creates a classic Solana SPL token and includes the fixed 0.001 SOL
+            Signal launch fee in the transaction. The wallet displays the transaction for approval. Signal does
+            not add a Token-2022 transfer tax to new launches.
           </p>
 
           <div className="card" style={{ marginTop: 18 }}>
-            <div className="review-row"><span className="k">Launch Fee (one-time, at creation)</span><span className="v">1.00% of the actual launch payment</span></div>
-            <div className="review-row"><span className="k">Goes to</span><span className="v">The Signal platform wallet — 100%</span></div>
-            <div className="review-row"><span className="k">Charged today</span><span className="v">Not yet — see note below</span></div>
+            <div className="review-row"><span className="k">Planned creator trading fee</span><span className="v">1% of the SOL side</span></div>
+            <div className="review-row"><span className="k">Planned recipient</span><span className="v">Token creator — 100%</span></div>
+            <div className="review-row"><span className="k">Applies to</span><span className="v">Future trades routed through Signal only</span></div>
+            <div className="review-row"><span className="k">Live today</span><span className="v">No</span></div>
           </div>
           <p style={{ color: 'var(--ink-faint)', font: 'var(--text-small)', marginTop: 14, lineHeight: 1.6 }}>
-            Separately from the Signal Fee above, Signal also charges a 1.00% Launch Fee, calculated from the
-            creator's actual real launch/creation payment — never from token supply or an assumed market value.
-            Network rent and gas remain separate from this fee, same as always. Signal currently has no defined
-            base launch payment for Solana, so this fee is not charged on anything today — the formula exists and
-            is tested, ready for the moment a real launch payment is defined as an actual product decision, not
-            invented here to have something to apply it to.
+            The planned 1% creator fee is not charged on wallet-to-wallet transfers or trades completed on an
+            external exchange. It becomes relevant only after Signal's own non-custodial trade routing is built,
+            tested, and clearly presented before users sign. No holder reward is promised.
           </p>
         </section>
 
@@ -195,8 +188,8 @@ export function SecurityPage() {
         <section className="security-section">
           <div className="security-section-head">
             <span className="kicker">Token authorities</span>
-            <h2>Four authorities worth understanding.</h2>
-            <p>These determine what can and can't be changed about a token after launch. Mint authority stays with the creator; the Signal Fee authorities belong to the Signal platform wallet. Verify the current holder of each directly on-chain rather than assuming from this page alone.</p>
+            <h2>Controls worth understanding.</h2>
+            <p>Different contracts and programs control different parts of a token's lifecycle. Verify current state directly on-chain rather than assuming it from a website description.</p>
           </div>
           <div className="authority-grid">
             {AUTHORITIES.map((a) => (
@@ -256,7 +249,7 @@ export function SecurityPage() {
           <div className="icon-list">
             <div className="icon-list-item">
               <span className="icon"><Icon d={ICONS.link} /></span>
-              <p>Solana launches use Token-2022's established, existing functionality where applicable — Signal does not fork or modify the token program itself.</p>
+              <p>New Solana launches use the established classic SPL Token program. Signal does not fork or modify the token program.</p>
             </div>
             <div className="icon-list-item">
               <span className="icon"><Icon d={ICONS.alert} /></span>
@@ -264,7 +257,7 @@ export function SecurityPage() {
             </div>
             <div className="icon-list-item">
               <span className="icon"><Icon d={ICONS.shield} /></span>
-              <p>Base and BNB Chain functionality is currently limited to what's actually implemented — trading-only, with no transfer-fee mechanism live yet.</p>
+              <p>Base and BNB Chain token discovery is live. Signal creation and in-app trading on those chains are planned, not live.</p>
             </div>
             <div className="icon-list-item">
               <span className="icon"><Icon d={ICONS.x} /></span>
@@ -302,8 +295,9 @@ export function SecurityPage() {
           <div className="status-card">
             <div className="status-card-inner">
               <ul>
-                <li><span className="dot" aria-hidden="true" />Signal is currently in an early build stage.</li>
-                <li><span className="dot" aria-hidden="true" />No Signal contracts have been deployed to production networks unless explicitly stated on this page.</li>
+                <li><span className="dot" aria-hidden="true" />Signal is a live beta with Solana Mainnet token creation and multi-chain discovery.</li>
+                <li><span className="dot" aria-hidden="true" />Portfolio balances, persistent community chat, and wallet-scoped dashboard data are live.</li>
+                <li><span className="dot" aria-hidden="true" />In-app trading is not live; token pages currently link to external markets.</li>
                 <li><span className="dot" aria-hidden="true" />Features and supported networks may change as the platform develops.</li>
                 <li><span className="dot" aria-hidden="true" />Always verify the current on-chain state before signing.</li>
               </ul>

@@ -19,17 +19,17 @@ export function CommunityPage() {
     <div className="container-narrow" style={{ paddingTop: 40, paddingBottom: 80 }}>
       <h1 style={{ font: 'var(--text-h1)', marginBottom: 8 }}>Community</h1>
       <p style={{ color: 'var(--ink-dim)', marginBottom: 28 }}>
-        The main Signal community. Every launched token also has its own room, linked from that
-        token's page.
+        The main Signal community. Project-specific rooms keep discussion connected to the token
+        being viewed, while this room is for the wider Signal community.
       </p>
 
       <ChatRoom endpoint="/api/v1/chat/main/messages" roomId="main" label="the Signal community" />
 
       <p className="hint" style={{ marginTop: 16, textTransform: 'none', color: 'var(--ink-faint)' }}>
-        Messages are stored for as long as the server keeps running, not in a permanent database yet
-        — see <a href="/security" style={{ color: 'var(--brand)' }}>Security</a> for exactly what
-        that means. Your wallet signs in once per 24-hour session, then messages send without
-        repeated wallet prompts. Nobody can post as an address they don't control.
+        Messages are stored in Signal's database. Your wallet signs in once per 24-hour session,
+        then messages send without repeated wallet prompts. Signing proves control of the displayed
+        address; it does not reveal your private key or create an on-chain transaction. See the{' '}
+        <a href="/security" style={{ color: 'var(--brand)' }}>Security page</a> for details.
       </p>
     </div>
   );

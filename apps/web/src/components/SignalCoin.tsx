@@ -72,12 +72,12 @@ export function SignalCoin({ size = 520 }: { size?: number }) {
           <textPath href={`#${uid}-topArc`} startOffset="50%" textAnchor="middle">S I G N A L</textPath>
         </text>
         <text fill="#e8e3ff" fontSize="9" fontWeight="700" letterSpacing="1.1">
-          <textPath href={`#${uid}-leftArc`} startOffset="50%" textAnchor="middle">LAUNCH · BUILD · TRADE</textPath>
+          <textPath href={`#${uid}-leftArc`} startOffset="50%" textAnchor="middle">DISCOVER · LAUNCH · VERIFY</textPath>
         </text>
         <text fill="#e8e3ff" fontSize="8.4" fontWeight="700" letterSpacing=".9">
           <textPath href={`#${uid}-rightArc`} startOffset="50%" textAnchor="middle">MULTI-CHAIN · COMMUNITY · CULTURE</textPath>
         </text>
-        <text x="260" y="469" textAnchor="middle" fill="#f7f4ff" fontSize="15" fontWeight="800" letterSpacing="5">$SIGNAL</text>
+        <text x="260" y="469" textAnchor="middle" fill="#f7f4ff" fontSize="15" fontWeight="800" letterSpacing="5">SIGNAL</text>
       </svg>
     </div>
   );
