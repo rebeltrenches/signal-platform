@@ -4,6 +4,7 @@ import { SolanaFundingRelationshipWorker } from '../src/SolanaFundingRelationshi
 
 const TARGET = '11111111111111111111111111111111';
 const OTHER = 'Vote111111111111111111111111111111111111111';
+const UPSTREAM = 'Stake11111111111111111111111111111111111111';
 
 function transferTx(from: string, to: string, lamports: number, failed = false): any {
   return {
@@ -104,6 +105,35 @@ async function main() {
   await reverse.scanWallet(TARGET);
   assert.equal(reverseDb.relationships[0].walletAId, reverseDb.wallets.get(OTHER).id);
   assert.equal(reverseDb.relationships[0].walletBId, reverseDb.wallets.get(TARGET).id);
+
+  const ancestryDb = new MemoryDb();
+  const ancestryRpc = {
+    async getSignaturesForAddress(address: PublicKey) {
+      if (address.toBase58() === TARGET) return [{ signature: 'parent-to-root', err: null }];
+      if (address.toBase58() === OTHER) return [{ signature: 'upstream-to-parent', err: null }];
+      if (address.toBase58() === UPSTREAM) return [{ signature: 'cycle', err: null }];
+      return [];
+    },
+    async getParsedTransaction(signature: string) {
+      if (signature === 'parent-to-root') return transferTx(OTHER, TARGET, 10);
+      if (signature === 'upstream-to-parent') return transferTx(UPSTREAM, OTHER, 20);
+      if (signature === 'cycle') return transferTx(TARGET, UPSTREAM, 30);
+      return null;
+    },
+  };
+  const ancestry = new SolanaFundingRelationshipWorker(ancestryRpc as any, ancestryDb as any);
+  const ancestryResult = await ancestry.scanFundingAncestry(TARGET, 3, 10);
+  assert.equal(ancestryResult.walletsScanned, 3);
+  assert.equal(ancestryResult.maxDepthReached, 2);
+  assert.equal(ancestryResult.truncated, false);
+  assert.equal(ancestryDb.relationships.length, 3);
+
+  const cappedDb = new MemoryDb();
+  const capped = new SolanaFundingRelationshipWorker(ancestryRpc as any, cappedDb as any);
+  const cappedResult = await capped.scanFundingAncestry(TARGET, 3, 1);
+  assert.equal(cappedResult.walletsScanned, 1);
+  assert.equal(cappedResult.truncated, true);
+  assert.equal(cappedDb.relationships.length, 1);
 
   console.log('solana-funding-relationship-worker: ok');
 }

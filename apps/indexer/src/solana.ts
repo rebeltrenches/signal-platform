@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     new SolanaAdapter({ rpcUrl }),
     repository,
     new PrismaCheckpointStore(prisma),
-    { fundingScanner: fundingWorker },
+    { fundingScanner: { scanWallet: (address) => fundingWorker.scanFundingAncestry(address, 3, 50) } },
   );
   const status = new PrismaIndexerStatusStore(prisma);
   const statusKey = 'solana-token-refresh';

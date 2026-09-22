@@ -9,6 +9,9 @@ The same paged cycle also scans each distinct registered creator wallet
 for explicit System Program SOL transfers and stores only those observed
 funding relationships with their transaction signature. A transfer is never
 treated as evidence of common ownership, identity, intent, or risk.
+Incoming sources are followed breadth-first to three levels, with a hard cap
+of 50 scanned wallets per creator. Cycles are ignored and outgoing recipients
+are never expanded, preventing an unbounded wallet-graph crawl.
 
 ## Deliberate limits
 

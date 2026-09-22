@@ -19,6 +19,12 @@ export interface FundingDiscoveryResult {
   skipped: number;
 }
 
+export interface FundingAncestryDiscoveryResult extends FundingDiscoveryResult {
+  walletsScanned: number;
+  maxDepthReached: number;
+  truncated: boolean;
+}
+
 function directSolTransfers(tx: ParsedTransactionWithMeta): Array<{ from: string; to: string; lamports: number }> {
   const transfers: Array<{ from: string; to: string; lamports: number }> = [];
   for (const instruction of tx.transaction.message.instructions) {
@@ -47,11 +53,12 @@ export class SolanaFundingRelationshipWorker {
     private readonly signatureLimit = 100,
   ) {}
 
-  async scanWallet(address: string): Promise<FundingDiscoveryResult> {
+  private async scanWalletWithSources(address: string): Promise<FundingDiscoveryResult & { incomingSources: string[] }> {
     const target = new PublicKey(address);
     const signatures = await this.rpc.getSignaturesForAddress(target, { limit: this.signatureLimit });
     let discovered = 0;
     let skipped = 0;
+    const incomingSources = new Set<string>();
 
     for (const entry of signatures) {
       if (entry.err) { skipped += 1; continue; }
@@ -62,6 +69,7 @@ export class SolanaFundingRelationshipWorker {
       if (relevant.length === 0) { skipped += 1; continue; }
 
       for (const transfer of relevant) {
+        if (transfer.to === address && transfer.from !== address) incomingSources.add(transfer.from);
         const fromWallet = await ensureWallet(this.db, transfer.from);
         const toWallet = await ensureWallet(this.db, transfer.to);
         const relationshipType = 'funded';
@@ -90,6 +98,53 @@ export class SolanaFundingRelationshipWorker {
       }
     }
 
-    return { scanned: signatures.length, discovered, skipped };
+    return { scanned: signatures.length, discovered, skipped, incomingSources: [...incomingSources] };
+  }
+
+  async scanWallet(address: string): Promise<FundingDiscoveryResult> {
+    const { incomingSources: _incomingSources, ...result } = await this.scanWalletWithSources(address);
+    return result;
+  }
+
+  /**
+   * Bounded breadth-first ancestry discovery. Only incoming transfer sources
+   * are followed; unrelated outgoing recipients are recorded as observed
+   * edges but never expanded. Cycles are stopped by the visited set.
+   */
+  async scanFundingAncestry(address: string, maxDepth = 3, maxWallets = 50): Promise<FundingAncestryDiscoveryResult> {
+    const safeDepth = Math.max(1, Math.min(6, Math.trunc(maxDepth)));
+    const safeWalletLimit = Math.max(1, Math.min(250, Math.trunc(maxWallets)));
+    const queue: Array<{ address: string; depth: number }> = [{ address, depth: 0 }];
+    const visited = new Set<string>();
+    const totals: FundingAncestryDiscoveryResult = {
+      scanned: 0,
+      discovered: 0,
+      skipped: 0,
+      walletsScanned: 0,
+      maxDepthReached: 0,
+      truncated: false,
+    };
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current.address)) continue;
+      if (totals.walletsScanned >= safeWalletLimit) {
+        totals.truncated = true;
+        break;
+      }
+      visited.add(current.address);
+      const result = await this.scanWalletWithSources(current.address);
+      totals.scanned += result.scanned;
+      totals.discovered += result.discovered;
+      totals.skipped += result.skipped;
+      totals.walletsScanned += 1;
+      totals.maxDepthReached = Math.max(totals.maxDepthReached, current.depth);
+
+      if (current.depth >= safeDepth - 1) continue;
+      for (const source of result.incomingSources) {
+        if (!visited.has(source)) queue.push({ address: source, depth: current.depth + 1 });
+      }
+    }
+    return totals;
   }
 }
