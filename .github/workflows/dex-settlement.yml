@@ -47,6 +47,8 @@ jobs:
         run: pnpm exec tsx packages/dex/tests/sol-sell-instruction.test.ts
       - name: Atomic SELL transaction tests
         run: pnpm exec tsx packages/dex/tests/sol-sell-transaction.test.ts
+      - name: Raydium SELL slippage tests
+        run: pnpm exec tsx packages/dex/tests/sol-sell-raydium.test.ts
       - name: Wallet execution safety tests
         run: pnpm exec tsx packages/dex/tests/solana-wallet-execution.test.ts
       - name: Test on-chain SELL settlement program
