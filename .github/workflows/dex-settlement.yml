@@ -18,6 +18,10 @@ on:
       - 'packages/utils/src/tax.ts'
       - 'apps/web/src/client/launch-solana.js'
       - 'apps/web/src/client/wizard.js'
+      - 'apps/web/src/client/dashboard.js'
+      - 'apps/web/src/client/collect-fees.js'
+      - 'apps/web/tests/fee-rate-and-authority.test.py'
+      - 'apps/web/tests/collect-fees.test.py'
       - 'apps/web/src/pages/CreatePage.tsx'
       - '.github/workflows/dex-settlement.yml'
   pull_request:
@@ -55,6 +59,12 @@ jobs:
           ! grep -q "MAINNET_this" packages/dex/src/RaydiumSdkCpmmBridge.ts
       - name: Raydium SDK bridge typecheck
         run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
+      - name: Browser fee-model regression guards
+        run: |
+          node --check apps/web/src/client/dashboard.js
+          node --check apps/web/src/client/wizard.js
+          python3 apps/web/tests/fee-rate-and-authority.test.py
+          python3 apps/web/tests/collect-fees.test.py
       - name: Shared fee math tests
         run: pnpm exec tsx packages/utils/tests/tax.test.ts
       - name: Solana adapter fee-model typecheck
