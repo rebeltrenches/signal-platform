@@ -48,10 +48,13 @@ export async function simulateSignAndSendSolanaTrade(params: {
     maxRetries: 5,
   });
 
-  await params.connection.confirmTransaction(
+  const confirmation = await params.connection.confirmTransaction(
     { signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight },
     commitment,
   );
+  if (confirmation.value.err != null) {
+    throw new Error(`Solana trade confirmation failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
 
   return { signature, simulation };
 }
