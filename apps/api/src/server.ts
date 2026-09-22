@@ -10,7 +10,7 @@ import { getWatchlist, postWatchlistItem, deleteWatchlistItem } from './routes/w
 import { getAlerts, postAlert, deleteAlert } from './routes/alerts.js';
 import { listLaunchesRoute, getLaunchRoute, getLaunchByTokenRoute } from './routes/launches.js';
 import { getIndexerStatus } from './routes/indexer.js';
-import { getWalletFundingAncestryRoute, getWalletHistoryReplayRoute, getWalletIntelligenceRoute, getWalletSignalTraceRoute } from './routes/wallets.js';
+import { getWalletFundingAncestryRoute, getWalletHistoryReplayRoute, getWalletIntelligenceRoute, getWalletRelationshipClustersRoute, getWalletSignalTraceRoute } from './routes/wallets.js';
 
 import { initializeStorage as initializeChatStorage } from './chat/store.js';
 import { initializeStorage as initializeTokenStorage } from './tokens/tokenStore.js';
@@ -79,6 +79,7 @@ router.register('GET', '/api/v1/wallets/:chain/:address', getWalletIntelligenceR
 router.register('GET', '/api/v1/wallets/:chain/:address/funding-ancestry', getWalletFundingAncestryRoute);
 router.register('GET', '/api/v1/wallets/:chain/:address/signal-trace', getWalletSignalTraceRoute);
 router.register('GET', '/api/v1/wallets/:chain/:address/history-replay', getWalletHistoryReplayRoute);
+router.register('GET', '/api/v1/wallets/:chain/:address/relationship-clusters', getWalletRelationshipClustersRoute);
 router.register('GET', '/api/v1/creators/:address', notImplemented('Stage 16 — creator system'));
 router.register('GET', '/api/v1/analytics', notImplemented('Stage 17'));
 router.register('GET', '/api/v1/search', searchTokensRoute);
