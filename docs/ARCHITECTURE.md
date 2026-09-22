@@ -1,5 +1,8 @@
 # Architecture — Stage 1
 
+> **CURRENT FEE MODEL — 2026-09-22:** New Solana launches use classic SPL Token, not Token-2022 transfer-fee extensions. SIGNAL receives a fixed **0.001 SOL launch fee**. The token creator receives a **1% creator trading fee in native SOL** on the SOL side of SIGNAL-routed trades. There is no holder-reward split. Ordinary wallet-to-wallet token transfers and external DEX trades that bypass SIGNAL routing are not claimed to pay this creator fee. Historical fee-model decisions below are retained only as history and are superseded by this note.
+
+
 Status: **Stage 1 (architecture + repo foundation) — complete.** No app runs
 yet. This document is the map; the roadmap in `ROADMAP.md` is the schedule.
 
@@ -267,7 +270,7 @@ docker/       Local dev infra (Postgres, Redis).
 | Monorepo | pnpm workspaces + (later) Turborepo | Standard for a multi-app, multi-package TS repo; incremental builds matter once `apps/indexer` exists alongside `apps/web`. |
 | Language | TypeScript, strict mode | Financial code benefits enormously from a type checker catching a `number` where a `bigint` was meant — see `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` in `tsconfig.base.json`. |
 | Database | PostgreSQL + Prisma | Relational integrity matters for holder balances, trade history, and audit logs; `Decimal`/`BigInt` columns instead of float, per spec section 24/46. |
-| Solana transfer-fee mechanism | Token-2022 `TransferFeeConfig` | Audited, built into the base program — see ADR above. |
+| Solana creator trading fee | SIGNAL-routed native-SOL settlement | 1% of the SOL side is paid to the token creator; new launches use classic SPL Token. |
 | EVM (Stage 7+) | Solidity + OpenZeppelin | Spec section 29 — battle-tested primitives rather than hand-rolled token logic. |
 | Cache/queue | Redis | Backing store for rate limiting, real-time fan-out, and background job queues (Stage 11). |
 
