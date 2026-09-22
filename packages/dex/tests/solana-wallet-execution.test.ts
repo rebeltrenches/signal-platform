@@ -11,6 +11,7 @@ function makeTx(payer: PublicKey) {
   return new Transaction().add(SystemProgram.transfer({ fromPubkey: payer, toPubkey: Keypair.generate().publicKey, lamports: 1 }));
 }
 
+async function run() {
 await test('failed simulation never asks wallet to sign or sends', async () => {
   const payer = Keypair.generate().publicKey;
   let signed = false;
@@ -104,4 +105,10 @@ await test('disconnected wallet fails before network execution', async () => {
   assert.equal(touched, false);
 });
 
-console.log(`${passed} test(s) passed.`);
+  console.log(`${passed} test(s) passed.`);
+}
+
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
