@@ -76,7 +76,8 @@ window.signalAuth = window.signalAuth || {};
   window.signalAuth.signIn = async function () {
     const connected = window.launchpadWallet && window.launchpadWallet.address;
     if (!connected) throw new Error('No wallet connected.');
-    if (!window.solana || typeof window.solana.signMessage !== 'function') {
+    const provider = window.phantom?.solana || window.solana;
+    if (!provider || typeof provider.signMessage !== 'function') {
       throw new Error('This wallet cannot sign messages.');
     }
 
@@ -85,7 +86,7 @@ window.signalAuth = window.signalAuth || {};
     const challenge = await challengeRes.json();
 
     const encoded = new TextEncoder().encode(challenge.message);
-    const { signature } = await window.solana.signMessage(encoded, 'utf8');
+    const { signature } = await provider.signMessage(encoded, 'utf8');
     const signatureBase58 = base58Encode(signature instanceof Uint8Array ? signature : new Uint8Array(signature));
 
     const sessionRes = await fetch(apiPath('/api/v1/auth/session'), {

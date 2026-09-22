@@ -12,11 +12,9 @@
 //    WebSocket push — there is no persistent-connection server in this
 //    project. This is disclosed, not hidden: the UI never claims to be
 //    a live push feed.
-//  - Identity is a real Ed25519 signature over each message (via the
-//    wallet's own signMessage — no transaction, no SOL cost), verified
-//    server-side — not just a claimed address. See apps/api/src/chat/
-//    verify.ts for why this exists at all when other features in this
-//    app don't need it.
+//  - Identity is proven once with the wallet's real Ed25519 signature.
+//    The resulting 24-hour session authenticates messages without a
+//    Phantom approval on every send. No transaction or SOL is involved.
 (function () {
   // Configurable API origin: when apps/api is hosted separately from
   // this static frontend (see docs/SECURITY.md and the architecture
@@ -33,22 +31,6 @@
   const POLL_INTERVAL_MS = 4000;
   const MAX_MESSAGE_LENGTH = 500;
 
-  const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-  function base58Encode(bytes) {
-    let num = 0n;
-    for (const b of bytes) num = num * 256n + BigInt(b);
-    let out = '';
-    while (num > 0n) {
-      out = BASE58_ALPHABET[Number(num % 58n)] + out;
-      num = num / 58n;
-    }
-    for (const b of bytes) {
-      if (b === 0) out = '1' + out;
-      else break;
-    }
-    return out || '1';
-  }
-
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -60,18 +42,10 @@
     return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
 
-  /** Real signing via the wallet's own signMessage — Phantom's method
-   *  for proving key ownership without a transaction. Returns null if
-   *  the wallet or this specific capability isn't available, so callers
-   *  can show an honest "can't sign" state instead of a silent failure. */
-  async function signPayload(canonical) {
-    const provider = window.phantom?.solana || window.solana;
-    if (!provider?.isPhantom || typeof provider.signMessage !== 'function') {
-      return null;
-    }
-    const encoded = new TextEncoder().encode(canonical);
-    const { signature } = await provider.signMessage(encoded, 'utf8');
-    return base58Encode(signature instanceof Uint8Array ? signature : new Uint8Array(signature));
+  async function sessionHeaders() {
+    if (!window.signalAuth) throw new Error('Wallet sign-in is unavailable.');
+    const token = await window.signalAuth.ensureSignedIn();
+    return { 'content-type': 'application/json', authorization: `Bearer ${token}` };
   }
 
   /** One chatroom instance, mounted into a container the page already
@@ -80,7 +54,6 @@
    *  in behavior). */
   function mountChatRoom(root) {
     const endpoint = apiUrl(root.getAttribute('data-chat-endpoint'));
-    const roomIdForSigning = root.getAttribute('data-chat-room-id');
     const listEl = root.querySelector('[data-chat-messages]');
     const emptyEl = root.querySelector('[data-chat-empty]');
     const skeletonEl = root.querySelector('[data-chat-skeleton]');
@@ -184,16 +157,11 @@
         input.disabled = true;
         errorEl.hidden = true;
         try {
-          const timestamp = Date.now();
-          const canonical = `signal-chat|${roomIdForSigning}|post|${content}|${timestamp}`;
-          const signature = await signPayload(canonical);
-          if (!signature) {
-            throw new Error('This wallet can\u2019t sign messages (signMessage unavailable).');
-          }
+          const headers = await sessionHeaders();
           const res = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ walletAddress: window.launchpadWallet.address, signature, timestamp, content }),
+            headers,
+            body: JSON.stringify({ content }),
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.message || `Server returned ${res.status}`);
@@ -228,14 +196,11 @@
         const statusEl = root.querySelector(`[data-report-status="${messageId}"]`);
         reportBtn.disabled = true;
         try {
-          const timestamp = Date.now();
-          const canonical = `signal-chat|msg|report|${messageId}|${timestamp}`;
-          const signature = await signPayload(canonical);
-          if (!signature) throw new Error('sign failed');
+          const headers = await sessionHeaders();
           const res = await fetch(apiUrl(`/api/v1/chat/messages/${messageId}/report`), {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ walletAddress: window.launchpadWallet.address, signature, timestamp }),
+            headers,
+            body: JSON.stringify({}),
           });
           if (res.ok && statusEl) statusEl.textContent = 'Reported';
         } catch {
@@ -247,12 +212,8 @@
         const messageId = deleteBtn.getAttribute('data-delete');
         deleteBtn.disabled = true;
         try {
-          const timestamp = Date.now();
-          const canonical = `signal-chat|msg|delete|${messageId}|${timestamp}`;
-          const signature = await signPayload(canonical);
-          if (!signature) throw new Error('sign failed');
-          const qs = new URLSearchParams({ walletAddress: window.launchpadWallet.address, signature, timestamp: String(timestamp) });
-          const res = await fetch(apiUrl(`/api/v1/chat/messages/${messageId}?${qs}`), { method: 'DELETE' });
+          const headers = await sessionHeaders();
+          const res = await fetch(apiUrl(`/api/v1/chat/messages/${messageId}`), { method: 'DELETE', headers });
           if (res.ok) {
             const data = await res.json();
             const idx = knownMessages.findIndex((m) => m.id === messageId);

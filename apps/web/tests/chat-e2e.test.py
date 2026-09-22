@@ -4,13 +4,10 @@ Real, end-to-end test of the chat UI: runs the actual apps/api server
 AND serves the actual built apps/web/dist output, then drives a real
 Chromium browser through posting, reporting, and moderating messages.
 
-The mocked wallet is NOT a fake stand-in for the crypto — it holds a
-real Ed25519 keypair (Python's `cryptography` lib) and the mocked
-window.solana.signMessage calls back into Python (via Playwright's
-expose_function) to produce a REAL signature over the EXACT bytes
-chat.js asks it to sign. The server then verifies that real signature
-for real. This proves the whole client<->server signing contract works,
-not just that the UI renders.
+The mocked wallet holds a real Ed25519 keypair. The first chat write
+signs a real server challenge and receives a 24-hour session; later
+writes reuse that authenticated session without another wallet prompt.
+The server verifies the signature and session for real.
 
 Run with: python3 apps/web/tests/chat-e2e.test.py
 Requires: apps/web/dist built, and apps/api reachable via a live
@@ -93,6 +90,8 @@ def start_web_server():
             req = urllib.request.Request(target, data=body, method=method)
             if body:
                 req.add_header("content-type", "application/json")
+            if self.headers.get("authorization"):
+                req.add_header("authorization", self.headers["authorization"])
             try:
                 with urllib.request.urlopen(req) as resp:
                     self.send_response(resp.status)
@@ -166,6 +165,7 @@ def main():
 
     env = os.environ.copy()
     env["PORT"] = str(API_PORT)
+    env["AUTH_SECRET"] = "chat-e2e-session-secret-that-is-not-a-placeholder"
     api_proc = subprocess.Popen(
         ["npx", "tsx", os.path.join(REPO_ROOT, "apps/api/src/server.ts")],
         cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
