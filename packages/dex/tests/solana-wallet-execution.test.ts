@@ -79,9 +79,11 @@ await test('fresh-blockhash builder supports V0 and preserves simulate -> sign -
   const signer = Keypair.generate();
   const blockhash = Keypair.generate().publicKey.toBase58();
   const events: string[] = [];
+  let blockhashReads = 0;
+  let replaceRecentBlockhash: boolean | undefined;
   const connection: any = {
-    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
-    simulateTransaction: async () => { events.push('simulate'); return { value: { err: null, logs: [], unitsConsumed: 7 } }; },
+    getLatestBlockhash: async () => { blockhashReads++; return { blockhash, lastValidBlockHeight: 99 }; },
+    simulateTransaction: async (_tx: VersionedTransaction, opts: any) => { replaceRecentBlockhash = opts?.replaceRecentBlockhash; events.push('simulate'); return { value: { err: null, logs: [], unitsConsumed: 7 } }; },
     sendRawTransaction: async () => { events.push('send'); return 'v0sig'; },
     confirmTransaction: async () => { events.push('confirm'); return { value: { err: null } }; },
   };
@@ -94,6 +96,8 @@ await test('fresh-blockhash builder supports V0 and preserves simulate -> sign -
     build: async (fresh) => new VersionedTransaction(new TransactionMessage({ payerKey: signer.publicKey, recentBlockhash: fresh, instructions: [] }).compileToV0Message()),
   });
   assert.equal(result.signature, 'v0sig');
+  assert.equal(blockhashReads, 1);
+  assert.equal(replaceRecentBlockhash, false);
   assert.deepEqual(events, ['simulate', 'sign', 'send', 'confirm']);
 });
 
