@@ -181,6 +181,27 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
     return new Transaction().add(ix);
   }
 
+  async quoteSwap(params: { poolAddress: string; inputToken: string; outputToken: string; amountIn: bigint }): Promise<bigint> {
+    if (params.amountIn <= 0n) throw new RangeError('Swap amount must be greater than zero.');
+    this.pools.delete(params.poolAddress);
+    const { poolInfo, rpcData } = await this.loadPool(params.poolAddress);
+    const baseIn = params.inputToken === poolInfo.mintA.address;
+    if (!baseIn && params.inputToken !== poolInfo.mintB.address) throw new Error('Input mint does not match the resolved Raydium CPMM pool.');
+    const expectedOutput = baseIn ? poolInfo.mintB.address : poolInfo.mintA.address;
+    if (params.outputToken !== expectedOutput) throw new Error('Output mint does not match the resolved Raydium CPMM pool.');
+    const result = CurveCalculator.swapBaseInput(
+      new BN(params.amountIn.toString()),
+      baseIn ? rpcData.baseReserve : rpcData.quoteReserve,
+      baseIn ? rpcData.quoteReserve : rpcData.baseReserve,
+      rpcData.configInfo.tradeFeeRate,
+      rpcData.configInfo.creatorFeeRate,
+      rpcData.configInfo.protocolFeeRate,
+      rpcData.configInfo.fundFeeRate,
+      rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB,
+    );
+    return BigInt(result.outputAmount.toString());
+  }
+
   async buildSwapInstruction(params: {
     poolAddress: string;
     walletAddress: string;
@@ -189,12 +210,18 @@ export class RaydiumSdkCpmmBridge implements RaydiumPoolReader, RaydiumSwapBuild
     amountIn: bigint;
     minimumAmountOut: bigint;
   }): Promise<unknown> {
+    if (params.amountIn <= 0n) throw new RangeError('Swap amount must be greater than zero.');
+    if (params.minimumAmountOut <= 0n) throw new RangeError('Minimum swap output must be greater than zero.');
     const { poolInfo, poolKeys, rpcData } = await this.loadPool(params.poolAddress);
     void new PublicKey(params.walletAddress);
 
     const baseIn = params.inputToken === poolInfo.mintA.address;
     if (!baseIn && params.inputToken !== poolInfo.mintB.address) {
       throw new Error('Input mint does not match the resolved Raydium CPMM pool.');
+    }
+    const expectedOutput = baseIn ? poolInfo.mintB.address : poolInfo.mintA.address;
+    if (params.outputToken !== expectedOutput) {
+      throw new Error('Output mint does not match the resolved Raydium CPMM pool.');
     }
 
     const inputAmount = new BN(params.amountIn.toString());
