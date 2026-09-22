@@ -4,7 +4,7 @@
  * signature verification) into real HTTP routes.
  */
 import type { Handler } from '../router.js';
-import { generateNonce, verifySignInAndIssueSession, verifySessionToken, AuthError } from '../auth/AuthSession.js';
+import { generateNonce, verifySignInAndIssueSession, verifySessionToken, AuthError, CHALLENGE_MAX_AGE_MS } from '../auth/AuthSession.js';
 
 /** In-memory nonce store — real for as long as this process runs, same
  *  honest limit as chat's in-memory store (apps/api/src/chat/store.ts).
@@ -12,15 +12,27 @@ import { generateNonce, verifySignInAndIssueSession, verifySessionToken, AuthErr
  *  losing this on restart only means an in-flight sign-in must be
  *  retried, never a security regression. */
 const pendingNonces = new Map<string, number>(); // nonce -> issuedAt
+const SUPPORTED_CHAINS = new Set(['SOLANA', 'BASE', 'BNB']);
+
+function validIdentity(address: string, chain: string): boolean {
+  return address.length > 0 && address.length <= 128 && SUPPORTED_CHAINS.has(chain.toUpperCase());
+}
+
+function discardExpiredNonces(now: number): void {
+  for (const [nonce, issuedAt] of pendingNonces) {
+    if (now - issuedAt > CHALLENGE_MAX_AGE_MS) pendingNonces.delete(nonce);
+  }
+}
 
 export const getAuthChallenge: Handler = (req) => {
   const address = req.query.get('address') ?? '';
   const chain = req.query.get('chain') ?? '';
-  if (!address || !chain) {
-    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'address and chain query params are required.' } };
+  if (!validIdentity(address, chain)) {
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'A valid address and supported chain (SOLANA, BASE, or BNB) are required.' } };
   }
   const nonce = generateNonce();
   const timestamp = Date.now();
+  discardExpiredNonces(timestamp);
   pendingNonces.set(nonce, timestamp);
   return {
     status: 200,
@@ -40,16 +52,20 @@ export const postAuthSession: Handler = (req) => {
   const timestamp = typeof body.timestamp === 'number' ? body.timestamp : NaN;
   const signature = typeof body.signature === 'string' ? body.signature : '';
 
-  if (!address || !chain || !nonce || !signature || !Number.isFinite(timestamp)) {
+  if (!validIdentity(address, chain) || !nonce || nonce.length > 128 || !signature || signature.length > 1024 || !Number.isFinite(timestamp)) {
     return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'address, chain, nonce, timestamp, and signature are all required.' } };
   }
   // A nonce this endpoint never issued (or already consumed) is
   // rejected before signature verification even runs — real, checked
   // single-use, not just documented as single-use.
-  if (!pendingNonces.has(nonce)) {
+  const issuedAt = pendingNonces.get(nonce);
+  if (issuedAt === undefined) {
     return { status: 400, body: { error: 'INVALID_NONCE', message: 'This nonce was not issued by this server, or has already been used.' } };
   }
   pendingNonces.delete(nonce);
+  if (issuedAt !== timestamp) {
+    return { status: 400, body: { error: 'INVALID_CHALLENGE', message: 'Challenge timestamp does not match the issued nonce.' } };
+  }
 
   try {
     const token = verifySignInAndIssueSession({ address, chain, nonce, timestamp, signature });

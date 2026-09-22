@@ -37,6 +37,25 @@ interface Route {
   handler: Handler;
 }
 
+export interface RouterSecurityOptions {
+  maxBodyBytes?: number;
+  rateLimitMax?: number;
+  rateLimitWindowMs?: number;
+}
+
+const SECURITY_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+  'referrer-policy': 'no-referrer',
+  'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+  'cache-control': 'no-store',
+} as const;
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 /**
  * CORS: allowed origins come from CORS_ORIGINS (comma-separated exact
  * origins, e.g. "https://signal-platform.launchsignal.workers.dev").
@@ -78,6 +97,16 @@ function corsHeaders(requestOrigin: string | undefined): Record<string, string> 
 
 export class Router {
   private routes: Route[] = [];
+  private readonly maxBodyBytes: number;
+  private readonly rateLimitMax: number;
+  private readonly rateLimitWindowMs: number;
+  private readonly rateLimits = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(options: RouterSecurityOptions = {}) {
+    this.maxBodyBytes = options.maxBodyBytes ?? positiveInteger(process.env.API_MAX_BODY_BYTES, 1_048_576);
+    this.rateLimitMax = options.rateLimitMax ?? positiveInteger(process.env.API_RATE_LIMIT_MAX, 300);
+    this.rateLimitWindowMs = options.rateLimitWindowMs ?? positiveInteger(process.env.API_RATE_LIMIT_WINDOW_MS, 60_000);
+  }
 
   register(method: string, path: string, handler: Handler): void {
     this.routes.push({ method: method.toUpperCase(), pattern: path.split('/').filter(Boolean), handler });
@@ -109,29 +138,68 @@ export class Router {
     const pathParts = url.pathname.split('/').filter(Boolean);
     const origin = req.headers.origin;
     const cors = corsHeaders(origin);
+    const responseHeaders = { 'content-type': 'application/json', ...SECURITY_HEADERS, ...cors };
 
     // A real preflight response — every error path below also carries
     // `cors`, so a rejected/errored request is still readable by the
     // browser's fetch(), not silently opaque the way a CORS-header-only-
     // on-success implementation would leave it.
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, cors);
+      res.writeHead(204, { ...SECURITY_HEADERS, ...cors });
       res.end();
       return;
     }
 
     const matched = this.match(req.method ?? 'GET', pathParts);
 
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientKey = process.env.TRUST_PROXY === 'true' && typeof forwarded === 'string'
+      ? forwarded.split(',')[0]!.trim()
+      : req.socket.remoteAddress ?? 'unknown';
+    const now = Date.now();
+    if (this.rateLimits.size > 10_000) {
+      for (const [key, value] of this.rateLimits) {
+        if (value.resetAt <= now) this.rateLimits.delete(key);
+      }
+    }
+    const current = this.rateLimits.get(clientKey);
+    const bucket = !current || current.resetAt <= now
+      ? { count: 1, resetAt: now + this.rateLimitWindowMs }
+      : { count: current.count + 1, resetAt: current.resetAt };
+    this.rateLimits.set(clientKey, bucket);
+    if (bucket.count > this.rateLimitMax) {
+      const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      res.writeHead(429, { ...responseHeaders, 'retry-after': String(retryAfter) });
+      res.end(JSON.stringify({ error: 'RATE_LIMITED', message: 'Too many requests. Try again later.' }));
+      return;
+    }
+
     let body: unknown = undefined;
-    if (req.method === 'POST' || req.method === 'PUT') {
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+      const declaredLength = Number(req.headers['content-length'] ?? 0);
+      if (Number.isFinite(declaredLength) && declaredLength > this.maxBodyBytes) {
+        res.writeHead(413, responseHeaders);
+        res.end(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: `Request body exceeds the ${this.maxBodyBytes}-byte limit.` }));
+        return;
+      }
       const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(chunk as Buffer);
+      let received = 0;
+      for await (const chunk of req) {
+        const buffer = chunk as Buffer;
+        received += buffer.length;
+        if (received > this.maxBodyBytes) {
+          res.writeHead(413, responseHeaders);
+          res.end(JSON.stringify({ error: 'PAYLOAD_TOO_LARGE', message: `Request body exceeds the ${this.maxBodyBytes}-byte limit.` }));
+          return;
+        }
+        chunks.push(buffer);
+      }
       const raw = Buffer.concat(chunks).toString('utf8');
       if (raw) {
         try {
           body = JSON.parse(raw);
         } catch {
-          res.writeHead(400, { 'content-type': 'application/json', ...cors });
+          res.writeHead(400, responseHeaders);
           res.end(JSON.stringify({ error: 'INVALID_JSON', message: 'Request body was not valid JSON.' }));
           return;
         }
@@ -139,7 +207,7 @@ export class Router {
     }
 
     if (!matched) {
-      res.writeHead(404, { 'content-type': 'application/json', ...cors });
+      res.writeHead(404, responseHeaders);
       res.end(JSON.stringify({ error: 'NOT_FOUND', path: url.pathname }));
       return;
     }
@@ -155,11 +223,11 @@ export class Router {
 
     try {
       const result = await matched.route.handler(routeReq);
-      res.writeHead(result.status, { 'content-type': 'application/json', ...cors });
+      res.writeHead(result.status, responseHeaders);
       res.end(JSON.stringify(result.body, jsonReplacer, 2));
     } catch (err) {
-      res.writeHead(500, { 'content-type': 'application/json', ...cors });
-      res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: (err as Error).message }));
+      res.writeHead(500, responseHeaders);
+      res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'An internal error occurred.' }));
     }
   }
 }
