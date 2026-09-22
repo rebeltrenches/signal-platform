@@ -25,6 +25,7 @@ import {
   getMint,
   unpackAccount,
 } from '@solana/spl-token';
+import { LAUNCH_FEE_BPS, LAUNCH_PRICE_LAMPORTS } from '@launchpad/types';
 import type { Chain, TokenIdentity, TxResult, DataPoint } from '@launchpad/types';
 import type {
   BlockchainAdapter,
@@ -50,7 +51,8 @@ export interface SolanaAdapterConfig {
   rpcUrl: string;
 }
 
-const HARVEST_BATCH_SIZE = 20; // accounts per harvest transaction — instruction size grows with account count
+const SIGNAL_PLATFORM_WALLET = new PublicKey('FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19');
+const SIGNAL_LAUNCH_FEE_LAMPORTS = (LAUNCH_PRICE_LAMPORTS * BigInt(LAUNCH_FEE_BPS)) / 10_000n;
 
 export class SolanaAdapter implements BlockchainAdapter {
   readonly chain: Chain = 'solana';
@@ -214,6 +216,11 @@ export class SolanaAdapter implements BlockchainAdapter {
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
     const tx = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: launcher,
+        toPubkey: SIGNAL_PLATFORM_WALLET,
+        lamports: Number(SIGNAL_LAUNCH_FEE_LAMPORTS),
+      }),
       SystemProgram.createAccount({
         fromPubkey: launcher,
         newAccountPubkey: mint,
@@ -236,7 +243,8 @@ export class SolanaAdapter implements BlockchainAdapter {
         `Create token "${params.name}" (${params.symbol}) on Solana`,
         `Mint address (new): ${mint.toBase58()}`,
         `Decimals: ${params.decimals}`,
-        `Network rent for this mint account: ${lamports} lamports — paid to Solana itself, not to Signal.`,
+        `SIGNAL launch fee: ${SIGNAL_LAUNCH_FEE_LAMPORTS} lamports (0.001 SOL) — paid to the SIGNAL platform wallet.`,
+        `Network rent for this mint account: ${lamports} lamports — paid to Solana itself, not to SIGNAL.`,
         `Creator trading fee: 1% of the SOL side on SIGNAL-routed trades — paid in native SOL to the token creator.`,
         `You (${params.launcherAddress}) will be the mint authority — you can mint additional supply.`,
 
@@ -275,10 +283,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   }
 
   /** Renounce mint authority, locking total supply forever. Irreversible
-   *  — see docs/SECURITY.md. Renouncing MINT authority never touches the
-   *  fee mechanism — the token creator keeps fee control and
-   *  fee receipt regardless of whether the launcher renounces supply
-   *  control. */
+   *  — see docs/SECURITY.md. Creator trading fees are handled separately
+   *  by SIGNAL-routed native-SOL trade settlement. */
   async buildRenounceMintAuthorityTransaction(
     mintAddress: string,
     launcherAddress: string
