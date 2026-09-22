@@ -1,4 +1,6 @@
+import { Transaction, VersionedTransaction } from '@solana/web3.js';
 import { RaydiumSdkCpmmBridge } from './RaydiumSdkCpmmBridge.js';
+import { prepareSolBuySettlement } from './amm-math.js';
 import { WRAPPED_SOL_MINT } from './sol-sell-accounts.js';
 import { assembleSolBuyTransaction } from './sol-trade-transaction.js';
 
@@ -23,12 +25,8 @@ export async function buildAtomicRaydiumSolBuyWithSlippage(params: {
   }
 
   // Compute the exact 99% Raydium input before asking Raydium for a quote.
-  const preview = assembleSolBuyTransaction({
-    buyerAddress: params.buyerAddress,
-    creatorAddress: params.creatorAddress,
-    grossSolLamports: params.grossSolLamports,
-    raydiumTransaction: new (await import('@solana/web3.js')).Transaction(),
-  });
+  const preview = prepareSolBuySettlement(params.grossSolLamports);
+  if (preview.creatorFeeLamports <= 0n) throw new Error('Trade amount is too small to produce a creator fee in lamports.');
 
   const quotedTokenOut = await params.bridge.quoteSwap({
     poolAddress: params.poolAddress,
@@ -47,8 +45,7 @@ export async function buildAtomicRaydiumSolBuyWithSlippage(params: {
     amountIn: preview.raydiumInputLamports,
     minimumAmountOut: minimumTokenOut,
   });
-  if (!(raydiumTransaction instanceof (await import('@solana/web3.js')).Transaction) &&
-      !(raydiumTransaction instanceof (await import('@solana/web3.js')).VersionedTransaction)) {
+  if (!(raydiumTransaction instanceof Transaction) && !(raydiumTransaction instanceof VersionedTransaction)) {
     throw new TypeError('Raydium BUY builder returned an unsupported transaction type.');
   }
 
