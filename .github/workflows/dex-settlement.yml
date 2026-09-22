@@ -10,11 +10,13 @@ on:
     paths:
       - 'programs/signal-sell-settlement/**'
       - 'packages/dex/**'
+      - 'packages/blockchain/src/solana/SolanaAdapter.ts'
       - '.github/workflows/dex-settlement.yml'
   pull_request:
     paths:
       - 'programs/signal-sell-settlement/**'
       - 'packages/dex/**'
+      - 'packages/blockchain/src/solana/SolanaAdapter.ts'
 
 jobs:
   verify:
@@ -39,6 +41,12 @@ jobs:
           ! grep -q "MAINNET_this" packages/dex/src/RaydiumSdkCpmmBridge.ts
       - name: Raydium SDK bridge typecheck
         run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
+      - name: Solana adapter fee-model typecheck
+        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/blockchain/src/solana/SolanaAdapter.ts
+      - name: Guard new launches against Token-2022 transfer fees
+        run: |
+          ! grep -q "createInitializeTransferFeeConfigInstruction" packages/blockchain/src/solana/SolanaAdapter.ts
+          grep -q "programId: TOKEN_PROGRAM_ID" packages/blockchain/src/solana/SolanaAdapter.ts
       - name: BUY transaction assembly tests
         run: pnpm exec tsx packages/dex/tests/sol-trade-transaction.test.ts
       - name: Raydium BUY quote and settlement tests
