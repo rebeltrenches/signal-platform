@@ -12,7 +12,7 @@ export function CreatePage() {
     <div className="container-narrow" style={{ paddingTop: 36, paddingBottom: 80 }}>
       <div className="page-head" style={{ display: 'block', paddingTop: 0 }}>
         <h1>Create a token</h1>
-        <p>Nothing here submits a real transaction yet — see the note on the review step.</p>
+        <p>Solana launches use the real wallet flow shown on the review step. Base and BNB launches remain unavailable.</p>
       </div>
 
       {/* Deliberately OUTSIDE the wizard-step hidden system: a mint
