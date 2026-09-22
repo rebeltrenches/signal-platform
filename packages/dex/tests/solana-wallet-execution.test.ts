@@ -137,6 +137,54 @@ await test('fresh V0 builder rejects wrong blockhash before simulation/sign/send
   assert.equal(simulated, false); assert.equal(signed, false); assert.equal(sent, false);
 });
 
+await test('wallet mutation after simulation is rejected before send', async () => {
+  const signer = Keypair.generate();
+  const blockhash = Keypair.generate().publicKey.toBase58();
+  let sent = false;
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => ({ value: { err: null, logs: [], unitsConsumed: 5 } }),
+    sendRawTransaction: async () => { sent = true; return 'unexpected'; },
+  };
+  const wallet: any = {
+    publicKey: signer.publicKey,
+    signTransaction: async (tx: Transaction) => {
+      tx.add(SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 }));
+      tx.partialSign(signer);
+      return tx;
+    },
+  };
+  await assert.rejects(() => simulateSignAndSendSolanaTrade({ connection, wallet, transaction: makeTx(signer.publicKey) }), /changed the simulated/);
+  assert.equal(sent, false);
+});
+
+await test('V0 wallet mutation after simulation is rejected before send', async () => {
+  const signer = Keypair.generate();
+  const blockhash = Keypair.generate().publicKey.toBase58();
+  let sent = false;
+  const connection: any = {
+    getLatestBlockhash: async () => ({ blockhash, lastValidBlockHeight: 99 }),
+    simulateTransaction: async () => ({ value: { err: null, logs: [], unitsConsumed: 5 } }),
+    sendRawTransaction: async () => { sent = true; return 'unexpected'; },
+  };
+  const wallet: any = {
+    publicKey: signer.publicKey,
+    signTransaction: async (_tx: VersionedTransaction) => {
+      const changed = new VersionedTransaction(new TransactionMessage({
+        payerKey: signer.publicKey, recentBlockhash: blockhash,
+        instructions: [SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 })],
+      }).compileToV0Message());
+      changed.sign([signer]);
+      return changed;
+    },
+  };
+  await assert.rejects(() => buildSimulateSignAndSendSolanaTrade({
+    connection, wallet,
+    build: async (fresh) => new VersionedTransaction(new TransactionMessage({ payerKey: signer.publicKey, recentBlockhash: fresh, instructions: [] }).compileToV0Message()),
+  }), /changed the simulated/);
+  assert.equal(sent, false);
+});
+
 await test('disconnected wallet fails before network execution', async () => {
   let touched = false;
   const connection: any = { getLatestBlockhash: async () => { touched = true; throw new Error('should not run'); } };
