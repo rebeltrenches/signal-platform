@@ -1,5 +1,8 @@
 # Roadmap
 
+> **CURRENT FEE MODEL — 2026-09-22:** New Solana launches use classic SPL Token, not Token-2022 transfer-fee extensions. SIGNAL receives a fixed **0.001 SOL launch fee**. The token creator receives a **1% creator trading fee in native SOL** on the SOL side of SIGNAL-routed trades. There is no holder-reward split. Ordinary wallet-to-wallet token transfers and external DEX trades that bypass SIGNAL routing are not claimed to pay this creator fee. Historical fee-model decisions below are retained only as history and are superseded by this note.
+
+
 Stages match the original spec's section 44, with two adjustments: Base
 and BNB tax work is deferred out of Stage 7 into a future "Stage 22 —
 audited EVM tax" once a contract exists and is audited (ADR-0003), and
