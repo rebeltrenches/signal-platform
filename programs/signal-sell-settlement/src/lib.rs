@@ -61,9 +61,6 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
     if !trader_wallet.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
-    if creator_wallet.key == trader_wallet.key {
-        return Err(ProgramError::InvalidArgument);
-    }
     if token_program.key != &spl_token::id() || mint.key != &spl_token::native_mint::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
