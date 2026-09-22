@@ -66,8 +66,9 @@ export function ExplorePage() {
 
       <div className="how-box" style={{ marginTop: 24 }}>
         Tokens shown here come from Signal records and third-party live market feeds. External token
-        links currently open their source market; non-custodial trading inside Signal is planned but
-        is not live yet. Market data is informational, may be delayed, and is never a "safe" score.
+        pages include their source market and, when a live Jupiter route is available, support a
+        non-custodial Solana buy inside Signal. Sell execution and in-app trading on Base and BNB
+        remain planned. Market data is informational, may be delayed, and is never a "safe" score.
         See the <a href="/transparency" style={{ color: 'var(--brand)' }}>Transparency Center</a> for how sources are labeled.
       </div>
     </div>
