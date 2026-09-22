@@ -32,10 +32,10 @@ await test('successful simulation signs, sends and confirms in order', async () 
   const events: string[] = [];
   const blockhash = Keypair.generate().publicKey.toBase58();
   let blockhashReads = 0;
-  let replaceRecentBlockhash: boolean | undefined;
+  let simulatedBlockhash: string | undefined;
   const connection: any = {
     getLatestBlockhash: async () => { blockhashReads++; return { blockhash, lastValidBlockHeight: 99 }; },
-    simulateTransaction: async (_tx: Transaction, opts: any) => { replaceRecentBlockhash = opts?.replaceRecentBlockhash; events.push('simulate'); return { value: { err: null, logs: [], unitsConsumed: 10 } }; },
+    simulateTransaction: async (tx: Transaction) => { simulatedBlockhash = tx.recentBlockhash; events.push('simulate'); return { value: { err: null, logs: [], unitsConsumed: 10 } }; },
     sendRawTransaction: async () => { events.push('send'); return 'sig'; },
     confirmTransaction: async () => { events.push('confirm'); return { value: { err: null } }; },
   };
@@ -46,7 +46,7 @@ await test('successful simulation signs, sends and confirms in order', async () 
   const result = await simulateSignAndSendSolanaTrade({ connection, wallet, transaction: makeTx(signer.publicKey) });
   assert.equal(result.signature, 'sig');
   assert.equal(blockhashReads, 1);
-  assert.equal(replaceRecentBlockhash, false);
+  assert.equal(simulatedBlockhash, blockhash);
   assert.deepEqual(events, ['simulate', 'sign', 'send', 'confirm']);
 });
 
