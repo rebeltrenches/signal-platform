@@ -32,13 +32,14 @@ export function TokenDetailPage() {
           <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--line)' }} />
           <div>
             <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <DataValue point={unavailable} format={() => ''} />
-              <span className="badge">Solana</span>
+              <span id="token-name"><DataValue point={unavailable} format={() => ''} /></span>
+              <span className="badge" id="token-chain">Solana</span>
               <span className="badge badge-placeholder" id="signal-launch-badge" title="Whether this token was created through Signal, or discovered from elsewhere — master spec section 23">
                 Launched on Signal: Unavailable
               </span>
             </h1>
-            <p style={{ fontFamily: 'monospace', fontSize: 12 }}>Contract address unavailable — no token indexed at this path yet</p>
+            <p id="token-address" style={{ fontFamily: 'monospace', fontSize: 12 }}>Contract address unavailable — no token indexed at this path yet</p>
+            <a id="token-source-market" href="#" target="_blank" rel="noopener noreferrer" hidden style={{ color: 'var(--brand)', fontSize: 12 }}>Open source market ↗</a>
           </div>
         </div>
       </div>
@@ -50,41 +51,32 @@ export function TokenDetailPage() {
         <div className="stat"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Holders</div></div>
       </div>
 
-      {/* Real Trade terminal shape — master spec section 11/23. Every
-          field a real pre-trade review needs is here, honestly
-          unavailable, because the Raydium adapter's real pool reader/
-          swap builder is not wired to mainnet yet. The Buy/Sell button is inert by
-          construction (no data-action, no listener) — same pattern as
-          the Create flow's Launch button before Stage 6 was approved.
-          Trading here will be REAL when built, or not built at all —
-          never a fake fill. */}
-      <div className="card" style={{ marginTop: 20 }}>
+      <div className="card" style={{ marginTop: 20 }} id="trade-terminal">
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <button className="chip" aria-pressed="true" disabled>Buy</button>
-          <button className="chip" aria-pressed="false" disabled>Sell</button>
+          <button className="chip" aria-pressed="true" type="button" id="trade-buy">Buy</button>
+          <button className="chip" aria-pressed="false" type="button" disabled title="Sell quoting will be enabled after token-decimal loading is complete">Sell</button>
         </div>
-        <input className="input" placeholder="Amount" disabled style={{ marginBottom: 10 }} />
+        <label htmlFor="trade-amount" style={{ display: 'block', marginBottom: 7, color: 'var(--ink-dim)', fontSize: 13 }}>Amount in SOL</label>
+        <input className="input" id="trade-amount" placeholder="0.05" inputMode="decimal" style={{ marginBottom: 10 }} />
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          {['25%', '50%', '75%', '100%'].map((p) => (
-            <button key={p} className="chip" disabled>{p}</button>
+          {['0.01', '0.05', '0.10', '0.50'].map((p) => (
+            <button key={p} className="chip" type="button" data-trade-preset={p}>{p} SOL</button>
           ))}
         </div>
-        <div className="review-row"><span className="k">Route</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Liquidity source</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Expected output</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Price impact</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Slippage</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Minimum received</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Network fee</span><span className="v"><DataValue point={unavailable} format={() => ''} /></span></div>
-        <div className="review-row"><span className="k">Planned creator fee</span><span className="v">1% of SOL side on future Signal-routed trades</span></div>
-        <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} disabled title="In-app trading is not live yet">
-          Trading not available yet
+        <div className="review-row"><span className="k">Router</span><span className="v" id="trade-router">Not quoted</span></div>
+        <div className="review-row"><span className="k">Routed amount</span><span className="v" id="trade-routed">—</span></div>
+        <div className="review-row"><span className="k">Expected output</span><span className="v" id="trade-output">—</span></div>
+        <div className="review-row"><span className="k">Price impact</span><span className="v" id="trade-impact">—</span></div>
+        <div className="review-row"><span className="k">Creator fee</span><span className="v" id="trade-creator-fee">1% of the SOL side</span></div>
+        <div className="review-row"><span className="k">Execution</span><span className="v">Disabled until settlement verification is complete</span></div>
+        <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} type="button" id="trade-quote-btn">
+          Preview live route
         </button>
+        <p id="trade-status" role="status" style={{ marginTop: 10, color: 'var(--ink-dim)', fontSize: 13 }} />
         <p className="hint" style={{ marginTop: 10, textTransform: 'none' }}>
-          Non-custodial trading inside Signal is planned. It will show the route, liquidity source,
-          expected output, price impact, slippage, network cost, and applicable Signal or creator fee
-          before your wallet signs. Until that complete on-chain flow is live, Signal directs discovery
-          users to the external source market and never displays a simulated fill.
+          Live previews use current market routing but never create, sign, or submit a transaction.
+          The creator receives 1% of the gross SOL side when Signal execution is enabled. Until the
+          settlement path is deployed and verified, use the source-market link to trade externally.
         </p>
       </div>
 
