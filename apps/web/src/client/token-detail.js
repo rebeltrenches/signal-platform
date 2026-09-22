@@ -113,8 +113,8 @@
       setQuoteField('trade-routed', `${formatBaseUnits(quote.routedAmount, 9)} SOL`);
       setQuoteField('trade-output', `${formatBaseUnits(quote.expectedOutput, quote.tokenDecimals)}${tokenSymbol ? ` ${tokenSymbol}` : ''}`);
       setQuoteField('trade-impact', quote.priceImpactPct == null ? 'Provided at execution review' : `${quote.priceImpactPct}%`);
-      setQuoteField('trade-creator-fee', `${formatBaseUnits(quote.creatorFeeLamports, 9)} SOL (1%)`);
-      if (status) status.textContent = 'Live preview received. Execution remains disabled; no transaction was created.';
+      setQuoteField('trade-signal-fee', `${formatBaseUnits(quote.signalFeeLamports, 9)} SOL (1%)`);
+      if (status) status.textContent = 'Live preview received. No transaction was created; Signal requests a fresh route when you choose to trade.';
     } catch (error) {
       if (status) status.textContent = error instanceof Error ? error.message : 'Live route unavailable.';
     } finally {

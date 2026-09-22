@@ -33,7 +33,7 @@ try {
     apiKey: "test",
   });
   assert.equal(quote.status, 200);
-  assert.equal(quote.body.creatorFeeLamports, "1000000");
+  assert.equal(quote.body.signalFeeLamports, "1000000");
   assert.equal(quote.body.routedAmount, "99000000");
   assert.equal(quote.body.executionEnabled, false);
   assert.equal(quote.body.tokenDecimals, 6);

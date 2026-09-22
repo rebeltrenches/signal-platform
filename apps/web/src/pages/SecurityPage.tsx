@@ -155,7 +155,7 @@ export function SecurityPage() {
         <section className="security-section">
           <div className="security-section-head">
             <span className="kicker">Fees</span>
-            <h2>Current charges and planned routing, stated separately.</h2>
+            <h2>Current charges and planned capabilities, stated separately.</h2>
           </div>
           <div className="card">
             <div className="review-row"><span className="k">Current Solana launch fee</span><span className="v">0.001 SOL, one time</span></div>
@@ -170,15 +170,15 @@ export function SecurityPage() {
           </p>
 
           <div className="card" style={{ marginTop: 18 }}>
-            <div className="review-row"><span className="k">Planned creator trading fee</span><span className="v">1% of the SOL side</span></div>
-            <div className="review-row"><span className="k">Planned recipient</span><span className="v">Token creator — 100%</span></div>
-            <div className="review-row"><span className="k">Applies to</span><span className="v">Future trades routed through Signal only</span></div>
-            <div className="review-row"><span className="k">Live today</span><span className="v">No</span></div>
+            <div className="review-row"><span className="k">Signal trading fee</span><span className="v">1% of the gross SOL amount</span></div>
+            <div className="review-row"><span className="k">Recipient</span><span className="v">Signal platform wallet</span></div>
+            <div className="review-row"><span className="k">Applies to</span><span className="v">Solana buys executed through Signal</span></div>
+            <div className="review-row"><span className="k">Live today</span><span className="v">Solana buy execution</span></div>
           </div>
           <p style={{ color: 'var(--ink-faint)', font: 'var(--text-small)', marginTop: 14, lineHeight: 1.6 }}>
-            The planned 1% creator fee is not charged on wallet-to-wallet transfers or trades completed on an
-            external exchange. It becomes relevant only after Signal's own non-custodial trade routing is built,
-            tested, and clearly presented before users sign. No holder reward is promised.
+            The 1% Signal fee is not charged on wallet-to-wallet transfers or trades completed on an external
+            exchange. On a Signal-routed buy, the swap and fee are atomic: both succeed or both fail. The complete
+            transaction is presented in the user's wallet before signing. No holder reward is promised.
           </p>
         </section>
 

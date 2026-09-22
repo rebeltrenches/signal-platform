@@ -67,16 +67,19 @@ export function TokenDetailPage() {
         <div className="review-row"><span className="k">Routed amount</span><span className="v" id="trade-routed">—</span></div>
         <div className="review-row"><span className="k">Expected output</span><span className="v" id="trade-output">—</span></div>
         <div className="review-row"><span className="k">Price impact</span><span className="v" id="trade-impact">—</span></div>
-        <div className="review-row"><span className="k">Creator fee</span><span className="v" id="trade-creator-fee">1% of the SOL side</span></div>
-        <div className="review-row"><span className="k">Execution</span><span className="v">Disabled until settlement verification is complete</span></div>
+        <div className="review-row"><span className="k">Signal trading fee</span><span className="v" id="trade-signal-fee">1% of the gross SOL amount</span></div>
+        <div className="review-row"><span className="k">Execution</span><span className="v" id="trade-execution">Wallet confirmation required</span></div>
         <button className="btn btn-brand btn-block" style={{ marginTop: 16 }} type="button" id="trade-quote-btn">
           Preview live route
         </button>
+        <button className="btn btn-ghost btn-block" style={{ marginTop: 10 }} type="button" id="trade-execute-btn">
+          Connect wallet to trade
+        </button>
         <p id="trade-status" role="status" style={{ marginTop: 10, color: 'var(--ink-dim)', fontSize: 13 }} />
         <p className="hint" style={{ marginTop: 10, textTransform: 'none' }}>
-          Live previews use current market routing but never create, sign, or submit a transaction.
-          The creator receives 1% of the gross SOL side when Signal execution is enabled. Until the
-          settlement path is deployed and verified, use the source-market link to trade externally.
+          Signal builds one atomic Solana transaction containing the routed purchase and the 1% Signal fee.
+          Phantom shows the transaction for approval; Signal never receives your private key. If any
+          instruction fails, the entire transaction fails and no fee is transferred.
         </p>
       </div>
 

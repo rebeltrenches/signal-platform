@@ -154,9 +154,9 @@ export function HomePage() {
         <h2 style={{ font: 'var(--text-h1)', textAlign: 'center', marginBottom: 8 }}>One place for the full token journey.</h2>
         <p style={{ textAlign: 'center', color: 'var(--ink-dim)', maxWidth: '62ch', margin: '0 auto' }}>
           Today, Signal combines live multi-chain discovery, Solana token creation, wallet portfolios,
-          watchlists, community rooms, and evidence-based wallet intelligence. Next, Signal is building
-          non-custodial in-app trading so users can review a route, sign in their own wallet, and settle
-          directly on-chain without leaving the platform.
+          watchlists, community rooms, evidence-based wallet intelligence, and non-custodial Solana buys.
+          Users review a live route and Signal's 1% fee, then sign the atomic transaction in their own wallet.
+          Sell execution and in-app routing for Base and BNB remain planned.
         </p>
       </section>
 
