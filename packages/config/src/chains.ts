@@ -36,7 +36,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     chain: 'solana',
     family: 'svm',
     displayName: 'Solana',
-    adapterImplemented: false, // becomes true at Stage 6
+    adapterImplemented: true, // Solana launch/read adapter is implemented
     discoverySupported: false, // needs Stage 11 (indexer)
     taxSupported: true,
     defaultTaxConfig: DEFAULT_TAX_CONFIG,
