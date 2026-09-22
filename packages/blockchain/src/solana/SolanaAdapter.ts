@@ -1,44 +1,10 @@
 /**
- * The real BlockchainAdapter implementation for Solana. Wraps the exact
- * Token-2022 approach already proven in the earlier single-chain build's
- * contracts/solana scripts behind the shared interface, so apps/web and
- * apps/api never need to know Solana-specific details.
+ * Solana BlockchainAdapter.
  *
- * AUTHORITY MODEL (updated for the 1% creator transfer fee — see
- * docs/ARCHITECTURE.md's fee-model decision for the full history,
- * including the earlier 100%-to-creator model this superseded):
- *   - mintAuthority              -> the launcher's own connected wallet.
- *   - transferFeeConfigAuthority -> the token creator
- *     (getPlatformWalletAddress(), from @launchpad/config).
- *   - withdrawWithheldAuthority  -> the SAME token creator.
- * The launcher controls supply (mint authority) but not the fee
- * mechanism — the token creator controls the fee configuration
- * and receives 100% of the 1% creator transfer fee. No holder-rewards pool, no
- * further split beyond this single recipient. A separate, one-time 1%
- * Launch Fee (LAUNCH_FEE_BPS, @launchpad/types;
- * computeLaunchFeeFromPayment, @launchpad/utils) is real, tested logic
- * ready to apply — but is NOT currently charged anywhere in this file.
- * See buildCreateTokenTransaction's own comment for exactly why: no
- * base launch payment (a defined SOL price Signal charges to launch,
- * separate from real network rent) has ever existed in this product,
- * and inventing one to have something to take 1% of would be
- * fabrication this project has avoided throughout.
- *
- * IMPORTANT HONESTY NOTE (read before trusting anything "worked"):
- * The read-only Solana indexing path has been executed against Solana
- * mainnet RPC and verified to persist token metadata and holder snapshots
- * in isolated PostgreSQL during Stage 11 CI. Transaction-building/write
- * paths remain unverified against live submission: zero real transactions
- * have been submitted under this authority model as of this writing.
- * See docs/ROADMAP.md's Stage 6 section for the broader status.
- *
- * SECURITY: no method in this class ever holds, requests, or uses the
- * launcher's private key. buildCreateTokenTransaction generates a fresh,
- * throwaway keypair for the NEW mint account only (not a secret that
- * needs protecting after this transaction) and partial-signs with it;
- * the fee-payer signature always comes from the launcher's own wallet,
- * added afterward, outside this class. Signal never holds a secret key
- * anywhere in this fee model — there is nothing for Signal to custody.
+ * New SIGNAL launches use the classic SPL Token program. The 1% creator
+ * trading fee is settled in native SOL by SIGNAL-routed BUY/SELL trades;
+ * it is not a Token-2022 transfer fee. Read paths continue to support both
+ * classic SPL Token and Token-2022 mints discovered on-chain.
  */
 import {
   Connection,
@@ -233,18 +199,8 @@ export class SolanaAdapter implements BlockchainAdapter {
   // -------------------------------------------------------------------
 
   /**
-   * Builds: create mint account + initialize the 1% TransferFeeConfig
-   * (100% to the token creator — see
-   * docs/ARCHITECTURE.md's fee-model decision) + initialize the mint
-   * itself. Returns the transaction unsigned (apart from the fresh
-   * mint keypair's own required signature).
-   *
-   * mintAuthority remains params.launcherAddress (the creator) — that
-   * authority is about who can mint additional supply, unrelated to
-   * fee routing, and is unchanged by this decision.
-   * transferFeeConfigAuthority and withdrawWithheldAuthority are BOTH
-   * now the token creator (getPlatformWalletAddress()), not
-   * the launcher — the launcher receives none of this fee.
+   * Build a classic SPL Token mint transaction. Trading fees are not encoded
+   * into the mint; SIGNAL's trade settlement handles the creator's 1% in SOL.
    */
   async buildCreateTokenTransaction(params: CreateTokenParams): Promise<UnsignedTransaction> {
     const launcher = new PublicKey(params.launcherAddress);
@@ -344,34 +300,7 @@ export class SolanaAdapter implements BlockchainAdapter {
     };
   }
 
-  /**
-   * Harvest + withdraw the token creator's accumulated Signal
-   * Fee, to the creator wallet's own token account — the entire real
-   * fee-collection mechanism under the current model, since the whole
-   * 1% belongs to the Signal platform and nothing needs further
-   * splitting. Returns an unsigned transaction for the PLATFORM
-   * wallet's own holder to sign — not the creator, and not Signal
-   * itself (Signal holds no key for this wallet any more than for any
-   * other wallet in this system).
-   *
-   * Harvesting (moving withheld amounts out of individual holder
-   * accounts into the mint's own withheld balance) is permissionless on
-   * Token-2022. Only WITHDRAWING requires withdrawWithheldAuthority,
-   * which is now the token creator (getPlatformWalletAddress()),
-   * not the creator — see the fee-model decision in
-   * docs/ARCHITECTURE.md. Only the creator wallet's own holder can
-   * actually sign and submit this; a creator's wallet has no authority
-   * to withdraw this fee under the new model.
-   *
-   * Returns an EMPTY transactions array (not a harmless-looking
-   * zero-amount withdraw) when there is nothing withheld anywhere for
-   * this mint — callers must check `hasWithheldBalance` before assuming
-   * there's anything to sign, and must never present a "collected"
-   * result when this returns false. Fixed 2026-09-17: this previously
-   * built a withdraw transaction unconditionally even when
-   * `hasWithheldBalance` was false, which contradicted the flag's own
-   * meaning.
-   */
+  /** Legacy interface hook: Token-2022 withheld-token collection is disabled. */
   async buildHarvestAndWithdrawTransactions(
     _mintAddress: string,
     _decimals: number,
