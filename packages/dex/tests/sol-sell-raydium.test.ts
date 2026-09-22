@@ -35,6 +35,7 @@ function bridgeWithQuote(quote: bigint) {
   } as any;
 }
 
+async function run() {
 await test('SELL derives minimum WSOL output from fresh quote and slippage', async () => {
   const built = await buildAtomicRaydiumSolSellWithSlippage({
     bridge: bridgeWithQuote(1_000_000n),
@@ -63,4 +64,10 @@ await test('SELL rejects a slippage-adjusted minimum that rounds to zero', async
   }), /minimum WSOL output/);
 });
 
-console.log(`${passed} test(s) passed.`);
+  console.log(`${passed} test(s) passed.`);
+}
+
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
