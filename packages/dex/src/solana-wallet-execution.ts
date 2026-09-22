@@ -48,7 +48,9 @@ export async function simulateSignAndSendSolanaTrade(params: {
   assertSimulationPassed(simulation);
 
   // No wallet approval is requested before the mandatory simulation succeeds.
+  const unsignedBytes = params.transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
   const signed = await params.wallet.signTransaction(params.transaction);
+  assertSignedTransactionMessageUnchanged(params.transaction, signed, unsignedBytes);
   const signature = await params.connection.sendRawTransaction(signed.serialize(), {
     skipPreflight: false,
     maxRetries: 5,
@@ -98,7 +100,9 @@ export async function buildSimulateSignAndSendSolanaTrade(params: {
   });
   assertSimulationPassed(simulation);
 
+  const unsignedBytes = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
   const signed = await params.wallet.signTransaction(transaction);
+  assertSignedTransactionMessageUnchanged(transaction, signed, unsignedBytes);
   const signature = await params.connection.sendRawTransaction(signed.serialize(), {
     skipPreflight: false,
     maxRetries: 5,
@@ -111,4 +115,24 @@ export async function buildSimulateSignAndSendSolanaTrade(params: {
     throw new Error(`Solana trade confirmation failed: ${JSON.stringify(confirmation.value.err)}`);
   }
   return { signature, simulation };
+}
+
+
+function assertSignedTransactionMessageUnchanged(
+  original: Transaction | VersionedTransaction,
+  signed: Transaction | VersionedTransaction,
+  originalSerialized: Buffer | Uint8Array,
+): void {
+  if (original instanceof VersionedTransaction) {
+    if (!(signed instanceof VersionedTransaction)) throw new Error('Wallet changed the Solana transaction type.');
+    const before = Buffer.from(original.message.serialize());
+    const after = Buffer.from(signed.message.serialize());
+    if (!before.equals(after)) throw new Error('Wallet changed the simulated Solana transaction message.');
+    return;
+  }
+  if (!(signed instanceof Transaction)) throw new Error('Wallet changed the Solana transaction type.');
+  const originalMessage = Buffer.from(original.serializeMessage());
+  const signedMessage = Buffer.from(signed.serializeMessage());
+  if (!originalMessage.equals(signedMessage)) throw new Error('Wallet changed the simulated Solana transaction message.');
+  void originalSerialized;
 }
