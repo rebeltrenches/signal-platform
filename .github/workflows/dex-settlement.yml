@@ -38,9 +38,11 @@ jobs:
           grep -q "private readonly cpmmProgramId: string = MAINNET_CPMM_PROGRAM_ID" packages/dex/src/RaydiumSdkCpmmBridge.ts
           ! grep -q "MAINNET_this" packages/dex/src/RaydiumSdkCpmmBridge.ts
       - name: Raydium SDK bridge typecheck
-        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts
+        run: pnpm exec tsc --noEmit --skipLibCheck --moduleResolution node --module esnext --target es2020 packages/dex/src/RaydiumSdkCpmmBridge.ts packages/dex/src/sol-sell-raydium.ts packages/dex/src/solana-simulation.ts packages/dex/src/solana-wallet-execution.ts packages/dex/src/sol-trade-transaction.ts packages/dex/src/sol-buy-raydium.ts
       - name: BUY transaction assembly tests
         run: pnpm exec tsx packages/dex/tests/sol-trade-transaction.test.ts
+      - name: Raydium BUY quote and settlement tests
+        run: pnpm exec tsx packages/dex/tests/sol-buy-raydium.test.ts
       - name: SELL settlement tests
         run: pnpm exec tsx packages/dex/tests/sol-sell-settlement.test.ts
       - name: SELL instruction binding tests
