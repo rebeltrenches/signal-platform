@@ -20,7 +20,12 @@ assert.match(clientSource, /L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95/);
 assert.match(clientSource, /signedInstructions\.length !== originalInstructions\.length \+ 2/);
 assert.match(clientSource, /if \(key\.isSigner && !key\.pubkey\.equals\(payer\)\) return false/);
 assert.match(clientSource, /!key\.isWritable \|\| originalWritableAccounts\.has\(address\)/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-lighthouse-6/);
+assert.match(clientSource, /getLatestBlockhash\("confirmed"\)/);
+assert.match(clientSource, /recentBlockhash: latestBlockhash\.blockhash/);
+assert.match(clientSource, /latestBlockhash\.lastValidBlockHeight/);
+assert.match(clientSource, /Check transaction on Solscan/);
+assert.doesNotMatch(clientSource, /waitForConfirmation\(connection, submitted\.signature, build\.blockhashWithMetadata\.lastValidBlockHeight\)/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-fresh-blockhash-7/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
