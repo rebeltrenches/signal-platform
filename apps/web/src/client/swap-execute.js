@@ -67,6 +67,30 @@ function sameBytes(left, right) {
   return left.every((value, index) => value === right[index]);
 }
 
+function sameInstruction(left, right) {
+  if (!left.programId.equals(right.programId) || !sameBytes(left.data, right.data)) return false;
+  if (left.keys.length !== right.keys.length) return false;
+  return left.keys.every((key, index) => {
+    const other = right.keys[index];
+    return key.pubkey.equals(other.pubkey)
+      && key.isSigner === other.isSigner
+      && key.isWritable === other.isWritable;
+  });
+}
+
+function sameTransactionIntent(original, signed, addressLookupTableAccounts) {
+  if (original.recentBlockhash !== signed.recentBlockhash) return false;
+  if (!original.staticAccountKeys[0]?.equals(signed.staticAccountKeys[0])) return false;
+  const originalInstructions = web3.TransactionMessage
+    .decompile(original, { addressLookupTableAccounts }).instructions
+    .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
+  const signedInstructions = web3.TransactionMessage
+    .decompile(signed, { addressLookupTableAccounts }).instructions
+    .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
+  if (originalInstructions.length !== signedInstructions.length) return false;
+  return originalInstructions.every((instruction, index) => sameInstruction(instruction, signedInstructions[index]));
+}
+
 async function waitForConfirmation(connection, signature, lastValidBlockHeight) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
@@ -185,13 +209,13 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
         ],
       }).compileToV0Message(tables);
       const transaction = new web3.VersionedTransaction(finalMessage);
-      const originalMessage = transaction.message.serialize();
-
       button.textContent = "Confirm in Phantom…";
       if (status) status.textContent = "Check the gross SOL amount, token mint, and 1% fee in Phantom before approving.";
       if (execution) execution.textContent = "Awaiting your Phantom approval";
       const signed = await provider.signTransaction(transaction);
-      if (!sameBytes(originalMessage, signed.message.serialize())) throw new Error("Wallet changed the transaction message; submission stopped.");
+      if (!sameTransactionIntent(finalMessage, signed.message, tables)) {
+        throw new Error("Wallet changed the swap or fee instructions; submission stopped.");
+      }
 
       button.textContent = "Submitting…";
       if (execution) execution.textContent = "Signed locally — submitting to Solana";
