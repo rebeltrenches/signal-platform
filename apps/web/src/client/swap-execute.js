@@ -206,6 +206,7 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
     button.textContent = "Building atomic transaction…";
     if (status) status.textContent = "Requesting a fresh route for your connected wallet.";
     if (execution) execution.textContent = "Preparing — no signature requested yet";
+    let submittedSignature = "";
     try {
       const address = window.launchpadWallet.address;
       const response = await fetch("/api/solana/swap/build", {
@@ -246,9 +247,10 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       const simulation = await connection.simulateTransaction(new web3.VersionedTransaction(simulationMessage), { replaceRecentBlockhash: true });
       if (simulation.value.err) throw new Error("The transaction simulation failed. Nothing was signed or submitted.");
       const units = Math.min(Math.ceil((simulation.value.unitsConsumed || COMPUTE_UNIT_LIMIT_MAX) * 1.2), COMPUTE_UNIT_LIMIT_MAX);
+      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
       const finalMessage = new web3.TransactionMessage({
         payerKey: payer,
-        recentBlockhash,
+        recentBlockhash: latestBlockhash.blockhash,
         instructions: [
           web3.ComputeBudgetProgram.setComputeUnitLimit({ units }),
           ...build.computeBudgetInstructions.map(toInstruction),
@@ -274,15 +276,21 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       });
       const submitted = await submitResponse.json();
       if (!submitResponse.ok) throw new Error(submitted.message || "Solana rejected the transaction.");
+      submittedSignature = submitted.signature;
 
       if (status) status.innerHTML = `Submitted. <a href="https://solscan.io/tx/${encodeURIComponent(submitted.signature)}" target="_blank" rel="noopener noreferrer">View on Solscan ↗</a>`;
       if (execution) execution.textContent = "Submitted — waiting for confirmation";
-      await waitForConfirmation(connection, submitted.signature, build.blockhashWithMetadata.lastValidBlockHeight);
+      await waitForConfirmation(connection, submitted.signature, latestBlockhash.lastValidBlockHeight);
       if (execution) execution.textContent = "Confirmed on Solana";
       if (status) status.innerHTML = `Trade confirmed. <a href="https://solscan.io/tx/${encodeURIComponent(submitted.signature)}" target="_blank" rel="noopener noreferrer">View receipt on Solscan ↗</a>`;
     } catch (error) {
       if (execution) execution.textContent = "Not completed";
-      if (status) status.textContent = error instanceof Error ? error.message : "Trade did not complete.";
+      const message = error instanceof Error ? error.message : "Trade did not complete.";
+      if (status && submittedSignature) {
+        status.innerHTML = `${message} <a href="https://solscan.io/tx/${encodeURIComponent(submittedSignature)}" target="_blank" rel="noopener noreferrer">Check transaction on Solscan ↗</a>`;
+      } else if (status) {
+        status.textContent = message;
+      }
     } finally {
       refreshButton();
     }
