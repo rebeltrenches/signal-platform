@@ -24,8 +24,11 @@ assert.match(clientSource, /getLatestBlockhash\("confirmed"\)/);
 assert.match(clientSource, /recentBlockhash: latestBlockhash\.blockhash/);
 assert.match(clientSource, /latestBlockhash\.lastValidBlockHeight/);
 assert.match(clientSource, /Check transaction on Solscan/);
+assert.match(clientSource, /Submitted — verify on Solscan/);
+assert.match(clientSource, /Signal could not verify confirmation yet/);
+assert.match(clientSource, /status = await connection\.getSignatureStatus/);
 assert.doesNotMatch(clientSource, /waitForConfirmation\(connection, submitted\.signature, build\.blockhashWithMetadata\.lastValidBlockHeight\)/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-fresh-blockhash-7/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-confirmation-retry-8/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
