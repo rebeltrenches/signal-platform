@@ -59,7 +59,7 @@ const routes: RouteDef[] = [
     title: 'Token',
     element: <TokenDetailPage />,
     clientScripts: ['/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
-    moduleScripts: ['/client/swap-execute.js'],
+    moduleScripts: ['/client/swap-execute.js?v=swap-rpc-url-1'],
   },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {

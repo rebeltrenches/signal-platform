@@ -9,8 +9,10 @@ const TAKER = "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19";
 const PROGRAM = "11111111111111111111111111111111";
 const instruction = { programId: PROGRAM, accounts: [], data: "AA==" };
 const clientSource = await readFile("apps/web/src/client/swap-execute.js", "utf8");
+const buildSource = await readFile("apps/web/scripts/build.tsx", "utf8");
 assert.match(clientSource, /new URL\(RPC_PROXY, window\.location\.origin\)\.toString\(\)/);
 assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-rpc-url-1/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
