@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { buildSolanaSwap } from "../../../functions/api/solana/swap-build.js";
 import { submitSolanaSwap } from "../../../functions/api/solana/swap-submit.js";
 import worker from "../../../worker.js";
@@ -7,6 +8,9 @@ const TOKEN = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const TAKER = "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19";
 const PROGRAM = "11111111111111111111111111111111";
 const instruction = { programId: PROGRAM, accounts: [], data: "AA==" };
+const clientSource = await readFile("apps/web/src/client/swap-execute.js", "utf8");
+assert.match(clientSource, /new URL\(RPC_PROXY, window\.location\.origin\)\.toString\(\)/);
+assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,

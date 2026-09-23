@@ -165,7 +165,8 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       ];
       const recentBlockhash = base58Encode(Uint8Array.from(build.blockhashWithMetadata.blockhash));
       const tables = lookupTables(build.addressesByLookupTableAddress);
-      const connection = new web3.Connection(RPC_PROXY, "confirmed");
+      const rpcEndpoint = new URL(RPC_PROXY, window.location.origin).toString();
+      const connection = new web3.Connection(rpcEndpoint, "confirmed");
       const simulationMessage = new web3.TransactionMessage({
         payerKey: payer,
         recentBlockhash,
