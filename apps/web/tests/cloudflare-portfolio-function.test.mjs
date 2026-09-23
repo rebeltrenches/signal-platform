@@ -32,6 +32,12 @@ const jupiterUrls = [];
 globalThis.fetch = async (url, init) => {
   jupiterUrls.push(url);
   assert.equal(init.headers["x-api-key"], "test-jupiter-key");
+  if (url.includes("/tokens/v2/search")) {
+    return Response.json([
+      { id: "D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE", name: "Signal Test", symbol: "SIGT" },
+      { id: "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3", name: "Community Coin", symbol: "COM" },
+    ]);
+  }
   return Response.json({
     amount: "4958999",
     uiAmount: 0.004958999,
@@ -58,10 +64,11 @@ assert.equal(jupiterResponse.status, 200);
 assert.equal(jupiterBody.lamports, 4_958_999);
 assert.equal(jupiterBody.tokenDataComplete, true);
 assert.deepEqual(jupiterBody.tokens, [
-  { mint: "D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE", amount: "1171441.157503" },
-  { mint: "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3", amount: "553420613.222526" },
+  { mint: "D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE", amount: "1171441.157503", name: "Signal Test", symbol: "SIGT" },
+  { mint: "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3", amount: "553420613.222526", name: "Community Coin", symbol: "COM" },
 ]);
-assert.deepEqual(jupiterUrls, ["https://api.jup.ag/ultra/v1/holdings/FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"]);
+assert.equal(jupiterUrls[0], "https://api.jup.ag/ultra/v1/holdings/FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19");
+assert.match(jupiterUrls[1], /^https:\/\/api\.jup\.ag\/tokens\/v2\/search\?query=/);
 
 const requestedUrls = [];
 globalThis.fetch = async (url, init) => {
