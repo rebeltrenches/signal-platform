@@ -89,7 +89,11 @@ function transactionIntentDifference(original, signed, addressLookupTableAccount
   const signedInstructions = web3.TransactionMessage
     .decompile(signed, { addressLookupTableAccounts }).instructions
     .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
-  if (originalInstructions.length !== signedInstructions.length) return "instruction-count";
+  if (originalInstructions.length !== signedInstructions.length) {
+    const originalPrograms = originalInstructions.map((instruction) => instruction.programId.toBase58());
+    const signedPrograms = signedInstructions.map((instruction) => instruction.programId.toBase58());
+    return `instruction-count (${originalInstructions.length} expected, ${signedInstructions.length} signed; expected programs ${originalPrograms.join(",")}; signed programs ${signedPrograms.join(",")})`;
+  }
   for (let index = 0; index < originalInstructions.length; index += 1) {
     const difference = instructionDifference(originalInstructions[index], signedInstructions[index]);
     if (difference) return `${difference} at instruction ${index + 1}`;
