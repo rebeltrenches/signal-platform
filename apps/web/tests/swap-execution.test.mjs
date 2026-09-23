@@ -15,8 +15,8 @@ assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
 assert.match(clientSource, /transactionIntentDifference\(finalMessage, signed\.message, tables\)/);
 assert.match(clientSource, /ComputeBudgetProgram\.programId/);
 assert.doesNotMatch(clientSource, /sameBytes\(originalMessage, signed\.message\.serialize\(\)\)/);
-assert.match(clientSource, /instruction-count \(\$\{originalInstructions\.length\} expected, \$\{signedInstructions\.length\} signed/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-diagnostic-4/);
+assert.match(clientSource, /added instruction\$\{added\.length === 1/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-diagnostic-5/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
