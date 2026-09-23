@@ -67,28 +67,34 @@ function sameBytes(left, right) {
   return left.every((value, index) => value === right[index]);
 }
 
-function sameInstruction(left, right) {
-  if (!left.programId.equals(right.programId) || !sameBytes(left.data, right.data)) return false;
-  if (left.keys.length !== right.keys.length) return false;
-  return left.keys.every((key, index) => {
+function instructionDifference(left, right) {
+  if (!left.programId.equals(right.programId)) return "program";
+  if (!sameBytes(left.data, right.data)) return "data";
+  if (left.keys.length !== right.keys.length) return "account-count";
+  for (let index = 0; index < left.keys.length; index += 1) {
+    const key = left.keys[index];
     const other = right.keys[index];
-    return key.pubkey.equals(other.pubkey)
-      && key.isSigner === other.isSigner
-      && key.isWritable === other.isWritable;
-  });
+    if (!key.pubkey.equals(other.pubkey)) return "account";
+    if (key.isSigner !== other.isSigner || key.isWritable !== other.isWritable) return "account-permissions";
+  }
+  return null;
 }
 
-function sameTransactionIntent(original, signed, addressLookupTableAccounts) {
-  if (original.recentBlockhash !== signed.recentBlockhash) return false;
-  if (!original.staticAccountKeys[0]?.equals(signed.staticAccountKeys[0])) return false;
+function transactionIntentDifference(original, signed, addressLookupTableAccounts) {
+  if (original.recentBlockhash !== signed.recentBlockhash) return "blockhash";
+  if (!original.staticAccountKeys[0]?.equals(signed.staticAccountKeys[0])) return "payer";
   const originalInstructions = web3.TransactionMessage
     .decompile(original, { addressLookupTableAccounts }).instructions
     .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
   const signedInstructions = web3.TransactionMessage
     .decompile(signed, { addressLookupTableAccounts }).instructions
     .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
-  if (originalInstructions.length !== signedInstructions.length) return false;
-  return originalInstructions.every((instruction, index) => sameInstruction(instruction, signedInstructions[index]));
+  if (originalInstructions.length !== signedInstructions.length) return "instruction-count";
+  for (let index = 0; index < originalInstructions.length; index += 1) {
+    const difference = instructionDifference(originalInstructions[index], signedInstructions[index]);
+    if (difference) return `${difference} at instruction ${index + 1}`;
+  }
+  return null;
 }
 
 async function waitForConfirmation(connection, signature, lastValidBlockHeight) {
@@ -213,8 +219,9 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       if (status) status.textContent = "Check the gross SOL amount, token mint, and 1% fee in Phantom before approving.";
       if (execution) execution.textContent = "Awaiting your Phantom approval";
       const signed = await provider.signTransaction(transaction);
-      if (!sameTransactionIntent(finalMessage, signed.message, tables)) {
-        throw new Error("Wallet changed the swap or fee instructions; submission stopped.");
+      const intentDifference = transactionIntentDifference(finalMessage, signed.message, tables);
+      if (intentDifference) {
+        throw new Error(`Wallet changed transaction ${intentDifference}; submission stopped.`);
       }
 
       button.textContent = "Submitting…";

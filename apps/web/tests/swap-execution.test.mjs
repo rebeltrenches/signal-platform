@@ -12,10 +12,10 @@ const clientSource = await readFile("apps/web/src/client/swap-execute.js", "utf8
 const buildSource = await readFile("apps/web/scripts/build.tsx", "utf8");
 assert.match(clientSource, /new URL\(RPC_PROXY, window\.location\.origin\)\.toString\(\)/);
 assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
-assert.match(clientSource, /sameTransactionIntent\(finalMessage, signed\.message, tables\)/);
+assert.match(clientSource, /transactionIntentDifference\(finalMessage, signed\.message, tables\)/);
 assert.match(clientSource, /ComputeBudgetProgram\.programId/);
 assert.doesNotMatch(clientSource, /sameBytes\(originalMessage, signed\.message\.serialize\(\)\)/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-intent-2/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-diagnostic-3/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
