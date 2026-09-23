@@ -90,9 +90,20 @@ function transactionIntentDifference(original, signed, addressLookupTableAccount
     .decompile(signed, { addressLookupTableAccounts }).instructions
     .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
   if (originalInstructions.length !== signedInstructions.length) {
-    const originalPrograms = originalInstructions.map((instruction) => instruction.programId.toBase58());
-    const signedPrograms = signedInstructions.map((instruction) => instruction.programId.toBase58());
-    return `instruction-count (${originalInstructions.length} expected, ${signedInstructions.length} signed; expected programs ${originalPrograms.join(",")}; signed programs ${signedPrograms.join(",")})`;
+    const added = [];
+    let expectedIndex = 0;
+    for (let signedIndex = 0; signedIndex < signedInstructions.length; signedIndex += 1) {
+      const expected = originalInstructions[expectedIndex];
+      if (expected && !instructionDifference(expected, signedInstructions[signedIndex])) {
+        expectedIndex += 1;
+      } else {
+        added.push(`#${signedIndex + 1} ${signedInstructions[signedIndex].programId.toBase58()}`);
+      }
+    }
+    if (expectedIndex === originalInstructions.length && added.length) {
+      return `added instruction${added.length === 1 ? "" : "s"}: ${added.join("; ")}`;
+    }
+    return `instruction-count (${originalInstructions.length} expected, ${signedInstructions.length} signed; original sequence was also changed)`;
   }
   for (let index = 0; index < originalInstructions.length; index += 1) {
     const difference = instructionDifference(originalInstructions[index], signedInstructions[index]);
