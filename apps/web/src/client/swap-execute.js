@@ -140,14 +140,26 @@ function transactionIntentDifference(original, signed, addressLookupTableAccount
 
 async function waitForConfirmation(connection, signature, lastValidBlockHeight) {
   for (let attempt = 0; attempt < 30; attempt += 1) {
-    const status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+    let status;
+    try {
+      status = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
     if (status.value?.err) throw new Error("The transaction failed on Solana.");
     if (status.value?.confirmationStatus === "confirmed" || status.value?.confirmationStatus === "finalized") return;
-    const blockHeight = await connection.getBlockHeight("confirmed");
+    let blockHeight;
+    try {
+      blockHeight = await connection.getBlockHeight("confirmed");
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
     if (blockHeight > lastValidBlockHeight) throw new Error("The transaction expired before confirmation. Request a fresh route and try again.");
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error("The transaction was submitted but confirmation is taking longer than expected. Check it on Solscan before trying again.");
+  throw new Error("The transaction was submitted, but Signal could not verify confirmation yet. Check Solscan before doing anything else.");
 }
 
 (function mountSwapExecution() {
@@ -284,7 +296,7 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       if (execution) execution.textContent = "Confirmed on Solana";
       if (status) status.innerHTML = `Trade confirmed. <a href="https://solscan.io/tx/${encodeURIComponent(submitted.signature)}" target="_blank" rel="noopener noreferrer">View receipt on Solscan ↗</a>`;
     } catch (error) {
-      if (execution) execution.textContent = "Not completed";
+      if (execution) execution.textContent = submittedSignature ? "Submitted — verify on Solscan" : "Not completed";
       const message = error instanceof Error ? error.message : "Trade did not complete.";
       if (status && submittedSignature) {
         status.innerHTML = `${message} <a href="https://solscan.io/tx/${encodeURIComponent(submittedSignature)}" target="_blank" rel="noopener noreferrer">Check transaction on Solscan ↗</a>`;
