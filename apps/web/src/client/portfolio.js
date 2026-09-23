@@ -32,7 +32,9 @@
     identity.className = "k";
 
     const primary = document.createElement("span");
-    primary.textContent = token.symbol || token.name || shortenMint(token.mint);
+    primary.textContent = token.name
+      ? `${token.name}${token.symbol ? ` (${token.symbol})` : ""}`
+      : token.symbol || shortenMint(token.mint);
     primary.title = token.mint;
     identity.append(primary);
 

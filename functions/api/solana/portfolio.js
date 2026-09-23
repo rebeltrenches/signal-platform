@@ -86,6 +86,34 @@ async function jupiterPortfolio(address, env) {
     if (total > 0n && decimals !== null) tokens.push({ mint, amount: formatAtomicAmount(total, decimals) });
   }
 
+  if (tokens.length) {
+    try {
+      const query = encodeURIComponent(tokens.map((token) => token.mint).join(","));
+      const metadataResponse = await fetch(`https://api.jup.ag/tokens/v2/search?query=${query}`, {
+        headers: { "x-api-key": apiKey, accept: "application/json" },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (metadataResponse.ok) {
+        const metadata = await metadataResponse.json();
+        const byMint = new Map((Array.isArray(metadata) ? metadata : []).map((token) => [
+          token?.id,
+          {
+            name: typeof token?.name === "string" ? token.name.trim() : "",
+            symbol: typeof token?.symbol === "string" ? token.symbol.trim() : "",
+          },
+        ]));
+        for (const token of tokens) {
+          const identity = byMint.get(token.mint);
+          if (identity?.name) token.name = identity.name;
+          if (identity?.symbol) token.symbol = identity.symbol;
+        }
+      }
+    } catch {
+      // Metadata is optional. Never hide a verified balance because a token
+      // name service is temporarily unavailable.
+    }
+  }
+
   return { lamports: Number(payload.amount), tokens, tokenDataComplete: true };
 }
 
