@@ -1,5 +1,5 @@
 const FALLBACK_RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
-const ALLOWED_METHODS = new Set(["simulateTransaction", "getSignatureStatuses", "getBlockHeight"]);
+const ALLOWED_METHODS = new Set(["simulateTransaction", "getSignatureStatuses", "getBlockHeight", "getLatestBlockhash"]);
 
 function json(status, body) {
   return Response.json(body, {
