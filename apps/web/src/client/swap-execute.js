@@ -1,6 +1,7 @@
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 
 const SIGNAL_FEE_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19");
+const LIGHTHOUSE_PROGRAM = new web3.PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95");
 const RPC_PROXY = "/api/solana/rpc";
 const COMPUTE_UNIT_LIMIT_MAX = 1_400_000;
 
@@ -80,6 +81,30 @@ function instructionDifference(left, right) {
   return null;
 }
 
+function safeLighthouseAssertions(originalInstructions, signedInstructions, payer) {
+  if (signedInstructions.length !== originalInstructions.length + 2) return false;
+  for (let index = 0; index < originalInstructions.length; index += 1) {
+    if (instructionDifference(originalInstructions[index], signedInstructions[index])) return false;
+  }
+  const originalAccounts = new Set([payer.toBase58()]);
+  const originalWritableAccounts = new Set([payer.toBase58()]);
+  for (const instruction of originalInstructions) {
+    for (const key of instruction.keys) {
+      originalAccounts.add(key.pubkey.toBase58());
+      if (key.isWritable) originalWritableAccounts.add(key.pubkey.toBase58());
+    }
+  }
+  return signedInstructions.slice(originalInstructions.length).every((instruction) =>
+    instruction.programId.equals(LIGHTHOUSE_PROGRAM)
+      && instruction.data.length > 0
+      && instruction.keys.every((key) => {
+        const address = key.pubkey.toBase58();
+        if (!originalAccounts.has(address)) return false;
+        if (key.isSigner && !key.pubkey.equals(payer)) return false;
+        return !key.isWritable || originalWritableAccounts.has(address);
+      }));
+}
+
 function transactionIntentDifference(original, signed, addressLookupTableAccounts) {
   if (original.recentBlockhash !== signed.recentBlockhash) return "blockhash";
   if (!original.staticAccountKeys[0]?.equals(signed.staticAccountKeys[0])) return "payer";
@@ -90,6 +115,7 @@ function transactionIntentDifference(original, signed, addressLookupTableAccount
     .decompile(signed, { addressLookupTableAccounts }).instructions
     .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
   if (originalInstructions.length !== signedInstructions.length) {
+    if (safeLighthouseAssertions(originalInstructions, signedInstructions, original.staticAccountKeys[0])) return null;
     const added = [];
     let expectedIndex = 0;
     for (let signedIndex = 0; signedIndex < signedInstructions.length; signedIndex += 1) {

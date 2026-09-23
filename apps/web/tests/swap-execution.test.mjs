@@ -16,7 +16,11 @@ assert.match(clientSource, /transactionIntentDifference\(finalMessage, signed\.m
 assert.match(clientSource, /ComputeBudgetProgram\.programId/);
 assert.doesNotMatch(clientSource, /sameBytes\(originalMessage, signed\.message\.serialize\(\)\)/);
 assert.match(clientSource, /added instruction\$\{added\.length === 1/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-diagnostic-5/);
+assert.match(clientSource, /L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95/);
+assert.match(clientSource, /signedInstructions\.length !== originalInstructions\.length \+ 2/);
+assert.match(clientSource, /if \(key\.isSigner && !key\.pubkey\.equals\(payer\)\) return false/);
+assert.match(clientSource, /!key\.isWritable \|\| originalWritableAccounts\.has\(address\)/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-wallet-lighthouse-6/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
