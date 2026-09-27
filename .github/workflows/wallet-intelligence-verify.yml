@@ -100,6 +100,8 @@ jobs:
         run: node apps/web/tests/wallet-vendor-bundle.test.mjs
       - name: Platform fee wallet single-source test
         run: node apps/web/tests/fee-wallet-config.test.mjs
+      - name: Launch transaction integrity test (Phantom Mainnet additions)
+        run: node apps/web/tests/launch-integrity.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
       - name: Cloudflare Worker syntax check

@@ -78,6 +78,30 @@ def start_server():
     return httpd
 
 
+# What Phantom does on Mainnet: returns a NEW transaction object with a
+# higher compute-unit price and a Lighthouse assertion appended.
+PHANTOM_MAINNET_SIGN_JS = """async (tx) => {
+  const signed = new tx.constructor();
+  signed.recentBlockhash = tx.recentBlockhash;
+  signed.lastValidBlockHeight = tx.lastValidBlockHeight;
+  signed.feePayer = tx.feePayer;
+  const price = new Uint8Array(9); price[0] = 3; new DataView(price.buffer).setBigUint64(1, 250000n, true);
+  signed.instructions = tx.instructions.map((ix) => ix.type === 'computeUnitPrice'
+    ? { ...ix, microLamports: 250000, data: price } : ix);
+  signed.instructions.push({ type: 'lighthouse', programId: { toBase58: () => 'L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95' }, keys: [], data: new Uint8Array([4, 1]) });
+  return signed;
+}"""
+# A wallet that returns a new transaction with an extra transfer out.
+PHANTOM_ADDS_TRANSFER_SIGN_JS = """async (tx) => {
+  const signed = new tx.constructor();
+  signed.recentBlockhash = tx.recentBlockhash;
+  signed.lastValidBlockHeight = tx.lastValidBlockHeight;
+  signed.feePayer = tx.feePayer;
+  signed.instructions = [...tx.instructions, { type: 'transfer', programId: { toBase58: () => '11111111111111111111111111111111' }, keys: [], data: new Uint8Array([2, 9]) }];
+  return signed;
+}"""
+
+
 def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
     page = browser.new_page()
     # The wallet libraries are bundled locally (scripts/build.tsx); swap the
@@ -332,7 +356,8 @@ def main():
         check("C3: an unreadable mint is reported as not verified yet", "couldn't be read back" in result_text)
         check("C3: and 'Supply locked' is not claimed", "Supply locked." not in result_text)
 
-        # A wallet that adds its own priority fee must be refused.
+        # A wallet that edits our transaction in place with an unknown
+        # instruction must be refused (checked against the pre-signing snapshot).
         page = new_page(
             browser,
             sign_js="async (tx) => { tx.instructions.unshift({ type: 'walletPriorityFee' }); return tx; }",
@@ -342,8 +367,51 @@ def main():
         state = page.evaluate("window.__t")
         result_text = page.text_content('#launch-result') or ""
         page.close()
-        check("C1: a wallet-modified transaction is refused", "Wallet changed the simulated transaction" in result_text)
+        check("C1: a wallet-modified transaction is refused", "Wallet changed the transaction" in result_text)
         check("C1: and nothing is submitted", "submittedCount" not in state)
+
+        # Phantom on Mainnet returns a new transaction with its own compute
+        # budget and Lighthouse assertions appended: accepted on both steps,
+        # re-signed by the mint on step 1, and simulated again as signed.
+        page = new_page(browser, sign_js=PHANTOM_MAINNET_SIGN_JS)
+        fill_wizard_to_review(page, name="Phantom Mainnet", symbol="PHM")
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        signed_sims = [s for s in state.get("simulations", []) if s["replaceRecentBlockhash"] is False and "lighthouse" in s["types"]]
+        check("C1: Phantom's Mainnet safety/compute-budget additions are accepted", "Supply locked." in result_text and state.get("submittedCount") == 2)
+        check("C1: both steps are simulated again exactly as Phantom signed them", len(signed_sims) == 2)
+        check("C1: the new mint re-signs Phantom's changed step 1 message", state.get("partialSigns") == 2)
+
+        # A new transaction object with an extra transfer is still refused.
+        page = new_page(browser, sign_js=PHANTOM_ADDS_TRANSFER_SIGN_JS)
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C1: an added transfer is refused even from a new transaction object", "Wallet changed the transaction (added instruction" in result_text)
+        check("C1: and nothing is submitted for it", "submittedCount" not in state)
+
+        # A signature that doesn't verify stops before sending.
+        page = new_page(browser, init_t="{ missingSignature: true }")
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C1: a missing or invalid signature is refused before sending", "signature is missing" in result_text and "submittedCount" not in state)
+
+        # "Blockhash not found" from an RPC node that is briefly behind.
+        page = new_page(browser, init_t="{ blockhashNotFoundOnce: true, sendBlockhashNotFoundOnce: true }")
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C1: Blockhash not found (simulation, then send) is retried and the launch completes", "Supply locked." in result_text and state.get("submittedCount") == 2)
+        check("C1: the send was retried with the same signed transaction", state.get("sendAttempts") == 3)
 
         # A failed simulation stops before any signature is requested.
         page = new_page(
@@ -509,6 +577,22 @@ def main():
             (state.get("setAuthorityCalls") or [{}])[0].get("account") == preexisting_mint,
         )
         check("C3 (reload): and shows 'Supply locked'", "Supply locked." in resume_status)
+
+        # Finishing an existing mint (e.g. step 1 confirmed on Mainnet, step 2
+        # refused by the old check) works with Phantom's Mainnet additions.
+        page = new_page(browser, storage_js=seed_pending, sign_js=PHANTOM_MAINNET_SIGN_JS)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.click('#pendingResumeConnect')
+        page.wait_for_function(
+            "() => /Failed|Supply locked\\.|Supply lock check failed|couldn't be read back/"
+            ".test(document.querySelector('#pendingResumeStatus').textContent)",
+            timeout=20000,
+        )
+        resume_status = page.text_content('#pendingResumeStatus') or ""
+        state = page.evaluate("window.__t")
+        page.close()
+        check("B1 (resume): finishing an existing mint works with Phantom's Mainnet additions", "Supply locked." in resume_status)
+        check("B1 (resume): no new mint, supply minted to the existing one", "initMintCalls" not in state and (state.get("mintToCalls") or [{}])[0].get("mint") == preexisting_mint)
 
         # The Devnet bug: after a reload, the main Launch button created a
         # new mint and then erased the saved record of the incomplete one.
