@@ -121,6 +121,8 @@ def fill_wizard_to_review(page, name="Test Token", symbol="TST"):
     page.fill('.wizard-step[data-step="1"] #tk-symbol', symbol)
     page.click('.wizard-step[data-step="1"] [data-action="next"]')
     page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
+    # The Decimals field starts empty; the creator must type it.
+    page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
     page.click('.wizard-step[data-step="2"] [data-action="next"]')
 
 
@@ -219,6 +221,7 @@ def main():
         page.fill('.wizard-step[data-step="1"] #tk-name', "Wizard Limit")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "WZL")
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
         page.fill('.wizard-step[data-step="2"] #tk-supply', str(max_at_6 + 1))
         next_disabled_over = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
         error_over = page.text_content('#tk-supply-error') or ""
@@ -229,8 +232,9 @@ def main():
         check("B2 (wizard): and shows the maximum", "Maximum supply with 6 decimals" in error_over)
         check("B2 (wizard): lowering decimals to 0 re-validates and enables Next", not next_disabled_at_0)
 
-        # An empty Decimals field must never fall back to 6: the step (and
-        # so the Review screen) stays blocked with a clear error.
+        # The Decimals field starts empty and nothing ever falls back to 6:
+        # the step (and so the Review screen) stays blocked until the
+        # creator types a value.
         page = new_page(browser)
         page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
         page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
@@ -238,23 +242,28 @@ def main():
         page.fill('.wizard-step[data-step="1"] #tk-name', "Empty Decimals")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "EDC")
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
+        field_value_at_start = page.input_value('.wizard-step[data-step="2"] #tk-decimals')
+        wizard_decimals_at_start = page.evaluate("window.launchpadWizard.decimals")
+        hint = page.text_content('#tk-decimals-hint') or ""
+        hint_linked = "tk-decimals-hint" in (page.get_attribute('#tk-decimals', 'aria-describedby') or "")
         page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
-        enabled_with_prefilled_6 = not page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
-        page.fill('.wizard-step[data-step="2"] #tk-decimals', "")
-        next_disabled_empty = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        next_disabled_untouched = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
         decimals_error = page.text_content('#tk-decimals-error') or ""
         supply_error = page.text_content('#tk-supply-error') or ""
-        wizard_decimals = page.evaluate("window.launchpadWizard.decimals")
         page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
-        enabled_after_retyping = not page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
-        error_after_retyping = page.text_content('#tk-decimals-error') or ""
+        enabled_after_typing = not page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        error_after_typing = page.text_content('#tk-decimals-error') or ""
+        page.fill('.wizard-step[data-step="2"] #tk-decimals', "")
+        next_disabled_cleared = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        wizard_decimals_cleared = page.evaluate("window.launchpadWizard.decimals")
         page.close()
-        check("B2 (wizard): the pre-filled Decimals value (6) allows Next", enabled_with_prefilled_6)
-        check("B2 (wizard): clearing Decimals disables Next, so Review can't be reached", next_disabled_empty)
+        check("B2 (wizard): the Decimals field starts empty, with no pre-filled value", field_value_at_start == "" and wizard_decimals_at_start == "")
+        check("B2 (wizard): a hint says most Solana tokens use 6 or 9", "Most Solana tokens use 6 or 9" in hint and hint_linked)
+        check("B2 (wizard): with supply entered but Decimals left empty, Review stays disabled", next_disabled_untouched)
         check("B2 (wizard): an empty Decimals field shows a clear error under it", "Enter the number of decimals" in decimals_error)
         check("B2 (wizard): the supply field shows no error for it", supply_error == "")
-        check("B2 (wizard): the wizard keeps the empty value, not a default of 6", wizard_decimals == "")
-        check("B2 (wizard): typing a value back re-enables Next and clears the error", enabled_after_retyping and error_after_retyping == "")
+        check("B2 (wizard): typing a value enables Review and clears the error", enabled_after_typing and error_after_typing == "")
+        check("B2 (wizard): clearing it again disables Review and keeps the value empty, not 6", next_disabled_cleared and wizard_decimals_cleared == "")
 
         # =================================================================
         # C1 — compute budget, exact-message simulation, fee transfer
@@ -279,7 +288,7 @@ def main():
             "C1: step 1 pays the 0.001 SOL fee to the platform wallet",
             state.get("transferCall") == {"to": FEE_WALLET, "lamports": 1_000_000},
         )
-        check("C1: the mint uses the 6 decimals shown in the Decimals field", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
+        check("C1: the mint uses the 6 decimals typed in the Decimals field", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
 
         # C3 — mandatory revoke, in the same transaction as mintTo.
         supply_tx = final_sims[1]["types"] if len(final_sims) == 2 else []
