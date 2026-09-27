@@ -17,9 +17,9 @@ export function Shell({
   children: React.ReactNode;
   clientScripts?: string[];
   /** Scripts needing `type="module"` — i.e. ones using `import` statements
-   *  (esm.sh CDN imports for @solana/web3.js etc., since no bundler is
-   *  available offline to pre-bundle them). Separate from clientScripts
-   *  because a plain classic <script> can't contain `import`. */
+   *  (e.g. @solana/web3.js from the locally bundled /client/vendor/ files,
+   *  see build.tsx). Separate from clientScripts because a plain classic
+   *  <script> can't contain `import`. */
   moduleScripts?: string[];
   /** Real, static, build-time config data (e.g. CHAIN_CONFIGS) embedded
    *  for client scripts to read — never per-user or sensitive data,

@@ -15,7 +15,11 @@
     "@launchpad/utils": "workspace:*"
   },
   "devDependencies": {
+    "@solana/spl-token": "0.4.9",
+    "@solana/web3.js": "1.95.3",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "buffer": "6.0.3",
+    "esbuild": "0.28.2"
   }
 }
