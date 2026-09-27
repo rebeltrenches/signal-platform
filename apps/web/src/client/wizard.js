@@ -22,8 +22,12 @@
   const MAX_TOKEN_DECIMALS = 9;
   const U64_MAX = 18446744073709551615n;
 
+  // No fallback: an empty field is an error, never an implied default,
+  // because whatever passes here is what gets minted.
   function validateDecimals(raw) {
-    if (!/^[0-9]$/.test(String(raw || '6').trim())) {
+    const trimmed = String(raw ?? '').trim();
+    if (trimmed.length === 0) return { valid: false, error: `Enter the number of decimals (0 to ${MAX_TOKEN_DECIMALS}).` };
+    if (!/^[0-9]$/.test(trimmed)) {
       return { valid: false, error: `Decimals must be a whole number from 0 to ${MAX_TOKEN_DECIMALS}.` };
     }
     return { valid: true, error: null };
@@ -49,9 +53,10 @@
     if (asNumber < MINIMUM_TOKEN_SUPPLY) {
       return { valid: false, error: `Minimum supply is ${MINIMUM_TOKEN_SUPPLY.toLocaleString()}.` };
     }
-    const decimalsCheck = validateDecimals(decimalsRaw);
-    if (!decimalsCheck.valid) return decimalsCheck;
-    const decimals = Number(String(decimalsRaw || '6').trim());
+    // The maximum depends on decimals; until decimals are valid, the
+    // decimals field shows its own error and blocks the step instead.
+    if (!validateDecimals(decimalsRaw).valid) return { valid: true, error: null };
+    const decimals = Number(String(decimalsRaw).trim());
     const maxSupply = U64_MAX / 10n ** BigInt(decimals);
     if (BigInt(trimmed) > maxSupply) {
       return { valid: false, error: `Maximum supply with ${decimals} decimals is ${maxSupply.toLocaleString()}.` };
@@ -60,7 +65,8 @@
   }
 
   let current = 0;
-  const state = { chain: null, name: '', symbol: '', supply: '', decimals: '6' };
+  // decimals is read from the Decimals field below, never assumed.
+  const state = { chain: null, name: '', symbol: '', supply: '', decimals: '' };
   // Exposed so launch-solana.js can read the wizard's data without this
   // file needing to know anything about wallets or transactions —
   // Stage 6 keeps the wizard's job (collect + validate input) separate
@@ -95,7 +101,7 @@
     let ok = true;
     if (current === 0) ok = !!state.chain;
     if (current === 1) ok = state.name.trim().length > 0 && state.symbol.trim().length > 0;
-    if (current === 2) ok = validateSupply(state.supply, state.decimals).valid;
+    if (current === 2) ok = validateSupply(state.supply, state.decimals).valid && validateDecimals(state.decimals).valid;
     nextBtn.disabled = !ok;
   }
 
@@ -119,11 +125,15 @@
   const supplyInput = document.getElementById('tk-supply');
   const supplyError = document.getElementById('tk-supply-error');
   const decimalsInput = document.getElementById('tk-decimals');
+  const decimalsError = document.getElementById('tk-decimals-error');
+  if (decimalsInput) state.decimals = decimalsInput.value;
   // Supply and decimals are checked together: the maximum supply depends
   // on decimals, so changing either one re-validates both.
   function showSupplyValidation() {
     const result = validateSupply(state.supply, state.decimals);
     if (supplyError) supplyError.textContent = result.valid ? '' : result.error;
+    const decimalsResult = validateDecimals(state.decimals);
+    if (decimalsError) decimalsError.textContent = decimalsResult.valid ? '' : decimalsResult.error;
     validateStep();
   }
   if (supplyInput) {
