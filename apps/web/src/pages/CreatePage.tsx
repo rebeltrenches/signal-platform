@@ -128,7 +128,9 @@ export function CreatePage() {
           </div>
           <div className="field">
             <label htmlFor="tk-decimals">Decimals</label>
-            <input className="input" id="tk-decimals" inputMode="numeric" defaultValue={6} />
+            {/* Deliberately empty: decimals are permanent, so the creator types them. */}
+            <input className="input" id="tk-decimals" inputMode="numeric" aria-describedby="tk-decimals-hint tk-decimals-error" />
+            <div id="tk-decimals-hint" className="hint">Most Solana tokens use 6 or 9.</div>
             <p id="tk-decimals-error" className="hint" style={{ color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' }}></p>
           </div>
         </div>
