@@ -16,3 +16,28 @@ export function createMintToInstruction(mint, ata, authority, amount) {
   window.__t.mintToCalls.push({ mint: mint.toBase58(), authority: authority.toBase58(), amount: amount.toString() });
   return { type: 'mintTo', amount: amount.toString() };
 }
+export const AuthorityType = { MintTokens: 0, FreezeAccount: 1 };
+export function createSetAuthorityInstruction(account, currentAuthority, authorityType, newAuthority) {
+  window.__t.setAuthorityCalls = window.__t.setAuthorityCalls || [];
+  window.__t.setAuthorityCalls.push({
+    account: account.toBase58(),
+    currentAuthority: currentAuthority.toBase58(),
+    authorityType,
+    newAuthority: newAuthority === null ? null : newAuthority.toBase58(),
+  });
+  return { type: 'setAuthority', authorityType, newAuthority: newAuthority === null ? null : 'SET' };
+}
+// Read-back of the mint. Test knobs on window.__t:
+//   mintReadFails        - every read throws (RPC unavailable)
+//   mintAuthorityAfter   - base58 string reported as the remaining mint authority
+// Otherwise reports what the stubbed transactions would have produced.
+export async function getMint(connection, address) {
+  window.__t.getMintCalls = (window.__t.getMintCalls || 0) + 1;
+  if (window.__t.mintReadFails) throw new Error('stub: RPC unavailable');
+  const minted = (window.__t.mintToCalls || []).filter((c) => c.mint === address.toBase58()).at(-1);
+  return {
+    address,
+    mintAuthority: window.__t.mintAuthorityAfter ? { toBase58: () => window.__t.mintAuthorityAfter } : null,
+    supply: BigInt(minted ? minted.amount : 0),
+  };
+}

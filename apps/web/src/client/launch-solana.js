@@ -114,6 +114,12 @@ function explorerLink(signature) {
 function explorerAddressLink(address) {
   return `https://explorer.solana.com/address/${address}${EXPLORER_CLUSTER_QUERY}`;
 }
+function supplyLockMessage(verified, mintAddress) {
+  return verified
+    ? `<b>Supply locked.</b> Mint authority revoked and verified on-chain — no more tokens can ever be minted.`
+    : `The mint authority revoke is in the confirmed supply transaction, but the mint couldn't be read back yet. ` +
+      `Check <a href="${explorerAddressLink(mintAddress)}" target="_blank">Explorer</a> shows no Mint Authority.`;
+}
 
 // Polls instead of web3's confirmTransaction, which needs a websocket
 // that the RPC proxy doesn't serve. Same approach as swap-execute.js, but
@@ -238,14 +244,52 @@ this.mintKeypair = web3.Keypair.generate();
     return tx;
   }
 
-  /** Mirrors SolanaAdapter.buildMintSupplyTransaction using classic SPL Token. */
+  /** Mint the full supply to the creator and permanently revoke the mint
+   *  authority, in one transaction: either the supply exists and is
+   *  locked, or neither happened. Revoking is mandatory — no Signal
+   *  launch can ever mint more than its declared supply. */
   async buildMintSupplyTx(launcherPubkey, mint, totalSupply, decimals) {
     const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_PROGRAM_ID);
+    const amount = totalSupply * 10n ** BigInt(decimals);
     const tx = await this.buildBudgetedTx(launcherPubkey, [
       splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_PROGRAM_ID),
-      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_PROGRAM_ID),
+      splToken.createMintToInstruction(mint, ata, launcherPubkey, amount, [], splToken.TOKEN_PROGRAM_ID),
+      splToken.createSetAuthorityInstruction(mint, launcherPubkey, splToken.AuthorityType.MintTokens, null, [], splToken.TOKEN_PROGRAM_ID),
     ]);
-    return { tx, ata };
+    return { tx, ata, amount };
+  }
+
+  /** Reads the mint back after the supply transaction confirms. Returns
+   *  true once the chain shows no mint authority and exactly `amount`
+   *  supply; throws if it shows anything else; returns false if the
+   *  account can't be read (RPC trouble), since the confirmed
+   *  transaction is atomic and is still the source of truth then. */
+  async verifySupplyLocked(mint, amount) {
+    this.setStepState("lock", "checking");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      let info;
+      try {
+        info = await Promise.race([
+          splToken.getMint(this.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 10_000)),
+        ]);
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        continue;
+      }
+      if (info.mintAuthority !== null) {
+        this.setStepState("lock", "failed", "mint authority is still set");
+        throw new Error(`Mint authority is still set to ${info.mintAuthority.toBase58()} — supply is NOT locked.`);
+      }
+      if (info.supply !== amount) {
+        this.setStepState("lock", "failed", "unexpected supply");
+        throw new Error(`On-chain supply is ${info.supply} base units, expected ${amount}.`);
+      }
+      this.setStepState("lock", "supply locked");
+      return true;
+    }
+    this.setStepState("lock", "not verified yet");
+    return false;
   }
 
   /** Simulate the exact transaction, then sign, submit and confirm against
@@ -401,9 +445,11 @@ function recordRealLaunch(entry) {
       const mint = new web3.PublicKey(pending.mint);
       const supply = BigInt(pending.supply);
 
-      const { tx } = await flow.buildMintSupplyTx(connected, mint, supply, pending.decimals);
+      const { tx, amount } = await flow.buildMintSupplyTx(connected, mint, supply, pending.decimals);
       await flow.signSubmitConfirm(tx, "supply");
 
+      // Confirmed, so final: record it before the read-back, which must
+      // never bring the "finish" button back.
       clearPendingLaunch(pending.mint);
       recordRealLaunch({
         name: pending.name,
@@ -413,9 +459,16 @@ function recordRealLaunch(entry) {
         decimals: pending.decimals,
         launchedAt: new Date().toISOString(),
       });
-      statusEl.innerHTML = `<b>Done.</b> Supply minted \u2014 <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.`;
       connectEl.style.display = "none";
       dismissEl.style.display = "none";
+      const done = `<b>Done.</b> Supply minted \u2014 <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.<br>`;
+      statusEl.innerHTML = done + "Checking the supply lock\u2026";
+      try {
+        statusEl.innerHTML = done + supplyLockMessage(await flow.verifySupplyLocked(mint, amount), pending.mint);
+      } catch (lockErr) {
+        statusEl.innerHTML = done + `<b style="color:var(--down)">Supply lock check failed:</b> `;
+        statusEl.append(lockErr.message);
+      }
     } catch (err) {
       statusEl.textContent = `Failed: ${err.message}`;
       connectEl.disabled = false;
@@ -539,9 +592,11 @@ function recordRealLaunch(entry) {
         });
       }
 
-      const { tx: supplyTx } = await flow.buildMintSupplyTx(connectedPubkey, mint, supply, decimals);
+      const { tx: supplyTx, amount } = await flow.buildMintSupplyTx(connectedPubkey, mint, supply, decimals);
       await flow.signSubmitConfirm(supplyTx, "supply");
 
+      // The supply transaction has confirmed, so the launch is final:
+      // record it before the read-back, which must never offer a retry.
       flow.log(`<br><b>Done.</b> Mint address: <span class="num">${mint.toBase58()}</span>`);
       flow.log(`<a href="${explorerAddressLink(mint.toBase58())}" target="_blank">View token on Solana Explorer</a>`);
       clearPendingLaunch(mint.toBase58());
@@ -555,6 +610,11 @@ function recordRealLaunch(entry) {
       });
       resumeState = null;
       launchBtn.textContent = "Launched";
+      try {
+        flow.log(supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mint.toBase58()));
+      } catch (lockErr) {
+        flow.log(`<b style="color:var(--down)">Supply lock check failed:</b> ${lockErr.message}`);
+      }
     } catch (err) {
       flow.log(`<b style="color:var(--down)">Failed:</b> ${err.message}`);
       launchBtn.disabled = false;

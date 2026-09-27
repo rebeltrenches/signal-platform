@@ -19,6 +19,10 @@ orchestration and validation logic:
        as the exact message that is signed, and are never submitted if
        the wallet changes that message.
 
+  C3 — mint authority is always revoked in the same transaction as
+       mintTo, read back afterwards, and "Supply locked" is only shown
+       when the chain confirms it.
+
 The stub modules in ./stubs/ replace @solana/web3.js and
 @solana/spl-token with fakes that record what they're called with. This
 proves launch-solana.js's own logic, not the real Solana libraries'
@@ -129,9 +133,11 @@ def launch(page, supply=None, decimals=None):
 
 
 def wait_for_result(page):
+    # A finished launch ends with the supply-lock read-back outcome.
     page.wait_for_function(
-        "() => /Failed|Done\\./.test(document.querySelector('#launch-result').textContent)",
-        timeout=5000,
+        "() => /Failed|Supply locked\\.|Supply lock check failed|couldn't be read back/"
+        ".test(document.querySelector('#launch-result').textContent)",
+        timeout=20000,
     )
 
 
@@ -224,6 +230,7 @@ def main():
         launch(page)
         state = page.evaluate("window.__t")
         result_text = page.text_content('#launch-result') or ""
+        lock_state = page.text_content('[data-launch-step="lock"] [data-state]')
         page.close()
         final_sims = [s for s in state.get("simulations", []) if s["replaceRecentBlockhash"] is False]
         check("C1: the launch completes", "Done." in result_text)
@@ -238,6 +245,48 @@ def main():
             state.get("transferCall") == {"to": FEE_WALLET, "lamports": 1_000_000},
         )
         check("C1: the mint uses 6 decimals by default", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
+
+        # C3 — mandatory revoke, in the same transaction as mintTo.
+        supply_tx = final_sims[1]["types"] if len(final_sims) == 2 else []
+        check(
+            "C3: the supply transaction is ATA + mintTo + revoke, in that order",
+            supply_tx[2:] == ["createATA", "mintTo", "setAuthority"],
+        )
+        set_authority = (state.get("setAuthorityCalls") or [{}])[0]
+        mint_address = (state.get("initMintCalls") or [{}])[0].get("mint")
+        check(
+            "C3: it revokes MintTokens on the new mint by setting the authority to none",
+            set_authority == {
+                "account": mint_address,
+                "currentAuthority": CREATOR_WALLET,
+                "authorityType": 0,
+                "newAuthority": None,
+            },
+        )
+        check("C3: the mint is read back after confirmation", state.get("getMintCalls", 0) >= 1)
+        check("C3: success shows 'Supply locked'", "Supply locked." in result_text)
+        check("C3: the lock step shows 'supply locked'", lock_state == "supply locked")
+
+        # Read-back shows the authority still set: say so, never claim locked,
+        # and never offer to mint again (the supply transaction confirmed).
+        page = new_page(browser, init_t="{ mintAuthorityAfter: 'StillTheCreator1111111111111111111111111' }")
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        button_text = page.text_content('#mainnetLaunchBtn') or ""
+        page.close()
+        check("C3: a mint authority still set on-chain is reported as a failed lock", "Supply lock check failed" in result_text and "NOT locked" in result_text)
+        check("C3: and 'Supply locked' is never shown", "Supply locked." not in result_text)
+        check("C3: and the launch is still final, not offered again", button_text == "Launched")
+
+        # Read-back impossible (RPC down): don't claim locked, point to Explorer.
+        page = new_page(browser, init_t="{ mintReadFails: true }")
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C3: an unreadable mint is reported as not verified yet", "couldn't be read back" in result_text)
+        check("C3: and 'Supply locked' is not claimed", "Supply locked." not in result_text)
 
         # A wallet that adds its own priority fee must be refused.
         page = new_page(
@@ -315,7 +364,12 @@ def main():
         notice_text = page.text_content('#pending-launch-notice') or ""
         check("B1 (reload): the incomplete-launch notice appears on page load", preexisting_mint in notice_text)
         page.click('#pendingResumeConnect')
-        page.wait_for_function("() => document.querySelector('#pendingResumeStatus').textContent.length > 0", timeout=5000)
+        page.wait_for_function(
+            "() => /Failed|Supply locked\\.|Supply lock check failed|couldn't be read back/"
+            ".test(document.querySelector('#pendingResumeStatus').textContent)",
+            timeout=20000,
+        )
+        resume_status = page.text_content('#pendingResumeStatus') or ""
         state = page.evaluate("window.__t")
         real_launches_reload = page.evaluate(f"JSON.parse(localStorage.getItem('{LAUNCHES_KEY}') || '[]')")
         pending_after_reload_finish = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
@@ -327,6 +381,11 @@ def main():
             len(real_launches_reload) == 1 and real_launches_reload[0]["mint"] == preexisting_mint,
         )
         check("B1 (reload): the pending record is cleared", pending_after_reload_finish is None)
+        check(
+            "C3 (reload): finishing a recovered launch also revokes mint authority",
+            (state.get("setAuthorityCalls") or [{}])[0].get("account") == preexisting_mint,
+        )
+        check("C3 (reload): and shows 'Supply locked'", "Supply locked." in resume_status)
 
         # The Devnet bug: after a reload, the main Launch button created a
         # new mint and then erased the saved record of the incomplete one.
