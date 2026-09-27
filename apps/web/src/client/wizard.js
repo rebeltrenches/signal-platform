@@ -64,9 +64,50 @@
     return { valid: true, error: null };
   }
 
+  // Token metadata rules, mirrored from token-metadata.js (which is the
+  // real gate, run again before anything is uploaded or signed). Name and
+  // symbol limits are Metaplex's, in UTF-8 bytes; 100 KB keeps the logo
+  // inside ArDrive Turbo's free per-file limit.
+  const MAX_NAME_BYTES = 32;
+  const MAX_SYMBOL_BYTES = 10;
+  const MAX_DESCRIPTION_CHARS = 500;
+  const MAX_LOGO_BYTES = 100 * 1024;
+  const utf8 = new TextEncoder();
+  const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+  function validateName(raw) {
+    const value = String(raw ?? '').trim();
+    if (!value) return { valid: false, error: '' }; // empty: just keep Continue disabled
+    if (CONTROL_CHARS.test(value)) return { valid: false, error: "The name can't contain control characters." };
+    if (utf8.encode(value).length > MAX_NAME_BYTES) {
+      return { valid: false, error: `At most ${MAX_NAME_BYTES} bytes (${MAX_NAME_BYTES} plain letters; accents and emoji use more).` };
+    }
+    return { valid: true, error: '' };
+  }
+  function validateSymbol(raw) {
+    const value = String(raw ?? '').trim().toUpperCase();
+    if (!value) return { valid: false, error: '' };
+    if (/\s/.test(value) || CONTROL_CHARS.test(value)) return { valid: false, error: "The symbol can't contain spaces." };
+    if (utf8.encode(value).length > MAX_SYMBOL_BYTES) return { valid: false, error: `At most ${MAX_SYMBOL_BYTES} bytes (${MAX_SYMBOL_BYTES} plain letters).` };
+    return { valid: true, error: '' };
+  }
+  function validateDescription(raw) {
+    return String(raw ?? '').trim().length > MAX_DESCRIPTION_CHARS
+      ? { valid: false, error: `At most ${MAX_DESCRIPTION_CHARS} characters.` }
+      : { valid: true, error: '' };
+  }
+  // Checks the file's own bytes (PNG, JPEG, GIF or WebP; never SVG).
+  function logoTypeFromBytes(b) {
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+    if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+    if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+    if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
+    return null;
+  }
+
   let current = 0;
   // decimals is read from the Decimals field below, never assumed.
-  const state = { chain: null, name: '', symbol: '', supply: '', decimals: '' };
+  const state = { chain: null, name: '', symbol: '', description: '', logoFile: null, logoValid: false, supply: '', decimals: '' };
   // Exposed so launch-solana.js can read the wizard's data without this
   // file needing to know anything about wallets or transactions —
   // Stage 6 keeps the wizard's job (collect + validate input) separate
@@ -100,7 +141,10 @@
     if (!nextBtn) return;
     let ok = true;
     if (current === 0) ok = !!state.chain;
-    if (current === 1) ok = state.name.trim().length > 0 && state.symbol.trim().length > 0;
+    if (current === 1) {
+      ok = validateName(state.name).valid && validateSymbol(state.symbol).valid &&
+        validateDescription(state.description).valid && state.logoValid;
+    }
     if (current === 2) ok = validateSupply(state.supply, state.decimals).valid && validateDecimals(state.decimals).valid;
     nextBtn.disabled = !ok;
   }
@@ -118,8 +162,48 @@
   // ---- Step 1: token info ----
   const nameInput = document.getElementById('tk-name');
   const symbolInput = document.getElementById('tk-symbol');
-  if (nameInput) nameInput.addEventListener('input', (e) => { state.name = e.target.value; validateStep(); });
-  if (symbolInput) symbolInput.addEventListener('input', (e) => { state.symbol = e.target.value; validateStep(); });
+  const descInput = document.getElementById('tk-desc');
+  const logoInput = document.getElementById('tk-logo');
+  const showError = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+  if (nameInput) nameInput.addEventListener('input', (e) => {
+    state.name = e.target.value;
+    showError('tk-name-error', validateName(state.name).error);
+    validateStep();
+  });
+  if (symbolInput) symbolInput.addEventListener('input', (e) => {
+    state.symbol = e.target.value;
+    showError('tk-symbol-error', validateSymbol(state.symbol).error);
+    validateStep();
+  });
+  if (descInput) descInput.addEventListener('input', (e) => {
+    state.description = e.target.value;
+    showError('tk-desc-error', validateDescription(state.description).error);
+    validateStep();
+  });
+  if (logoInput) logoInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    const preview = document.getElementById('tk-logo-preview');
+    state.logoFile = null;
+    state.logoValid = false;
+    if (preview) { preview.hidden = true; preview.removeAttribute('src'); }
+    let error = '';
+    if (!file) {
+      error = '';
+    } else if (file.size > MAX_LOGO_BYTES) {
+      error = `This image is ${(file.size / 1024).toFixed(1)} KB; the maximum is 100 KB.`;
+    } else if (!logoTypeFromBytes(new Uint8Array(await file.slice(0, 12).arrayBuffer()))) {
+      error = 'The logo must be a PNG, JPEG, GIF or WebP image.';
+    } else {
+      state.logoFile = file;
+      state.logoValid = true;
+      if (preview) { preview.src = URL.createObjectURL(file); preview.hidden = false; }
+    }
+    showError('tk-logo-error', error);
+    validateStep();
+  });
 
   // ---- Step 2: configuration + chain-dependent tax display ----
   const supplyInput = document.getElementById('tk-supply');
@@ -171,8 +255,9 @@
 
     const map = {
       'rv-chain': state.chain ? (chainConfigs[state.chain] ? chainConfigs[state.chain].displayName : state.chain) : '\u2014',
-      'rv-name': state.name || '\u2014',
-      'rv-symbol': state.symbol || '\u2014',
+      'rv-name': state.name.trim() || '\u2014',
+      'rv-symbol': state.symbol.trim().toUpperCase() || '\u2014',
+      'rv-description': state.description.trim() || 'None',
       'rv-supply': state.supply || '\u2014',
       'rv-decimals': state.decimals || '\u2014',
       'rv-creator-fee': taxSupported ? pct(dtc.totalBps) : 'Not available on this chain',
@@ -182,6 +267,9 @@
       const el = document.getElementById(id);
       if (el) el.textContent = value;
     });
+    const logoPreview = document.getElementById('tk-logo-preview');
+    const reviewLogo = document.getElementById('rv-logo');
+    if (reviewLogo && logoPreview && logoPreview.src) reviewLogo.src = logoPreview.src;
 
     // Only Solana has a real deployment adapter (Stage 6). Base/BNB show
     // an honest "not available" notice instead of a flow with nowhere

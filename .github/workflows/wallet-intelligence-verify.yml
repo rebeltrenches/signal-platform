@@ -102,6 +102,12 @@ jobs:
         run: node apps/web/tests/fee-wallet-config.test.mjs
       - name: Launch transaction integrity test (Phantom Mainnet additions)
         run: node apps/web/tests/launch-integrity.test.mjs
+      - name: On-chain token metadata tests (Metaplex instruction, input rules)
+        run: node apps/web/tests/token-metadata.test.mjs
+      - name: Arweave upload tests (ANS-104 signing, Turbo free/paid fallback)
+        run: |
+          node apps/web/tests/ans104.test.mjs
+          node apps/web/tests/turbo-upload.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
       - name: Cloudflare Worker syntax check
