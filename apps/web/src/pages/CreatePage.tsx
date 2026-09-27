@@ -128,7 +128,10 @@ export function CreatePage() {
           </div>
           <div className="field">
             <label htmlFor="tk-decimals">Decimals</label>
-            <input className="input" id="tk-decimals" inputMode="numeric" defaultValue={6} />
+            {/* Deliberately empty: decimals are permanent, so the creator types them. */}
+            <input className="input" id="tk-decimals" inputMode="numeric" aria-describedby="tk-decimals-hint tk-decimals-error" />
+            <div id="tk-decimals-hint" className="hint">Most Solana tokens use 6 or 9.</div>
+            <p id="tk-decimals-error" className="hint" style={{ color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' }}></p>
           </div>
         </div>
 
@@ -209,7 +212,8 @@ export function CreatePage() {
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--ink-dim)', marginBottom: 14, cursor: 'pointer' }}>
               <input type="checkbox" id="mainnetAck" style={{ marginTop: 3 }} />
               I understand this sends a real Solana Mainnet transaction using real SOL from my connected
-              wallet, and that it cannot be reversed.
+              wallet, and that it cannot be reversed. The full supply is minted to my wallet and then
+              locked: no more tokens can ever be minted.
             </label>
 
             <button type="button" className="btn btn-brand btn-block" id="mainnetLaunchBtn" disabled>
@@ -218,7 +222,8 @@ export function CreatePage() {
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
               <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="supply"><span className="k">2. Mint total supply</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="supply"><span className="k">2. Mint total supply + revoke mint authority</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="lock"><span className="k">3. Verify supply locked on-chain</span><span className="v" data-state>Not started</span></div>
             </div>
             <div id="launch-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>
           </div>

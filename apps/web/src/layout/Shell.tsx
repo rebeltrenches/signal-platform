@@ -10,6 +10,7 @@ export function Shell({
   moduleScripts = [],
   embeddedJson,
   apiBaseUrl,
+  solanaCluster,
 }: {
   currentPath: string;
   title: string;
@@ -30,6 +31,9 @@ export function Shell({
    *  run) omits the script entirely — chat.js's own apiUrl() helper
    *  then uses today's exact relative-path, same-origin behavior. */
   apiBaseUrl?: string;
+  /** 'devnet' only in a test build made with SIGNAL_SOLANA_CLUSTER=devnet
+   *  (see build.tsx); undefined otherwise, which means Mainnet. */
+  solanaCluster?: 'devnet';
 }) {
   return (
     <html lang="en">
@@ -42,11 +46,12 @@ export function Shell({
         <link rel="stylesheet" href="/styles/tokens.css" />
         <link rel="stylesheet" href="/styles/base.css" />
         <link rel="stylesheet" href="/styles/components.css" />
-        {apiBaseUrl && (
+        {(apiBaseUrl || solanaCluster) && (
           <script
             dangerouslySetInnerHTML={{
               __html:
-                (apiBaseUrl ? `window.SIGNAL_API_BASE_URL=${JSON.stringify(apiBaseUrl)};` : ''),
+                (apiBaseUrl ? `window.SIGNAL_API_BASE_URL=${JSON.stringify(apiBaseUrl)};` : '') +
+                (solanaCluster ? `window.SIGNAL_SOLANA_CLUSTER=${JSON.stringify(solanaCluster)};` : ''),
             }}
           />
         )}

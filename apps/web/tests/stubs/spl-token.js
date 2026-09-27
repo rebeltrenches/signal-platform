@@ -1,41 +1,43 @@
 // Test stub for @solana/spl-token — see web3.js in this same directory
 // for what this class of stub does and doesn't prove.
-export const TOKEN_2022_PROGRAM_ID = 'TOKEN_2022_STUB';
-export const ExtensionType = { TransferFeeConfig: 'TransferFeeConfig' };
-export function getMintLen() { return 234; }
-export function unpackAccount(pubkey, account) { return account.__unpacked; }
-export function getTransferFeeAmount(unpacked) { return { withheldAmount: unpacked.withheld }; }
-export function createHarvestWithheldTokensToMintInstruction(mint, batch) {
-  window.__t.harvestCalls = window.__t.harvestCalls || [];
-  window.__t.harvestCalls.push({ mint: mint.toBase58(), batchSize: batch.length });
-  return { type: 'harvest' };
-}
+export const MINT_SIZE = 82;
+export const TOKEN_PROGRAM_ID = 'TOKEN_PROGRAM_STUB';
 export function getAssociatedTokenAddressSync(mint, owner) {
-  return { toBase58: () => 'ATA_FOR_' + owner.toBase58() };
+  return { toBase58: () => 'ATA_FOR_' + owner.toBase58(), toJSON: () => 'ATA_FOR_' + owner.toBase58() };
 }
 export function createAssociatedTokenAccountInstruction() { return { type: 'createATA' }; }
-export function createAssociatedTokenAccountIdempotentInstruction(payer, ata, owner, mint) {
-  return { type: 'createATA', owner: owner.toBase58() };
-}
-export function createWithdrawWithheldTokensFromMintInstruction(mint, destAta, authority) {
-  window.__t.withdrawCall = { mint: mint.toBase58(), destAta: destAta.toBase58(), authority: authority.toBase58() };
-  return { type: 'withdraw' };
-}
-export function createInitializeTransferFeeConfigInstruction(mint, cfgAuth, withdrawAuth, bps, maxFee) {
-  window.__t.transferFeeConfigCall = {
-    mint: mint.toBase58(),
-    cfgAuth: cfgAuth.toBase58(),
-    withdrawAuth: withdrawAuth.toBase58(),
-    bps,
-    maxFee: maxFee.toString(),
-  };
-  return { type: 'initTransferFeeConfig' };
-}
 export function createInitializeMintInstruction(mint, decimals, mintAuth) {
-  window.__t.initMintCall = { decimals, mintAuth: mintAuth.toBase58() };
-  return { type: 'initMint' };
+  window.__t.initMintCalls = window.__t.initMintCalls || [];
+  window.__t.initMintCalls.push({ mint: mint.toBase58(), decimals, mintAuth: mintAuth.toBase58() });
+  return { type: 'initMint', decimals };
 }
 export function createMintToInstruction(mint, ata, authority, amount) {
-  window.__t.mintToCall = { authority: authority.toBase58(), amount: amount.toString() };
-  return { type: 'mintTo' };
+  window.__t.mintToCalls = window.__t.mintToCalls || [];
+  window.__t.mintToCalls.push({ mint: mint.toBase58(), authority: authority.toBase58(), amount: amount.toString() });
+  return { type: 'mintTo', amount: amount.toString() };
+}
+export const AuthorityType = { MintTokens: 0, FreezeAccount: 1 };
+export function createSetAuthorityInstruction(account, currentAuthority, authorityType, newAuthority) {
+  window.__t.setAuthorityCalls = window.__t.setAuthorityCalls || [];
+  window.__t.setAuthorityCalls.push({
+    account: account.toBase58(),
+    currentAuthority: currentAuthority.toBase58(),
+    authorityType,
+    newAuthority: newAuthority === null ? null : newAuthority.toBase58(),
+  });
+  return { type: 'setAuthority', authorityType, newAuthority: newAuthority === null ? null : 'SET' };
+}
+// Read-back of the mint. Test knobs on window.__t:
+//   mintReadFails        - every read throws (RPC unavailable)
+//   mintAuthorityAfter   - base58 string reported as the remaining mint authority
+// Otherwise reports what the stubbed transactions would have produced.
+export async function getMint(connection, address) {
+  window.__t.getMintCalls = (window.__t.getMintCalls || 0) + 1;
+  if (window.__t.mintReadFails) throw new Error('stub: RPC unavailable');
+  const minted = (window.__t.mintToCalls || []).filter((c) => c.mint === address.toBase58()).at(-1);
+  return {
+    address,
+    mintAuthority: window.__t.mintAuthorityAfter ? { toBase58: () => window.__t.mintAuthorityAfter } : null,
+    supply: BigInt(minted ? minted.amount : 0),
+  };
 }
