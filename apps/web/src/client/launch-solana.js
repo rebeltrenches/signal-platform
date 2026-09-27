@@ -51,8 +51,12 @@ const MINIMUM_TOKEN_SUPPLY = 100_000_000;
 // SPL Token stores amounts (supply * 10^decimals) as a u64.
 const MAX_TOKEN_DECIMALS = 9;
 const U64_MAX = 18_446_744_073_709_551_615n;
+// No fallback: a launch needs an explicit decimals value, since it is
+// minted into the token permanently.
 function validateDecimals(raw) {
-  if (!/^[0-9]$/.test(String(raw ?? "").trim())) {
+  const trimmed = String(raw ?? "").trim();
+  if (trimmed.length === 0) return { valid: false, error: `Enter the number of decimals (0 to ${MAX_TOKEN_DECIMALS}).` };
+  if (!/^[0-9]$/.test(trimmed)) {
     return { valid: false, error: `Decimals must be a whole number from 0 to ${MAX_TOKEN_DECIMALS}.` };
   }
   return { valid: true, error: null };
@@ -592,7 +596,7 @@ async function listOnSignal(entry, containerEl) {
         // The real gate. Independent of wizard.js's own check — does not
         // trust that it ran, loaded, or agreed. Invalid decimals or supply
         // must never reach buildCreateTx below this line.
-        const decimalsRaw = wizard.decimals || "6";
+        const decimalsRaw = String(wizard.decimals ?? "");
         const decimalsCheck = validateDecimals(decimalsRaw);
         if (!decimalsCheck.valid) {
           throw new Error(decimalsCheck.error);
