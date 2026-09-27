@@ -397,7 +397,8 @@ async function listOnSignal(entry, containerEl) {
       if (!res.ok) throw new Error(body.message || `Registration failed (${res.status}).`);
       line.textContent = "Listed on Signal — creator verified on-chain.";
     } catch (err) {
-      line.textContent = `Not listed on Signal yet: ${err.message} `;
+      // Timestamped so a retry that fails the same way still visibly changes.
+      line.textContent = `Not listed on Signal yet (${new Date().toLocaleTimeString()}): ${err.message} `;
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "btn btn-ghost";

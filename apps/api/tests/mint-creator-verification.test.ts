@@ -132,6 +132,33 @@ async function run() {
   test('plain http to this machine is allowed (local tests)', solanaRpcFromEnv() !== null);
   process.env.SOLANA_RPC_URL = 'https://api.devnet.solana.com';
   test('https is allowed', solanaRpcFromEnv() !== null);
+
+  // Failures say why (status / RPC error / network code), never the URL,
+  // which can carry an API key.
+  const http = await import('node:http');
+  const replies = [
+    (res: any) => { res.writeHead(500); res.end('boom'); },
+    (res: any) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: 429, message: 'Too many requests' } })); },
+  ];
+  const fake = http.createServer((_req, res) => replies.shift()!(res));
+  await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', resolve));
+  const secretUrl = `http://127.0.0.1:${(fake.address() as { port: number }).port}/?api-key=SECRET123`;
+  process.env.SOLANA_RPC_URL = secretUrl;
+  const envRpc = solanaRpcFromEnv()!;
+  const failure = async () => { try { await envRpc('getAccountInfo', []); return ''; } catch (e) { return (e as Error).message; } };
+  const httpError = await failure();
+  const rpcError = await failure();
+  fake.close();
+  const closed = http.createServer();
+  await new Promise<void>((resolve) => closed.listen(0, '127.0.0.1', resolve));
+  const closedPort = (closed.address() as { port: number }).port;
+  await new Promise<void>((resolve) => closed.close(() => resolve()));
+  process.env.SOLANA_RPC_URL = `http://127.0.0.1:${closedPort}/?api-key=SECRET123`; // nothing listens there now
+  const refused = await (async () => { try { await solanaRpcFromEnv()!('getAccountInfo', []); return ''; } catch (e) { return (e as Error).message; } })();
+  test('an HTTP error reports its status', httpError.includes('HTTP 500'), httpError);
+  test('a JSON-RPC error reports its message', rpcError.includes('Too many requests'), rpcError);
+  test('a network error reports its code', /ECONNREFUSED/.test(refused), refused);
+  test('no failure message ever contains the URL or its key', ![httpError, rpcError, refused].some((m) => m.includes('SECRET123') || m.includes('127.0.0.1')));
   if (saved === undefined) delete process.env.SOLANA_RPC_URL;
   else process.env.SOLANA_RPC_URL = saved;
 

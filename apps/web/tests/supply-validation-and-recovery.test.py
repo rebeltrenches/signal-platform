@@ -373,10 +373,17 @@ def main():
         result_text = page.text_content('#launch-result') or ""
         has_retry = page.is_visible('#launch-result button:has-text("Try again")')
         button_text = page.text_content('#mainnetLaunchBtn') or ""
+        page.clock.install()
+        page.clock.fast_forward(2000)
+        page.click('#launch-result button:has-text("Try again")')
+        page.wait_for_function("() => document.querySelectorAll('#launch-result button').length === 1 && !/Listing on Signal/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
+        retried_text = page.text_content('#launch-result') or ""
         page.close()
         check("C2: a refused registration (409) is shown with the server's reason", "Not listed on Signal yet" in result_text and "already registered" in result_text)
         check("C2: with a Try again button", has_retry)
         check("C2: and the launch itself stays final", button_text == "Launched")
+        check("C2: Try again really retries the registration", len(calls) == 2)
+        check("C2: and a retry that fails the same way still visibly changes the message", retried_text != result_text and "Try again" in retried_text)
 
         page = new_page(browser)
         calls = stub_api(page, [401, 201])

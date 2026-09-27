@@ -50,7 +50,9 @@ export function solanaRpcFromEnv(): SolanaRpcCall | null {
   const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url);
   if (!url.startsWith('https://') && !isLocal) return null;
   return async (method, params) => {
-    let payload: any;
+    // The reason is reported, but never the URL: it can carry an API key.
+    let payload: any = null;
+    let reason: string;
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -58,12 +60,17 @@ export function solanaRpcFromEnv(): SolanaRpcCall | null {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
         signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
       });
-      payload = response.ok ? await response.json() : null;
-    } catch {
-      payload = null;
+      payload = response.ok ? await response.json().catch(() => null) : null;
+      reason = !response.ok ? `HTTP ${response.status}` : payload?.error?.message ?? 'invalid JSON-RPC response';
+    } catch (err) {
+      // fetch wraps the socket error as `cause` (an AggregateError of
+      // per-address errors when several addresses were tried).
+      const cause = (err as { cause?: { code?: string; errors?: Array<{ code?: string }> } })?.cause;
+      const code = cause?.code ?? cause?.errors?.find((e) => e?.code)?.code;
+      reason = code ?? ((err as Error)?.name === 'TimeoutError' ? 'timed out' : (err as Error)?.name ?? 'network error');
     }
     if (!payload || payload.error || !('result' in payload)) {
-      throw new MintVerificationUnavailableError(`Solana RPC ${method} failed${payload?.error?.message ? `: ${payload.error.message}` : ''}.`);
+      throw new MintVerificationUnavailableError(`Solana RPC ${method} failed (${reason}).`);
     }
     return payload.result;
   };
