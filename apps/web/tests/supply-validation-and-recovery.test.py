@@ -119,7 +119,6 @@ def main():
             route_stubs(page)
             page.add_init_script(f"""
               window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
               window.solana = {{
                 isPhantom: true,
                 connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -137,8 +136,8 @@ def main():
             page.close()
 
             check(
-                f"B2: supply={description!r} ({supply_value!r}) never reaches createInitializeTransferFeeConfigInstruction",
-                "transferFeeConfigCall" not in state,
+                f"B2: supply={description!r} ({supply_value!r}) never reaches createInitializeMintInstruction",
+                "initMintCall" not in state,
             )
             check(
                 f"B2: supply={description!r} shows a real error message, not a silent failure",
@@ -148,9 +147,11 @@ def main():
         # Boundary: exactly the minimum must be ACCEPTED
         page = browser.new_page()
         route_stubs(page)
+        page_errors = []
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
         page.add_init_script(f"""
           window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
+          window.SIGNAL_API_BASE_URL = 'https://api.signal.test/';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -160,11 +161,14 @@ def main():
         fill_wizard_to_review(page, "100000000")  # exactly the minimum
         page.click('#mainnetConnectBtn')
         page.check('#mainnetAck')
+        check("browser: api-config.js and launch-solana.js load with no page errors", page_errors == [])
+        check("browser: the RPC Connection uses SIGNAL_API_BASE_URL", page.evaluate("window.__t.rpcUrl") == "https://api.signal.test/api/solana/rpc")
+        check("browser: stubbed Phantom connect plus acknowledgement enables #mainnetLaunchBtn", page.is_enabled('#mainnetLaunchBtn'))
         page.click('#mainnetLaunchBtn')
         page.wait_for_timeout(400)
         state = page.evaluate("window.__t")
         page.close()
-        check("B2: supply exactly at the minimum (100,000,000) is ACCEPTED, not rejected", "transferFeeConfigCall" in state)
+        check("B2: supply exactly at the minimum (100,000,000) is ACCEPTED, not rejected", "initMintCall" in state)
 
         browser.close()
 
@@ -179,7 +183,6 @@ def main():
         route_stubs(page)
         page.add_init_script(f"""
           window.__t = {{ failConfirmOnCall: 2, failConfirmError: 'simulated: user rejected supply-mint signature' }};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -197,7 +200,7 @@ def main():
         result_after_failure = page.text_content('#launch-result') or ""
         pending_after_failure = page.evaluate("localStorage.getItem('signal_pending_launch_v1')")
         button_text_after_failure = page.text_content('#mainnetLaunchBtn')
-        mint_after_first_attempt = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
+        mint_after_first_attempt = page.evaluate("(window.__t.initMintCall || {}).mint")
 
         check("B1: the mint address IS shown in the UI even though step 2 failed", "Mint created:" in result_after_failure)
         check("B1: a pending-launch record is saved to localStorage", pending_after_failure is not None)
@@ -207,12 +210,12 @@ def main():
         check("B1: the pending record's mint matches the one actually created on-chain", pending_record.get("mint") == mint_after_first_attempt)
 
         # Now let the retry succeed, and click again — this must NOT
-        # create a second mint (i.e. must NOT call createInitializeTransferFeeConfigInstruction again).
-        page.evaluate("window.__t.failConfirmOnCall = null; window.__t.transferFeeConfigCallCountBefore = 1;")
+        # create a second mint (i.e. must NOT call createInitializeMintInstruction again).
+        page.evaluate("window.__t.failConfirmOnCall = null;")
         page.click('#mainnetLaunchBtn')
         page.wait_for_timeout(500)
 
-        mint_after_second_attempt = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
+        mint_after_second_attempt = page.evaluate("(window.__t.initMintCall || {}).mint")
         final_result_text = page.text_content('#launch-result') or ""
         pending_after_success = page.evaluate("localStorage.getItem('signal_pending_launch_v1')")
         real_launches = page.evaluate("JSON.parse(localStorage.getItem('signal_real_launches_v1') || '[]')")
@@ -246,7 +249,6 @@ def main():
         preexisting_mint = "PreexistingMintFromEarlierSession1111111"
         page.add_init_script(f"""
           window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
           window.solana = {{
             isPhantom: true,
             connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
@@ -271,11 +273,11 @@ def main():
         page.click('#pendingResumeConnect')
         page.wait_for_timeout(500)
 
-        mint_used = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
+        mint_used = page.evaluate("(window.__t.initMintCall || {}).mint")
         real_launches_reload = page.evaluate("JSON.parse(localStorage.getItem('signal_real_launches_v1') || '[]')")
         browser.close()
 
-    check("B1 (reload): buildCreateTx was NEVER called for the recovered mint (no transferFeeConfigCall at all)", mint_used is None)
+    check("B1 (reload): buildCreateTx was NEVER called for the recovered mint (no initMintCall at all)", mint_used is None)
     check(
         "B1 (reload): the recovered launch completes using the PRE-EXISTING mint from before the reload",
         len(real_launches_reload) == 1 and real_launches_reload[0]["mint"] == preexisting_mint,

@@ -32,7 +32,7 @@ export function createInitializeTransferFeeConfigInstruction(mint, cfgAuth, with
   return { type: 'initTransferFeeConfig' };
 }
 export function createInitializeMintInstruction(mint, decimals, mintAuth) {
-  window.__t.initMintCall = { decimals, mintAuth: mintAuth.toBase58() };
+  window.__t.initMintCall = { mint: mint.toBase58(), decimals, mintAuth: mintAuth.toBase58() };
   return { type: 'initMint' };
 }
 export function createMintToInstruction(mint, ata, authority, amount) {

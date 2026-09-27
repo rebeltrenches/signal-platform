@@ -18,7 +18,7 @@ import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 import { apiUrl } from "./api-config.js";
 
-const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
+const SIGNAL_SOLANA_RPC_PROXY = apiUrl("/api/solana/rpc");
 const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
 const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
 

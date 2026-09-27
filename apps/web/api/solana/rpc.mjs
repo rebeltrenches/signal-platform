@@ -37,16 +37,13 @@ export default async function handler(req, res) {
     return json(res, 400, { error: "Invalid JSON-RPC request", code: "INVALID_RPC_REQUEST" });
   }
 
+  // Keep this surface restricted to the JSON-RPC calls made by
+  // launch-solana.js (including web3.js calls used by confirmTransaction).
   const allowedMethods = new Set([
-    "getAccountInfo",
-    "getBalance",
     "getBlockHeight",
     "getLatestBlockhash",
-    "getMultipleAccounts",
-    "getProgramAccounts",
+    "getMinimumBalanceForRentExemption",
     "getSignatureStatuses",
-    "getTokenAccountBalance",
-    "getTokenAccountsByOwner",
     "sendTransaction",
     "simulateTransaction",
   ]);

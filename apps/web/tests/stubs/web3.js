@@ -11,7 +11,8 @@ export class Connection {
     return window.__t.fixtureAccounts || [];
   }
   async getMinimumBalanceForRentExemption() { return 1461600; }
-  async getLatestBlockhash() { return { blockhash: 'stub-blockhash' }; }
+  async getLatestBlockhash() { return { blockhash: 'stub-blockhash', lastValidBlockHeight: 123 }; }
+  async simulateTransaction() { return { value: { err: null } }; }
   async sendRawTransaction() {
     window.__t.submittedCount = (window.__t.submittedCount || 0) + 1;
     if (window.__t.forceSubmitError) throw new Error(window.__t.forceSubmitError);
@@ -41,11 +42,13 @@ export class Keypair {
   static generate() { return { publicKey: new PublicKey('STUB_NEW_MINT_' + Math.random().toString(36).slice(2, 8)) }; }
 }
 export class SystemProgram {
+  static transfer(args) { return { type: 'transfer', args }; }
   static createAccount(args) { return { type: 'createAccount', args }; }
 }
 export class Transaction {
   constructor() { this.instructions = []; }
   add(...ix) { this.instructions.push(...ix); return this; }
   partialSign() {}
+  serializeMessage() { return new Uint8Array([4, 5, 6]); }
   serialize() { return new Uint8Array([1, 2, 3]); }
 }

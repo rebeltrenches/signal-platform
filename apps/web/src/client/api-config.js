@@ -18,3 +18,4 @@ export function apiUrl(path) {
  *  (launch-solana.js, at the moment a launch is actually attempted)
  *  check for this explicitly and fail loudly rather than proceeding
  *  with an undefined recipient —
+ */
