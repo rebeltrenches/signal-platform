@@ -98,6 +98,8 @@ jobs:
         run: pnpm --filter @launchpad/web build
       - name: Bundled wallet libraries test (C4)
         run: node apps/web/tests/wallet-vendor-bundle.test.mjs
+      - name: Platform fee wallet single-source test
+        run: node apps/web/tests/fee-wallet-config.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
       - name: Cloudflare Worker syntax check

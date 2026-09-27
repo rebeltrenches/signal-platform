@@ -1,6 +1,8 @@
 import * as web3 from "./vendor/solana-web3.js";
+// Generated at build time from packages/config (the one place it is set).
+import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
 
-const SIGNAL_FEE_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19");
+const SIGNAL_FEE_WALLET = new web3.PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS);
 const LIGHTHOUSE_PROGRAM = new web3.PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95");
 const RPC_PROXY = "/api/solana/rpc";
 const COMPUTE_UNIT_LIMIT_MAX = 1_400_000;

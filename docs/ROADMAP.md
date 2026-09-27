@@ -238,9 +238,11 @@ criteria.
 ### Decision 4 — 1% Signal Fee + 1% Launch Fee, 100% to a real Signal platform wallet: RESOLVED and IMPLEMENTED (2026-09-19, two days after Decision 3)
 
 **Final model:** a 1% Signal Fee on applicable Solana token transfers,
-100% to the Signal platform wallet
-(`FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19`, configured via
-`SIGNAL_PLATFORM_WALLET`). The token's creator receives 0% of this fee
+100% to the Signal platform wallet, the treasury
+(`HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg`, set only in
+`packages/config/src/platform-wallet.ts`; it replaced the original
+wallet `FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19` on 2026-09-27,
+see ADR-0013 in ARCHITECTURE.md). The token's creator receives 0% of this fee
 — a full reversal of Decision 3 above, not a coexistence with it.
 Separately, a one-time 1% Launch Fee, calculated from the creator's
 real launch payment when one exists (never supply or an assumed

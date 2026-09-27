@@ -22,6 +22,8 @@
 import * as web3 from "./vendor/solana-web3.js";
 import * as splToken from "./vendor/spl-token.js";
 import { apiUrl } from "./api-config.js";
+// Generated at build time from packages/config (the one place it is set).
+import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
 const IS_DEVNET = window.SIGNAL_SOLANA_CLUSTER === "devnet";
@@ -30,7 +32,7 @@ const SOLANA_RPC_ENDPOINT = IS_DEVNET
   // web3.js rejects relative endpoints, so resolve the proxy against this origin.
   : new URL(SIGNAL_SOLANA_RPC_PROXY, window.location.origin).toString();
 const EXPLORER_CLUSTER_QUERY = IS_DEVNET ? "?cluster=devnet" : "";
-const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
+const SIGNAL_PLATFORM_WALLET = new web3.PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS); // public fee recipient, not a secret
 const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
 
 // Both launch transactions carry their own compute budget. Phantom adds a
