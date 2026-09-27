@@ -60,6 +60,8 @@ export interface FakeMint {
   initialAuthority: string;
   /** Signers of the creation transaction (the creator pays and signs). */
   creationSigners: string[];
+  /** The mint authority today; omitted means revoked (null), as after a Signal launch. */
+  currentMintAuthority?: string | null;
 }
 
 /** In-process fake of the Solana JSON-RPC calls the verifier makes.
@@ -76,7 +78,7 @@ export function fakeSolanaRpc(mints: Map<string, FakeMint>, options: { down?: bo
         context: { slot: 1 },
         value: {
           owner: SPL_TOKEN_PROGRAM_ID,
-          data: { program: 'spl-token', parsed: { type: 'mint', info: { decimals: mint.decimals, isInitialized: true, mintAuthority: null, supply: '1' } } },
+          data: { program: 'spl-token', parsed: { type: 'mint', info: { decimals: mint.decimals, isInitialized: true, mintAuthority: mint.currentMintAuthority ?? null, supply: '1' } } },
         },
       };
     }

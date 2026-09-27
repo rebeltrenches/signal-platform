@@ -7,7 +7,8 @@
  * initializeMint for it) set this wallet as the initial mint authority
  * AND was signed by this wallet. The CURRENT mint authority can't be
  * used as proof, because every Signal launch revokes it (C3) before
- * registering.
+ * registering. It must in fact be revoked: only fixed-supply tokens are
+ * listed, whether registered by a launch or via "List an existing token".
  *
  * Reads the chain through a plain JSON-RPC call function so tests can
  * substitute a fake; solanaRpcFromEnv() is the real one. Two distinct
@@ -106,6 +107,11 @@ export async function verifySolanaMintCreator(rpc: SolanaRpcCall, mint: string, 
   }
   if (value.data.parsed.info.decimals !== decimals) {
     throw new MintOwnershipError(`On-chain decimals are ${value.data.parsed.info.decimals}, not ${decimals}.`);
+  }
+  // Only fixed-supply tokens are listed: every Signal launch revokes the
+  // mint authority, and a token listed any other way must have done so too.
+  if (value.data.parsed.info.mintAuthority !== null) {
+    throw new MintOwnershipError('Mint authority is still active; only tokens with a revoked mint authority can be listed.');
   }
 
   // getSignaturesForAddress is newest-first; page back to the oldest.
