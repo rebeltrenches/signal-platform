@@ -1,4 +1,4 @@
-import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
+import * as web3 from "./vendor/solana-web3.js";
 
 const SIGNAL_FEE_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19");
 const LIGHTHOUSE_PROGRAM = new web3.PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95");

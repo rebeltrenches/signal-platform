@@ -19,8 +19,8 @@
 // talks to the public Devnet RPC directly and keeps its launches out of
 // the Mainnet dashboard and recovery record (see listOnSignal for the
 // token registry).
-import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
-import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
+import * as web3 from "./vendor/solana-web3.js";
+import * as splToken from "./vendor/spl-token.js";
 import { apiUrl } from "./api-config.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";

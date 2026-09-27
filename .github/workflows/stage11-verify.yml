@@ -51,7 +51,7 @@ jobs:
         run: npm install --global pnpm@9.15.9
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
         working-directory: packages/database
@@ -116,7 +116,7 @@ jobs:
       - name: Install pnpm
         run: npm install --global pnpm@9.15.9
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Generate Prisma client
         working-directory: packages/database
         run: pnpm generate

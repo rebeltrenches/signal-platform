@@ -80,12 +80,14 @@ def start_server():
 
 def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
     page = browser.new_page()
+    # The wallet libraries are bundled locally (scripts/build.tsx); swap the
+    # bundles for the recording stubs.
     page.route(
-        "https://esm.sh/@solana/web3.js@1.95.3",
+        "**/client/vendor/solana-web3.js",
         lambda r: r.fulfill(path=os.path.join(STUBS_DIR, "web3.js"), content_type="application/javascript"),
     )
     page.route(
-        "**/esm.sh/@solana/spl-token@0.4.9**",
+        "**/client/vendor/spl-token.js",
         lambda r: r.fulfill(path=os.path.join(STUBS_DIR, "spl-token.js"), content_type="application/javascript"),
     )
     # The registration call is best-effort; answer it so nothing hangs.

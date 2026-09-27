@@ -4,7 +4,8 @@
  * one: server-render each real React page component to static HTML via
  * react-dom/server, using globally-available React (no npm install
  * required to run this specific script). CSS and the plain-JS client
- * scripts are copied as-is — they need no build step of their own.
+ * scripts are copied as-is — they need no build step of their own. The
+ * one bundling step is the wallet libraries (src/vendor, see below).
  *
  * Migrating to real Next.js later: these same page components become
  * Next's page/route components close to verbatim — the App Router's
@@ -13,7 +14,8 @@
  */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { mkdirSync, writeFileSync, copyFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { buildSync } from 'esbuild';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -128,6 +130,29 @@ function build() {
   for (const file of readdirSync(clientSrc)) {
     copyFileSync(join(clientSrc, file), join(clientOut, file));
   }
+
+  // Wallet libraries, bundled at build time from the exact versions
+  // pinned in package.json and served from our own origin, so no signing
+  // code is fetched from a CDN at runtime (audit item C4). Splitting puts
+  // the shared @solana/web3.js in one chunk used by both entries.
+  const vendorOut = join(clientOut, 'vendor');
+  rmSync(vendorOut, { recursive: true, force: true });
+  buildSync({
+    entryPoints: {
+      'solana-web3': join(ROOT, 'src', 'vendor', 'solana-web3.js'),
+      'spl-token': join(ROOT, 'src', 'vendor', 'spl-token.js'),
+    },
+    outdir: vendorOut,
+    bundle: true,
+    splitting: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2020',
+    minify: true,
+    chunkNames: 'chunks/[name]-[hash]',
+    inject: [join(ROOT, 'src', 'vendor', 'buffer-shim.js')],
+    logLevel: 'warning',
+  });
 
   const assetsOut = join(DIST, 'assets');
   mkdirSync(assetsOut, { recursive: true });
