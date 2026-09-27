@@ -1,27 +1,32 @@
 #!/usr/bin/env python3
 """
-Real, re-runnable verification for the two fixes in this pass:
+Re-runnable verification of apps/web/src/client/launch-solana.js's own
+orchestration and validation logic:
 
   B1 — a mint created in step 1 must never be silently abandoned if
        step 2 (minting its supply) fails. The address must be shown and
-       recoverable, and a retry must resume the SAME mint, never create
-       a second one.
+       recoverable, a retry must resume the SAME mint, and a new launch
+       must not start (and must not erase the record) while an
+       incomplete one is saved.
 
-  B2 — invalid supply (empty, zero, negative-shaped, decimal, non-numeric,
-       or below the 100,000,000 minimum) must never allow buildCreateTx
-       to run — checked independently in launch-solana.js itself, not
+  B2 — invalid supply or decimals (empty, zero, negative-shaped, decimal,
+       non-numeric, below the 100,000,000 minimum, or above what fits in
+       a u64 at the chosen decimals) must never allow buildCreateTx to
+       run — checked independently in launch-solana.js itself, not
        assumed from wizard.js having already validated.
 
-Same honesty scope as the other files in this directory: the stub
-modules in ./stubs/ replace @solana/web3.js and @solana/spl-token with
-fakes that record what they're called with. This proves
-apps/web/src/client/launch-solana.js's own orchestration and validation
-logic — not the real Solana libraries' behavior, which can't be verified
-without installing them (no internet in this sandbox). No real
-transaction has ever been submitted to any network from this project.
+  C1 — both transactions carry their own compute budget, are simulated
+       as the exact message that is signed, and are never submitted if
+       the wallet changes that message.
+
+The stub modules in ./stubs/ replace @solana/web3.js and
+@solana/spl-token with fakes that record what they're called with. This
+proves launch-solana.js's own logic, not the real Solana libraries'
+behavior; the real flow has been exercised on Solana Devnet separately.
 
 Run with: python3 apps/web/tests/supply-validation-and-recovery.test.py
-Requires: a built apps/web/dist and Python's `playwright` package.
+Requires: a Mainnet (default) build of apps/web/dist and Python's
+`playwright` package with Chromium installed.
 """
 import http.server
 import socketserver
@@ -36,6 +41,11 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__)) + "/../../.."
 DIST_DIR = os.path.join(REPO_ROOT, "apps/web/dist")
 STUBS_DIR = os.path.join(REPO_ROOT, "apps/web/tests/stubs")
 PORT = 8097
+FEE_WALLET = "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"
+CREATOR_WALLET = "SupplyTestWallet111111111111111111111111"
+PENDING_KEY = "signal_pending_launch_v1"
+LAUNCHES_KEY = "signal_real_launches_v1"
+U64_MAX = 2**64 - 1
 
 passed = 0
 failed = 0
@@ -51,15 +61,21 @@ def check(name, condition):
         failed += 1
 
 
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
 def start_server():
-    os.chdir(DIST_DIR)
+    handler = lambda *a, **kw: QuietHandler(*a, directory=DIST_DIR, **kw)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", PORT), http.server.SimpleHTTPRequestHandler)
+    httpd = socketserver.TCPServer(("127.0.0.1", PORT), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
 
-def route_stubs(page):
+def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
+    page = browser.new_page()
     page.route(
         "https://esm.sh/@solana/web3.js@1.95.3",
         lambda r: r.fulfill(path=os.path.join(STUBS_DIR, "web3.js"), content_type="application/javascript"),
@@ -68,219 +84,284 @@ def route_stubs(page):
         "**/esm.sh/@solana/spl-token@0.4.9**",
         lambda r: r.fulfill(path=os.path.join(STUBS_DIR, "spl-token.js"), content_type="application/javascript"),
     )
+    # The registration call is best-effort; answer it so nothing hangs.
+    page.route("**/api/v1/tokens/register", lambda r: r.fulfill(status=503, body="{}"))
+    page.add_init_script(f"""
+      window.__t = {init_t};
+      window.solana = {{
+        isPhantom: true,
+        connect: async () => ({{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}' }} }}),
+        signTransaction: {sign_js},
+      }};
+      if (!sessionStorage.getItem('__seeded')) {{
+        sessionStorage.setItem('__seeded', '1');
+        localStorage.removeItem('{PENDING_KEY}');
+        localStorage.removeItem('{LAUNCHES_KEY}');
+        {storage_js}
+      }}
+    """)
+    return page
 
 
-def fill_wizard_to_review(page, supply_value, name="Test Token", symbol="TST"):
-    page.goto(f"http://localhost:{PORT}/create", wait_until="networkidle")
+def fill_wizard_to_review(page, name="Test Token", symbol="TST"):
+    page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
     page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
     page.click('.wizard-step[data-step="0"] [data-action="next"]')
     page.fill('.wizard-step[data-step="1"] #tk-name', name)
     page.fill('.wizard-step[data-step="1"] #tk-symbol', symbol)
     page.click('.wizard-step[data-step="1"] [data-action="next"]')
-    # Fill with a KNOWN-VALID value first so the wizard's own "next"
-    # button enables — we tamper with window.launchpadWizard.supply
-    # directly afterward to reach launch-solana.js's independent check,
-    # deliberately bypassing wizard.js's own gate the way stale state,
-    # a bug in that file, or any other path into this same button would.
     page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
     page.click('.wizard-step[data-step="2"] [data-action="next"]')
-    page.evaluate(f"window.launchpadWizard.supply = {supply_value!r};")
+
+
+def launch(page, supply=None, decimals=None):
+    # Tamper with window.launchpadWizard directly to reach launch-solana.js's
+    # independent check, deliberately bypassing wizard.js's own gate the
+    # way stale state, a bug in that file, or any other path would.
+    if supply is not None:
+        page.evaluate(f"window.launchpadWizard.supply = {json.dumps(supply)};")
+    if decimals is not None:
+        page.evaluate(f"window.launchpadWizard.decimals = {json.dumps(decimals)};")
+    page.click('#mainnetConnectBtn')
+    page.check('#mainnetAck')
+    page.click('#mainnetLaunchBtn')
+    wait_for_result(page)
+
+
+def wait_for_result(page):
+    page.wait_for_function(
+        "() => /Failed|Done\\./.test(document.querySelector('#launch-result').textContent)",
+        timeout=5000,
+    )
 
 
 def main():
     if not os.path.isdir(DIST_DIR):
         print(f"ERROR: {DIST_DIR} does not exist — run the build first.")
         sys.exit(1)
+    with open(os.path.join(DIST_DIR, "create", "index.html"), encoding="utf-8") as f:
+        if "SIGNAL_SOLANA_CLUSTER" in f.read():
+            print("ERROR: apps/web/dist is a devnet build — rebuild without SIGNAL_SOLANA_CLUSTER.")
+            sys.exit(1)
 
     httpd = start_server()
     time.sleep(0.3)
     print("supply-validation-and-recovery.test.py\n")
 
-    creator_wallet = "SupplyTestWallet111111111111111111111111"
-
-    # =====================================================================
-    # B2 — invalid supply must never reach buildCreateTx
-    # =====================================================================
-    invalid_cases = [
-        ("", "empty"),
-        ("0", "zero"),
-        ("-100000000", "negative"),
-        ("100000000.5", "decimal"),
-        ("abc", "non-numeric"),
-        ("1e9", "exponential notation"),
-        ("1,000,000,000", "commas"),
-        ("99999999", "one below the minimum"),
-    ]
-
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        for supply_value, description in invalid_cases:
-            page = browser.new_page()
-            route_stubs(page)
-            page.add_init_script(f"""
-              window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
-              window.solana = {{
-                isPhantom: true,
-                connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
-                signTransaction: async (tx) => {{ tx.serialize = () => new Uint8Array([1]); return tx; }},
-              }};
-            """)
-            fill_wizard_to_review(page, supply_value)
-            page.click('#mainnetConnectBtn')
-            page.check('#mainnetAck')
-            page.click('#mainnetLaunchBtn')
-            page.wait_for_timeout(400)
 
+        # =================================================================
+        # B2 — invalid supply or decimals must never reach buildCreateTx
+        # =================================================================
+        max_at_6 = U64_MAX // 10**6
+        invalid_cases = [
+            ("", "6", "empty supply"),
+            ("0", "6", "zero"),
+            ("-100000000", "6", "negative"),
+            ("100000000.5", "6", "decimal"),
+            ("abc", "6", "non-numeric"),
+            ("1e9", "6", "exponential notation"),
+            ("1,000,000,000", "6", "commas"),
+            ("99999999", "6", "one below the minimum"),
+            (str(max_at_6 + 1), "6", "one above the u64 maximum at 6 decimals"),
+            (str(U64_MAX), "9", "u64 max at 9 decimals"),
+            ("1000000000", "10", "10 decimals"),
+            ("1000000000", "abc", "non-numeric decimals"),
+            ("1000000000", "-1", "negative decimals"),
+        ]
+        for supply, decimals, description in invalid_cases:
+            page = new_page(browser)
+            fill_wizard_to_review(page)
+            launch(page, supply, decimals)
             state = page.evaluate("window.__t")
             result_text = page.text_content('#launch-result') or ""
             page.close()
+            check(f"B2: {description} never reaches createInitializeMintInstruction", "initMintCalls" not in state)
+            check(f"B2: {description} shows a real error message", "Failed" in result_text)
 
+        for supply, decimals, description in [
+            ("100000000", "6", "exactly the minimum"),
+            (str(max_at_6), "6", "exactly the u64 maximum at 6 decimals"),
+            (str(U64_MAX), "0", "u64 max at 0 decimals"),
+        ]:
+            page = new_page(browser)
+            fill_wizard_to_review(page)
+            launch(page, supply, decimals)
+            state = page.evaluate("window.__t")
+            page.close()
+            mint_to = (state.get("mintToCalls") or [{}])[0]
+            check(f"B2: {description} is ACCEPTED", "initMintCalls" in state)
             check(
-                f"B2: supply={description!r} ({supply_value!r}) never reaches createInitializeTransferFeeConfigInstruction",
-                "transferFeeConfigCall" not in state,
-            )
-            check(
-                f"B2: supply={description!r} shows a real error message, not a silent failure",
-                "Failed" in result_text,
+                f"B2: {description} mints supply * 10^decimals exactly",
+                mint_to.get("amount") == str(int(supply) * 10 ** int(decimals)),
             )
 
-        # Boundary: exactly the minimum must be ACCEPTED
-        page = browser.new_page()
-        route_stubs(page)
-        page.add_init_script(f"""
-          window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
-          window.solana = {{
-            isPhantom: true,
-            connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
-            signTransaction: async (tx) => {{ tx.serialize = () => new Uint8Array([1]); return tx; }},
-          }};
-        """)
-        fill_wizard_to_review(page, "100000000")  # exactly the minimum
-        page.click('#mainnetConnectBtn')
-        page.check('#mainnetAck')
-        page.click('#mainnetLaunchBtn')
-        page.wait_for_timeout(400)
+        # wizard.js mirrors the limit for immediate feedback.
+        page = new_page(browser)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
+        page.click('.wizard-step[data-step="0"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="1"] #tk-name', "Wizard Limit")
+        page.fill('.wizard-step[data-step="1"] #tk-symbol', "WZL")
+        page.click('.wizard-step[data-step="1"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="2"] #tk-supply', str(max_at_6 + 1))
+        next_disabled_over = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        error_over = page.text_content('#tk-supply-error') or ""
+        page.fill('.wizard-step[data-step="2"] #tk-decimals', "0")
+        next_disabled_at_0 = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        page.close()
+        check("B2 (wizard): supply over the u64 maximum disables Next", next_disabled_over)
+        check("B2 (wizard): and shows the maximum", "Maximum supply with 6 decimals" in error_over)
+        check("B2 (wizard): lowering decimals to 0 re-validates and enables Next", not next_disabled_at_0)
+
+        # =================================================================
+        # C1 — compute budget, exact-message simulation, fee transfer
+        # =================================================================
+        print()
+        page = new_page(browser)
+        fill_wizard_to_review(page, name="Budget Test", symbol="BGT")
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        final_sims = [s for s in state.get("simulations", []) if s["replaceRecentBlockhash"] is False]
+        check("C1: the launch completes", "Done." in result_text)
+        check("C1: exactly two transactions are submitted", state.get("submittedCount") == 2)
+        check("C1: both signed transactions are simulated first, with their exact blockhash", len(final_sims) == 2)
+        check(
+            "C1: both start with a compute unit limit and price",
+            len(final_sims) == 2 and all(s["types"][:2] == ["computeUnitLimit", "computeUnitPrice"] for s in final_sims),
+        )
+        check(
+            "C1: step 1 pays the 0.001 SOL fee to the platform wallet",
+            state.get("transferCall") == {"to": FEE_WALLET, "lamports": 1_000_000},
+        )
+        check("C1: the mint uses 6 decimals by default", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
+
+        # A wallet that adds its own priority fee must be refused.
+        page = new_page(
+            browser,
+            sign_js="async (tx) => { tx.instructions.unshift({ type: 'walletPriorityFee' }); return tx; }",
+        )
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C1: a wallet-modified transaction is refused", "Wallet changed the simulated transaction" in result_text)
+        check("C1: and nothing is submitted", "submittedCount" not in state)
+
+        # A failed simulation stops before any signature is requested.
+        page = new_page(
+            browser,
+            init_t="{ failSimulation: { InstructionError: [2, 'Custom'] } }",
+            sign_js="async (tx) => { window.__t.signRequested = true; return tx; }",
+        )
+        fill_wizard_to_review(page)
+        launch(page)
         state = page.evaluate("window.__t")
         page.close()
-        check("B2: supply exactly at the minimum (100,000,000) is ACCEPTED, not rejected", "transferFeeConfigCall" in state)
+        check("C1: a failed simulation never asks the wallet to sign", "signRequested" not in state)
 
-        browser.close()
-
-    # =====================================================================
-    # B1 — partial-launch recovery: step 1 succeeds, step 2 fails, then
-    # a retry must resume the SAME mint, never create a second one.
-    # =====================================================================
-    print()
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        route_stubs(page)
-        page.add_init_script(f"""
-          window.__t = {{ failConfirmOnCall: 2, failConfirmError: 'simulated: user rejected supply-mint signature' }};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
-          window.solana = {{
-            isPhantom: true,
-            connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
-            signTransaction: async (tx) => {{ tx.serialize = () => new Uint8Array([1]); return tx; }},
-          }};
-          localStorage.removeItem('signal_pending_launch_v1');
-          localStorage.removeItem('signal_real_launches_v1');
-        """)
-        fill_wizard_to_review(page, "1000000000", name="Recovery Test", symbol="RCV")
-        page.click('#mainnetConnectBtn')
-        page.check('#mainnetAck')
-        page.click('#mainnetLaunchBtn')
-        page.wait_for_timeout(500)
-
+        # =================================================================
+        # B1 — same-session recovery: step 2 fails, retry resumes SAME mint
+        # =================================================================
+        print()
+        page = new_page(browser, init_t="{ failConfirmOnCall: 2, failConfirmError: 'simulated supply failure' }")
+        fill_wizard_to_review(page, name="Recovery Test", symbol="RCV")
+        launch(page)
         result_after_failure = page.text_content('#launch-result') or ""
-        pending_after_failure = page.evaluate("localStorage.getItem('signal_pending_launch_v1')")
-        button_text_after_failure = page.text_content('#mainnetLaunchBtn')
-        mint_after_first_attempt = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
+        pending_after_failure = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        button_text_after_failure = page.text_content('#mainnetLaunchBtn') or ""
+        first_mint = page.evaluate("window.__t.initMintCalls[0].mint")
 
         check("B1: the mint address IS shown in the UI even though step 2 failed", "Mint created:" in result_after_failure)
         check("B1: a pending-launch record is saved to localStorage", pending_after_failure is not None)
-        check("B1: the button now reads a resume label, not generic 'Retry'", "Finish minting supply" in (button_text_after_failure or ""))
-
+        check("B1: the button now reads a resume label", "Finish minting supply" in button_text_after_failure)
         pending_record = json.loads(pending_after_failure) if pending_after_failure else {}
-        check("B1: the pending record's mint matches the one actually created on-chain", pending_record.get("mint") == mint_after_first_attempt)
+        check("B1: the pending record's mint matches the one created", pending_record.get("mint") == first_mint)
 
-        # Now let the retry succeed, and click again — this must NOT
-        # create a second mint (i.e. must NOT call createInitializeTransferFeeConfigInstruction again).
-        page.evaluate("window.__t.failConfirmOnCall = null; window.__t.transferFeeConfigCallCountBefore = 1;")
+        page.evaluate("window.__t.failConfirmOnCall = null;")
         page.click('#mainnetLaunchBtn')
-        page.wait_for_timeout(500)
+        page.wait_for_function("() => document.querySelector('#launch-result').textContent.includes('Done.')", timeout=5000)
+        init_mint_calls = page.evaluate("window.__t.initMintCalls.length")
+        mint_to_mint = page.evaluate("window.__t.mintToCalls.at(-1).mint")
+        pending_after_success = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        real_launches = page.evaluate(f"JSON.parse(localStorage.getItem('{LAUNCHES_KEY}') || '[]')")
+        page.close()
 
-        mint_after_second_attempt = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
-        final_result_text = page.text_content('#launch-result') or ""
-        pending_after_success = page.evaluate("localStorage.getItem('signal_pending_launch_v1')")
-        real_launches = page.evaluate("JSON.parse(localStorage.getItem('signal_real_launches_v1') || '[]')")
+        check("B1: the retry does NOT create a second mint", init_mint_calls == 1)
+        check("B1: the retry mints supply to the SAME mint", mint_to_mint == first_mint)
+        check(
+            "B1: the completed launch is recorded under that SAME mint",
+            len(real_launches) == 1 and real_launches[0]["mint"] == first_mint,
+        )
+        check("B1: the pending record is cleared after the resume succeeds", pending_after_success is None)
 
-        browser.close()
-
-    check(
-        "B1: the SAME mint (not a second, different one) is used to complete the launch",
-        mint_after_second_attempt == mint_after_first_attempt,
-    )
-    check(
-        "B1: the completed launch is recorded under that SAME mint address",
-        len(real_launches) == 1 and real_launches[0]["mint"] == mint_after_first_attempt,
-    )
-    check("B1: the pending-launch record is cleared after the resume succeeds", pending_after_success is None)
-    check("B1: the final UI shows the real completion", "Done." in final_result_text)
-
-    # =====================================================================
-    # B1 (continued) — cross-RELOAD recovery: a pending record already in
-    # localStorage BEFORE the page even loads (simulating the user having
-    # closed the tab after step 1 and come back later), with no in-memory
-    # state at all. This exercises the page-load path
-    # (getPendingLaunch/refreshLaunchButton), not the same-session retry
-    # path already covered above — genuinely different code.
-    # =====================================================================
-    print()
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        route_stubs(page)
+        # =================================================================
+        # B1 — cross-RELOAD recovery from a record saved before page load
+        # =================================================================
+        print()
         preexisting_mint = "PreexistingMintFromEarlierSession1111111"
-        page.add_init_script(f"""
-          window.__t = {{}};
-              window.SIGNAL_PLATFORM_WALLET = 'FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19';
-          window.solana = {{
-            isPhantom: true,
-            connect: async () => ({{ publicKey: {{ toBase58: () => '{creator_wallet}' }} }}),
-            signTransaction: async (tx) => {{ tx.serialize = () => new Uint8Array([1]); return tx; }},
-          }};
-          localStorage.setItem('signal_pending_launch_v1', JSON.stringify({{
+        seed_pending = f"""localStorage.setItem('{PENDING_KEY}', JSON.stringify({{
             mint: '{preexisting_mint}', name: 'Reloaded Token', symbol: 'RLD',
             supply: '500000000', decimals: 6,
-            creatorAddress: '{creator_wallet}', createdAt: new Date().toISOString(),
-          }}));
-          localStorage.removeItem('signal_real_launches_v1');
-        """)
-        # A fresh page load — NOT going through the wizard at all, since
-        # recovery must work independent of wizard state and chain
-        # selection (this is the whole point of the fix: the notice
-        # lives outside the wizard-step hidden system entirely).
-        page.goto(f"http://localhost:{PORT}/create", wait_until="networkidle")
+            creatorAddress: '{CREATOR_WALLET}', createdAt: new Date().toISOString(),
+        }}));"""
 
+        page = new_page(browser, storage_js=seed_pending)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
         notice_text = page.text_content('#pending-launch-notice') or ""
-        check("B1 (reload): the incomplete-launch notice appears on page load, before any click", preexisting_mint in notice_text)
-
+        check("B1 (reload): the incomplete-launch notice appears on page load", preexisting_mint in notice_text)
         page.click('#pendingResumeConnect')
-        page.wait_for_timeout(500)
+        page.wait_for_function("() => document.querySelector('#pendingResumeStatus').textContent.length > 0", timeout=5000)
+        state = page.evaluate("window.__t")
+        real_launches_reload = page.evaluate(f"JSON.parse(localStorage.getItem('{LAUNCHES_KEY}') || '[]')")
+        pending_after_reload_finish = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.close()
+        check("B1 (reload): no new mint is created", "initMintCalls" not in state)
+        check("B1 (reload): supply is minted to the pre-existing mint", (state.get("mintToCalls") or [{}])[0].get("mint") == preexisting_mint)
+        check(
+            "B1 (reload): the launch is recorded under the pre-existing mint",
+            len(real_launches_reload) == 1 and real_launches_reload[0]["mint"] == preexisting_mint,
+        )
+        check("B1 (reload): the pending record is cleared", pending_after_reload_finish is None)
 
-        mint_used = page.evaluate("(window.__t.transferFeeConfigCall || {}).mint")
-        real_launches_reload = page.evaluate("JSON.parse(localStorage.getItem('signal_real_launches_v1') || '[]')")
+        # The Devnet bug: after a reload, the main Launch button created a
+        # new mint and then erased the saved record of the incomplete one.
+        page = new_page(browser, storage_js=seed_pending)
+        fill_wizard_to_review(page, name="Second Launch", symbol="SEC")
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        pending_after_blocked = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.close()
+        check("B1 (reload): the main Launch button does NOT create a new mint while one is incomplete", "initMintCalls" not in state)
+        check("B1 (reload): it explains that the incomplete launch must be finished first", "incomplete launch" in result_text)
+        check(
+            "B1 (reload): the incomplete launch's record is kept",
+            pending_after_blocked is not None and json.loads(pending_after_blocked)["mint"] == preexisting_mint,
+        )
+
+        # Dismiss is the deliberate way out, and only after confirmation.
+        page = new_page(browser, storage_js=seed_pending)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.once("dialog", lambda d: d.dismiss())
+        page.click('#pendingDismiss')
+        kept_after_cancel = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.once("dialog", lambda d: d.accept())
+        page.click('#pendingDismiss')
+        cleared_after_accept = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        notice_hidden = page.evaluate("document.getElementById('pending-launch-notice').hidden")
+        page.close()
+        check("B1 (dismiss): cancelling the confirmation keeps the record", kept_after_cancel is not None)
+        check("B1 (dismiss): confirming clears the record", cleared_after_accept is None)
+        check("B1 (dismiss): and hides the notice", notice_hidden is True)
+
         browser.close()
 
-    check("B1 (reload): buildCreateTx was NEVER called for the recovered mint (no transferFeeConfigCall at all)", mint_used is None)
-    check(
-        "B1 (reload): the recovered launch completes using the PRE-EXISTING mint from before the reload",
-        len(real_launches_reload) == 1 and real_launches_reload[0]["mint"] == preexisting_mint,
-    )
-
+    httpd.shutdown()
     print(f"\n{passed} passed, {failed} failed.")
     sys.exit(1 if failed else 0)
 

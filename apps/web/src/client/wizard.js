@@ -18,12 +18,23 @@
   // — not one shared function two files trust — so neither file's
   // correctness depends on the other one loading, running, or agreeing.
   const MINIMUM_TOKEN_SUPPLY = 100_000_000;
+  // SPL Token stores amounts (supply * 10^decimals) as a u64.
+  const MAX_TOKEN_DECIMALS = 9;
+  const U64_MAX = 18446744073709551615n;
+
+  function validateDecimals(raw) {
+    if (!/^[0-9]$/.test(String(raw || '6').trim())) {
+      return { valid: false, error: `Decimals must be a whole number from 0 to ${MAX_TOKEN_DECIMALS}.` };
+    }
+    return { valid: true, error: null };
+  }
 
   /** Returns { valid, error }. error is a short, user-facing string when
    *  invalid, null when valid. Never accepts empty, zero, negative,
    *  decimal, or non-numeric input — only a bare positive integer with
-   *  no sign, no decimal point, no exponent, no leading/trailing junk. */
-  function validateSupply(raw) {
+   *  no sign, no decimal point, no exponent, no leading/trailing junk,
+   *  and never more than fits in a u64 at the chosen decimals. */
+  function validateSupply(raw, decimalsRaw) {
     const trimmed = (raw || '').trim();
     if (trimmed.length === 0) return { valid: false, error: 'Enter a total supply.' };
     if (!/^[0-9]+$/.test(trimmed)) {
@@ -37,6 +48,13 @@
     if (asNumber === 0) return { valid: false, error: 'Supply cannot be zero.' };
     if (asNumber < MINIMUM_TOKEN_SUPPLY) {
       return { valid: false, error: `Minimum supply is ${MINIMUM_TOKEN_SUPPLY.toLocaleString()}.` };
+    }
+    const decimalsCheck = validateDecimals(decimalsRaw);
+    if (!decimalsCheck.valid) return decimalsCheck;
+    const decimals = Number(String(decimalsRaw || '6').trim());
+    const maxSupply = U64_MAX / 10n ** BigInt(decimals);
+    if (BigInt(trimmed) > maxSupply) {
+      return { valid: false, error: `Maximum supply with ${decimals} decimals is ${maxSupply.toLocaleString()}.` };
     }
     return { valid: true, error: null };
   }
@@ -77,7 +95,7 @@
     let ok = true;
     if (current === 0) ok = !!state.chain;
     if (current === 1) ok = state.name.trim().length > 0 && state.symbol.trim().length > 0;
-    if (current === 2) ok = validateSupply(state.supply).valid;
+    if (current === 2) ok = validateSupply(state.supply, state.decimals).valid;
     nextBtn.disabled = !ok;
   }
 
@@ -101,15 +119,25 @@
   const supplyInput = document.getElementById('tk-supply');
   const supplyError = document.getElementById('tk-supply-error');
   const decimalsInput = document.getElementById('tk-decimals');
+  // Supply and decimals are checked together: the maximum supply depends
+  // on decimals, so changing either one re-validates both.
+  function showSupplyValidation() {
+    const result = validateSupply(state.supply, state.decimals);
+    if (supplyError) supplyError.textContent = result.valid ? '' : result.error;
+    validateStep();
+  }
   if (supplyInput) {
     supplyInput.addEventListener('input', (e) => {
       state.supply = e.target.value;
-      const result = validateSupply(state.supply);
-      if (supplyError) supplyError.textContent = result.valid ? '' : result.error;
-      validateStep();
+      showSupplyValidation();
     });
   }
-  if (decimalsInput) decimalsInput.addEventListener('input', (e) => { state.decimals = e.target.value; });
+  if (decimalsInput) {
+    decimalsInput.addEventListener('input', (e) => {
+      state.decimals = e.target.value;
+      showSupplyValidation();
+    });
+  }
 
   function updateTaxDisplay() {
     const el = document.getElementById('tax-display');

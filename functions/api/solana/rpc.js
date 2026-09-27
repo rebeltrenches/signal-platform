@@ -1,5 +1,14 @@
 const FALLBACK_RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
-const ALLOWED_METHODS = new Set(["simulateTransaction", "getSignatureStatuses", "getBlockHeight", "getLatestBlockhash"]);
+// getMinimumBalanceForRentExemption and sendTransaction are needed by the
+// token launch flow (launch-solana.js); the rest are shared with swaps.
+const ALLOWED_METHODS = new Set([
+  "simulateTransaction",
+  "getSignatureStatuses",
+  "getBlockHeight",
+  "getLatestBlockhash",
+  "getMinimumBalanceForRentExemption",
+  "sendTransaction",
+]);
 
 function json(status, body) {
   return Response.json(body, {

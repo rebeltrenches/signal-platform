@@ -10,11 +10,3 @@ export function apiUrl(path) {
   const base = window.SIGNAL_API_BASE_URL;
   return base ? `${base.replace(/\/$/, '')}${path}` : path;
 }
-
-/** The Signal platform wallet's public address, injected at build time
- *  (see build.tsx/Shell.tsx) from SIGNAL_PLATFORM_WALLET — never
- *  hardcoded here or in any file that imports this. Undefined if the
- *  build didn't have that env var set; callers that need a real value
- *  (launch-solana.js, at the moment a launch is actually attempted)
- *  check for this explicitly and fail loudly rather than proceeding
- *  with an undefined recipient —

@@ -86,6 +86,10 @@ function build() {
   // Unset (the normal case today) means every page omits the script
   // entirely — zero effect on local dev or on any build done without it.
   const apiBaseUrl = process.env.SIGNAL_API_BASE_URL || undefined;
+  // Test builds only: SIGNAL_SOLANA_CLUSTER=devnet points the launch flow
+  // at Solana Devnet. Any other value (or unset) builds for Mainnet.
+  const solanaCluster = process.env.SIGNAL_SOLANA_CLUSTER === 'devnet' ? 'devnet' as const : undefined;
+  if (solanaCluster) console.log('  SIGNAL_SOLANA_CLUSTER=devnet — DEVNET TEST BUILD, do not deploy');
 
   for (const route of routes) {
     const html =
@@ -98,6 +102,7 @@ function build() {
           moduleScripts={route.moduleScripts ?? []}
           embeddedJson={route.embeddedJson}
           apiBaseUrl={apiBaseUrl}
+          solanaCluster={solanaCluster}
         >
           {route.element}
         </Shell>

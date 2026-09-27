@@ -11,16 +11,33 @@
 // It is deliberately NOT implemented as Token-2022 TransferFeeConfig,
 // because that mechanism withholds the launched token rather than SOL.
 //
-// Devnet is permanently excluded (docs/ROADMAP.md Stage 6). Browser RPC
-// traffic is routed through SIGNAL's server-side Mainnet proxy so the
-// configured provider URL/key is never exposed to the client.
+// Mainnet browser RPC traffic is routed through SIGNAL's server-side
+// proxy so the configured provider URL/key is never exposed to the
+// client. Devnet is never offered to users (docs/ROADMAP.md Stage 6);
+// it exists only for testing this flow, in a build made with
+// SIGNAL_SOLANA_CLUSTER=devnet (see build.tsx/Shell.tsx). Such a build
+// talks to the public Devnet RPC directly and keeps its launches out of
+// the Mainnet dashboard, recovery record and token registry.
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 import { apiUrl } from "./api-config.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
+const IS_DEVNET = window.SIGNAL_SOLANA_CLUSTER === "devnet";
+const SOLANA_RPC_ENDPOINT = IS_DEVNET
+  ? "https://api.devnet.solana.com"
+  // web3.js rejects relative endpoints, so resolve the proxy against this origin.
+  : new URL(SIGNAL_SOLANA_RPC_PROXY, window.location.origin).toString();
+const EXPLORER_CLUSTER_QUERY = IS_DEVNET ? "?cluster=devnet" : "";
 const SIGNAL_PLATFORM_WALLET = new web3.PublicKey("FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19"); // public fee recipient, not a secret
 const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configured 0.1 SOL launch-price basis
+
+// Both launch transactions carry their own compute budget. Phantom adds a
+// priority fee to any transaction that has none, which changes the
+// message and (correctly) trips the simulated-vs-signed check below.
+// At the ~40k units these transactions use, this price adds ~0.000002 SOL.
+const COMPUTE_UNIT_LIMIT_MAX = 1_400_000;
+const COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 50_000;
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -30,7 +47,16 @@ const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configure
 // or agreed — see the call site below for where this is actually
 // enforced, and B2 in the Mainnet-readiness audit for why.
 const MINIMUM_TOKEN_SUPPLY = 100_000_000;
-function validateSupply(raw) {
+// SPL Token stores amounts (supply * 10^decimals) as a u64.
+const MAX_TOKEN_DECIMALS = 9;
+const U64_MAX = 18_446_744_073_709_551_615n;
+function validateDecimals(raw) {
+  if (!/^[0-9]$/.test(String(raw ?? "").trim())) {
+    return { valid: false, error: `Decimals must be a whole number from 0 to ${MAX_TOKEN_DECIMALS}.` };
+  }
+  return { valid: true, error: null };
+}
+function validateSupply(raw, decimals) {
   const trimmed = (raw || "").trim();
   if (trimmed.length === 0) return { valid: false, error: "Enter a total supply." };
   if (!/^[0-9]+$/.test(trimmed)) {
@@ -41,6 +67,10 @@ function validateSupply(raw) {
   if (asNumber < MINIMUM_TOKEN_SUPPLY) {
     return { valid: false, error: `Minimum supply is ${MINIMUM_TOKEN_SUPPLY.toLocaleString()}.` };
   }
+  const maxSupply = U64_MAX / 10n ** BigInt(decimals);
+  if (BigInt(trimmed) > maxSupply) {
+    return { valid: false, error: `Maximum supply with ${decimals} decimals is ${maxSupply.toLocaleString()}.` };
+  }
   return { valid: true, error: null };
 }
 
@@ -49,7 +79,7 @@ function validateSupply(raw) {
 // cleared only once step 2 also confirms. Exists so a failure between
 // the two steps can never lose track of a mint that real SOL was
 // already spent creating (see B1 in the Mainnet-readiness audit).
-const PENDING_LAUNCH_KEY = "signal_pending_launch_v1";
+const PENDING_LAUNCH_KEY = IS_DEVNET ? "signal_pending_launch_devnet_v1" : "signal_pending_launch_v1";
 function savePendingLaunch(record) {
   try {
     localStorage.setItem(PENDING_LAUNCH_KEY, JSON.stringify(record));
@@ -65,9 +95,11 @@ function getPendingLaunch() {
     return null;
   }
 }
-function clearPendingLaunch() {
+// Only clears the record if it is for this mint, so finishing one launch
+// can never erase the record of a different, still-incomplete one.
+function clearPendingLaunch(mintAddress) {
   try {
-    localStorage.removeItem(PENDING_LAUNCH_KEY);
+    if (getPendingLaunch()?.mint === mintAddress) localStorage.removeItem(PENDING_LAUNCH_KEY);
   } catch {
     // nothing to do — worst case a stale pending notice shows again later
   }
@@ -77,13 +109,45 @@ function short(addr) {
   return addr.slice(0, 4) + "\u2026" + addr.slice(-4);
 }
 function explorerLink(signature) {
-  return `https://explorer.solana.com/tx/${signature}`;
+  return `https://explorer.solana.com/tx/${signature}${EXPLORER_CLUSTER_QUERY}`;
+}
+function explorerAddressLink(address) {
+  return `https://explorer.solana.com/address/${address}${EXPLORER_CLUSTER_QUERY}`;
+}
+
+// Polls instead of web3's confirmTransaction, which needs a websocket
+// that the RPC proxy doesn't serve. Same approach as swap-execute.js, but
+// without searchTransactionHistory: a just-submitted signature is always
+// in the RPC's recent status cache (which outlives the blockhash window),
+// while a history search for a not-yet-seen one can take 20s+.
+async function waitForConfirmation(connection, signature, lastValidBlockHeight) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    let status;
+    try {
+      status = await connection.getSignatureStatus(signature);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
+    if (status.value?.err) throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+    if (status.value?.confirmationStatus === "confirmed" || status.value?.confirmationStatus === "finalized") return;
+    let blockHeight;
+    try {
+      blockHeight = await connection.getBlockHeight("confirmed");
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
+    if (blockHeight > lastValidBlockHeight) throw new Error("The transaction expired before confirmation.");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`Submitted, but confirmation could not be verified yet. Check ${explorerLink(signature)} before retrying.`);
 }
 
 class LaunchFlow {
   constructor(rootEl) {
     this.root = rootEl;
-    this.connection = new web3.Connection(SIGNAL_SOLANA_RPC_PROXY, "confirmed");
+    this.connection = new web3.Connection(SOLANA_RPC_ENDPOINT, "confirmed");
     this.wallet = null;
     this.mintKeypair = null;
   }
@@ -119,7 +183,7 @@ this.mintKeypair = web3.Keypair.generate();
     const mintLen = splToken.MINT_SIZE;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
 
-    const tx = new web3.Transaction().add(
+    const tx = await this.buildBudgetedTx(launcherPubkey, [
       web3.SystemProgram.transfer({
         fromPubkey: launcherPubkey,
         toPubkey: SIGNAL_PLATFORM_WALLET,
@@ -132,27 +196,55 @@ this.mintKeypair = web3.Keypair.generate();
         lamports,
         programId: splToken.TOKEN_PROGRAM_ID,
       }),
-splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_PROGRAM_ID)
+      splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_PROGRAM_ID),
+    ]);
+    tx.partialSign(this.mintKeypair);
+    return { tx, mint, lamports };
+  }
+
+  /** Prefixes the instructions with a compute unit limit (measured by a
+   *  probe simulation at the maximum limit, plus 20%) and a fixed unit
+   *  price, then sets a fresh blockhash. signSubmitConfirm still
+   *  simulates this exact final message before asking for a signature. */
+  async buildBudgetedTx(feePayer, instructions) {
+    const probe = new web3.Transaction().add(
+      web3.ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_UNIT_LIMIT_MAX }),
+      web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_UNIT_PRICE_MICRO_LAMPORTS }),
+      ...instructions,
+    );
+    probe.feePayer = feePayer;
+    probe.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
+    const simulation = await this.connection.simulateTransaction(
+      new web3.VersionedTransaction(probe.compileMessage()),
+      { sigVerify: false, replaceRecentBlockhash: true },
+    );
+    if (simulation.value.err) {
+      throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+    }
+    const units = Math.min(
+      Math.ceil((simulation.value.unitsConsumed || COMPUTE_UNIT_LIMIT_MAX) * 1.2),
+      COMPUTE_UNIT_LIMIT_MAX,
+    );
+
+    const tx = new web3.Transaction().add(
+      web3.ComputeBudgetProgram.setComputeUnitLimit({ units }),
+      web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_UNIT_PRICE_MICRO_LAMPORTS }),
+      ...instructions,
     );
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
     tx.lastValidBlockHeight = lastValidBlockHeight;
-    tx.feePayer = launcherPubkey;
-    tx.partialSign(this.mintKeypair);
-    return { tx, mint, lamports };
+    tx.feePayer = feePayer;
+    return tx;
   }
 
   /** Mirrors SolanaAdapter.buildMintSupplyTransaction using classic SPL Token. */
   async buildMintSupplyTx(launcherPubkey, mint, totalSupply, decimals) {
     const ata = splToken.getAssociatedTokenAddressSync(mint, launcherPubkey, false, splToken.TOKEN_PROGRAM_ID);
-    const tx = new web3.Transaction().add(
+    const tx = await this.buildBudgetedTx(launcherPubkey, [
       splToken.createAssociatedTokenAccountInstruction(launcherPubkey, ata, launcherPubkey, mint, splToken.TOKEN_PROGRAM_ID),
-      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_PROGRAM_ID)
-    );
-    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
-    tx.recentBlockhash = blockhash;
-    tx.lastValidBlockHeight = lastValidBlockHeight;
-    tx.feePayer = launcherPubkey;
+      splToken.createMintToInstruction(mint, ata, launcherPubkey, totalSupply * 10n ** BigInt(decimals), [], splToken.TOKEN_PROGRAM_ID),
+    ]);
     return { tx, ata };
   }
 
@@ -164,10 +256,12 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
     }
 
     this.setStepState(stepName, "simulating");
-    const simulation = await this.connection.simulateTransaction(tx, {
-      sigVerify: false,
-      replaceRecentBlockhash: false,
-    });
+    // web3.js only accepts a config object alongside a VersionedTransaction;
+    // wrapping the legacy message keeps the exact blockhash and instructions.
+    const simulation = await this.connection.simulateTransaction(
+      new web3.VersionedTransaction(tx.compileMessage()),
+      { sigVerify: false, replaceRecentBlockhash: false },
+    );
     if (simulation.value.err) {
       this.setStepState(stepName, "failed", JSON.stringify(simulation.value.err));
       throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
@@ -190,14 +284,11 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
     });
     this.setStepState(stepName, "confirming", signature);
 
-    const confirmation = await this.connection.confirmTransaction({
-      signature,
-      blockhash: tx.recentBlockhash,
-      lastValidBlockHeight: tx.lastValidBlockHeight,
-    }, "confirmed");
-    if (confirmation.value.err) {
-      this.setStepState(stepName, "failed", JSON.stringify(confirmation.value.err));
-      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    try {
+      await waitForConfirmation(this.connection, signature, tx.lastValidBlockHeight);
+    } catch (err) {
+      this.setStepState(stepName, "failed", err.message);
+      throw err;
     }
     this.setStepState(stepName, "confirmed", signature);
     this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
@@ -210,7 +301,7 @@ splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, s
 // The Dashboard page reads this same key; it never writes to it itself.
 // Includes creatorAddress and decimals so confirmed launches can be restored
 // and synchronized across the dashboard without inventing missing metadata.
-const LAUNCHES_KEY = "signal_real_launches_v1";
+const LAUNCHES_KEY = IS_DEVNET ? "signal_devnet_launches_v1" : "signal_real_launches_v1";
 function recordRealLaunch(entry) {
   try {
     const existing = JSON.parse(localStorage.getItem(LAUNCHES_KEY) || "[]");
@@ -230,7 +321,9 @@ function recordRealLaunch(entry) {
   // packages/types' TokenIdentity.launchedOnSignal a real, checkable
   // fact for anyone (not just this browser) once a backend exists to
   // answer it, without making that backend's presence a requirement
-  // for launching at all today.
+  // for launching at all today. Devnet mints are never registered:
+  // the registry's "solana" chain means Mainnet.
+  if (IS_DEVNET) return;
   fetch(apiUrl("/api/v1/tokens/register"), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -267,14 +360,25 @@ function recordRealLaunch(entry) {
     `<b>Incomplete launch found.</b> A mint for "${pending.name}" (${pending.symbol}) was created, ` +
     `but its supply was never minted \u2014 nothing was lost.<br>` +
     `Mint address: <span class="num">${pending.mint}</span><br>` +
-    `<a href="https://explorer.solana.com/address/${pending.mint}" target="_blank">View on Solana Explorer</a>` +
+    `<a href="${explorerAddressLink(pending.mint)}" target="_blank">View on Solana Explorer</a>` +
     `<div style="margin-top:10px;">` +
     `<button id="pendingResumeConnect" class="btn btn-ghost">Connect wallet to finish</button>` +
+    `<button id="pendingDismiss" class="btn btn-ghost" style="margin-left:8px;">Dismiss</button>` +
     `<span id="pendingResumeStatus" style="margin-left:10px;"></span>` +
     `</div></div>`;
 
   const connectEl = document.getElementById("pendingResumeConnect");
+  const dismissEl = document.getElementById("pendingDismiss");
   const statusEl = document.getElementById("pendingResumeStatus");
+
+  // New launches are blocked while this record exists (see the launch
+  // button below), so the creator needs a deliberate way to give up on it.
+  dismissEl.addEventListener("click", () => {
+    if (!window.confirm(`Stop tracking mint ${pending.mint}? It stays on-chain with no supply, and this page will no longer offer to finish it.`)) return;
+    clearPendingLaunch(pending.mint);
+    noticeEl.hidden = true;
+    noticeEl.innerHTML = "";
+  });
 
   connectEl.addEventListener("click", async () => {
     connectEl.disabled = true;
@@ -300,7 +404,7 @@ function recordRealLaunch(entry) {
       const { tx } = await flow.buildMintSupplyTx(connected, mint, supply, pending.decimals);
       await flow.signSubmitConfirm(tx, "supply");
 
-      clearPendingLaunch();
+      clearPendingLaunch(pending.mint);
       recordRealLaunch({
         name: pending.name,
         symbol: pending.symbol,
@@ -309,8 +413,9 @@ function recordRealLaunch(entry) {
         decimals: pending.decimals,
         launchedAt: new Date().toISOString(),
       });
-      statusEl.innerHTML = `<b>Done.</b> Supply minted \u2014 <a href="https://explorer.solana.com/address/${pending.mint}" target="_blank">view on Explorer</a>.`;
+      statusEl.innerHTML = `<b>Done.</b> Supply minted \u2014 <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.`;
       connectEl.style.display = "none";
+      dismissEl.style.display = "none";
     } catch (err) {
       statusEl.textContent = `Failed: ${err.message}`;
       connectEl.disabled = false;
@@ -328,6 +433,13 @@ function recordRealLaunch(entry) {
   const ackCheckbox = document.getElementById("mainnetAck");
   const addrEl = document.getElementById("mainnetWalletAddr");
   const resultEl = document.getElementById("launch-result");
+
+  if (IS_DEVNET) {
+    const warning = panel.querySelector(".tax-box p");
+    if (warning) {
+      warning.textContent = "DEVNET TEST BUILD — this creates a token on Solana Devnet using devnet SOL. Nothing here touches Mainnet.";
+    }
+  }
 
   const flow = new LaunchFlow(panel);
   let connectedPubkey = null;
@@ -380,19 +492,32 @@ function recordRealLaunch(entry) {
         ({ mint, name, symbol, decimals } = resumeState);
         supply = BigInt(resumeState.supply);
       } else {
+        // A mint saved as incomplete (e.g. before a reload) must be
+        // finished or dismissed in the notice above first. Starting a
+        // new launch here would create a second mint and strand it.
+        const pending = getPendingLaunch();
+        if (pending) {
+          throw new Error(`An incomplete launch (mint ${pending.mint}) is waiting at the top of this page. Finish or dismiss it before starting a new one.`);
+        }
+
         const wizard = window.launchpadWizard || {};
         name = wizard.name || "Untitled Token";
         symbol = (wizard.symbol || "TOKEN").toUpperCase();
-        decimals = Number(wizard.decimals || "6");
 
         // The real gate. Independent of wizard.js's own check — does not
-        // trust that it ran, loaded, or agreed. Invalid supply must never
-        // reach buildCreateTx below this line.
-        const supplyCheck = validateSupply(wizard.supply);
+        // trust that it ran, loaded, or agreed. Invalid decimals or supply
+        // must never reach buildCreateTx below this line.
+        const decimalsRaw = wizard.decimals || "6";
+        const decimalsCheck = validateDecimals(decimalsRaw);
+        if (!decimalsCheck.valid) {
+          throw new Error(decimalsCheck.error);
+        }
+        decimals = Number(decimalsRaw.trim());
+        const supplyCheck = validateSupply(wizard.supply, decimals);
         if (!supplyCheck.valid) {
           throw new Error(supplyCheck.error);
         }
-        supply = BigInt(wizard.supply);
+        supply = BigInt(wizard.supply.trim());
 
         const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals);
         mint = newMint;
@@ -401,7 +526,7 @@ function recordRealLaunch(entry) {
         // Step 1 has genuinely confirmed — a real mint now exists.
         // Show its address and persist it BEFORE attempting step 2, so
         // a failure there can never lose track of it.
-        flow.log(`Mint created: <span class="num">${mint.toBase58()}</span> \u2014 <a href="https://explorer.solana.com/address/${mint.toBase58()}" target="_blank">view on Explorer</a>`);
+        flow.log(`Mint created: <span class="num">${mint.toBase58()}</span> \u2014 <a href="${explorerAddressLink(mint.toBase58())}" target="_blank">view on Explorer</a>`);
         resumeState = { mint, name, symbol, supply: supply.toString(), decimals };
         savePendingLaunch({
           mint: mint.toBase58(),
@@ -418,8 +543,8 @@ function recordRealLaunch(entry) {
       await flow.signSubmitConfirm(supplyTx, "supply");
 
       flow.log(`<br><b>Done.</b> Mint address: <span class="num">${mint.toBase58()}</span>`);
-      flow.log(`<a href="https://explorer.solana.com/address/${mint.toBase58()}" target="_blank">View token on Solana Explorer</a>`);
-      clearPendingLaunch();
+      flow.log(`<a href="${explorerAddressLink(mint.toBase58())}" target="_blank">View token on Solana Explorer</a>`);
+      clearPendingLaunch(mint.toBase58());
       recordRealLaunch({
         name,
         symbol,
