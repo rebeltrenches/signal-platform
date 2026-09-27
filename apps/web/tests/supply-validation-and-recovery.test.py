@@ -465,6 +465,7 @@ def main():
         wait_for_listing(page)
         state = page.evaluate("window.__t")
         result_text = page.text_content('#launch-result') or ""
+        pending_after_listed = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
         page.close()
         mint_address = (state.get("initMintCalls") or [{}])[0].get("mint")
         check("C2: after launch, the creator wallet signs the server's sign-in message", state.get("signedMessages") == [f"signal-auth|{CREATOR_WALLET}|solana|n1|1"])
@@ -472,6 +473,7 @@ def main():
         check("C2: it registers the launched mint", len(calls) == 1 and calls[0]["body"]["address"] == mint_address)
         check("C2: it does not send a creator field (the server takes it from the session)", len(calls) == 1 and "creatorWalletAddress" not in calls[0]["body"])
         check("C2: success is shown", "Listed on Signal" in result_text)
+        check("C2: once Signal confirms the listing, the pending record is cleared", pending_after_listed is None)
 
         page = new_page(browser)
         calls = stub_api(page, [409])
@@ -537,7 +539,10 @@ def main():
             "B1: the completed launch is recorded under that SAME mint",
             len(real_launches) == 1 and real_launches[0]["mint"] == first_mint,
         )
-        check("B1: the pending record is cleared after the resume succeeds", pending_after_success is None)
+        check(
+            "B1: after the resume succeeds, the record moves to 'listing' until Signal confirms (no API here)",
+            pending_after_success is not None and json.loads(pending_after_success).get("stage") == "listing" and json.loads(pending_after_success).get("mint") == first_mint,
+        )
 
         # =================================================================
         # B1 — cross-RELOAD recovery from a record saved before page load
@@ -571,7 +576,10 @@ def main():
             "B1 (reload): the launch is recorded under the pre-existing mint",
             len(real_launches_reload) == 1 and real_launches_reload[0]["mint"] == preexisting_mint,
         )
-        check("B1 (reload): the pending record is cleared", pending_after_reload_finish is None)
+        check(
+            "B1 (reload): the record moves to 'listing' until Signal confirms (no API here)",
+            pending_after_reload_finish is not None and json.loads(pending_after_reload_finish).get("stage") == "listing",
+        )
         check(
             "C3 (reload): finishing a recovered launch also revokes mint authority",
             (state.get("setAuthorityCalls") or [{}])[0].get("account") == preexisting_mint,
@@ -624,6 +632,127 @@ def main():
         check("B1 (dismiss): cancelling the confirmation keeps the record", kept_after_cancel is not None)
         check("B1 (dismiss): confirming clears the record", cleared_after_accept is None)
         check("B1 (dismiss): and hides the notice", notice_hidden is True)
+
+        # =================================================================
+        # L — a launch stays recoverable until Signal confirms the listing
+        # =================================================================
+        print()
+
+        def wait_for_text(page, selector, pattern):
+            page.wait_for_function(
+                f"() => /{pattern}/.test(document.querySelector({json.dumps(selector)}).textContent)",
+                timeout=20000,
+            )
+
+        # The listing fails (API down), the page reloads, and the box offers
+        # "List on Signal", which succeeds without any new transaction.
+        page = new_page(browser)
+        calls = stub_api(page, [503, 201])
+        fill_wizard_to_review(page, name="Listing Later", symbol="LTR")
+        launch(page)
+        wait_for_listing(page)
+        launched_mint = page.evaluate("window.__t.initMintCalls[0].mint")
+        record = json.loads(page.evaluate(f"localStorage.getItem('{PENDING_KEY}')") or "null")
+        page.reload(wait_until="networkidle")
+        notice_text = page.text_content('#pending-launch-notice') or ""
+        button_text = page.text_content('#pendingResumeConnect') or ""
+        page.click('#pendingResumeConnect')
+        wait_for_text(page, '#pending-launch-notice', "Listed on Signal|Not listed on Signal yet")
+        after_text = page.text_content('#pending-launch-notice') or ""
+        state_after = page.evaluate("window.__t")
+        record_after = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.close()
+        check("L: a failed listing keeps the record, now at stage 'listing'", record is not None and record.get("stage") == "listing" and record.get("mint") == launched_mint)
+        check("L: after a reload, the box says it's launched but not listed", "not yet listed on Signal" in notice_text and button_text == "Connect wallet to list on Signal")
+        check("L: listing from the box succeeds", "Listed on Signal" in after_text and len(calls) == 2 and calls[1]["body"]["address"] == launched_mint)
+        check("L: and sends no transaction", "submittedCount" not in state_after and "initMintCalls" not in state_after)
+        check("L: the record is cleared only once Signal confirms", record_after is None)
+
+        # While a listing is pending, a new launch is refused (so its record
+        # can't be overwritten), and dismissing it asks first.
+        seed_listing = f"""localStorage.setItem('{PENDING_KEY}', JSON.stringify({{
+            mint: 'ListingPendingMint1111111111111111111111', name: 'Pending Listing', symbol: 'PLS',
+            supply: '500000000', decimals: 6, stage: 'listing',
+            creatorAddress: '{CREATOR_WALLET}', createdAt: new Date().toISOString(),
+        }}));"""
+        page = new_page(browser, storage_js=seed_listing)
+        fill_wizard_to_review(page, name="Second", symbol="SND")
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("L: a new launch is refused while a listing is pending", "initMintCalls" not in state and "isn't listed on Signal yet" in result_text)
+
+        page = new_page(browser, storage_js=seed_listing)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        dialog_text = []
+        page.once("dialog", lambda d: (dialog_text.append(d.message), d.accept()))
+        page.click('#pendingDismiss')
+        cleared = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.close()
+        check("L: dismissing a pending listing points to 'List an existing token'", cleared is None and dialog_text and "List an existing token" in dialog_text[0])
+
+        # =================================================================
+        # E — "List an existing token" by mint address
+        # =================================================================
+        print()
+        EXISTING_MINT = "3mwznTzZ5LJic9nvBCMLkXgw7scA6HnX1GNuQwmUf4Ar"
+
+        def list_existing(page, mint=EXISTING_MINT, name="Sig Test", symbol="sigtest"):
+            page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+            page.click('#list-existing summary')
+            page.fill('#le-mint', mint)
+            page.fill('#le-name', name)
+            page.fill('#le-symbol', symbol)
+            page.click('#le-submit')
+
+        page = new_page(browser)
+        calls = stub_api(page, [201])
+        list_existing(page)
+        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        result_text = page.text_content('#le-result') or ""
+        state = page.evaluate("window.__t")
+        page.close()
+        body = calls[0]["body"] if calls else {}
+        check("E: an existing mint is listed after the wallet signs in", "Listed on Signal" in result_text and len(state.get("signedMessages") or []) == 1)
+        check("E: it registers that mint with the on-chain decimals and the typed name/symbol", body.get("address") == EXISTING_MINT and body.get("decimals") == 6 and body.get("name") == "Sig Test" and body.get("symbol") == "SIGTEST")
+        check("E: the creator comes from the session, not the request", "creatorWalletAddress" not in body and (calls[0]["authorization"] or "").startswith("Bearer "))
+        check("E: it reads the mint on-chain and sends no transaction", state.get("getMintCalls", 0) >= 1 and "submittedCount" not in state)
+
+        page = new_page(browser, init_t="{ mintAuthorityAfter: 'StillTheCreator1111111111111111111111111' }")
+        calls = stub_api(page, [201])
+        list_existing(page)
+        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        result_text = page.text_content('#le-result') or ""
+        page.close()
+        check("E: a mint whose authority is still active is refused before registering", "authority is still active" in result_text and len(calls) == 0)
+
+        page = new_page(browser)
+        calls = stub_api(page, [201])
+        list_existing(page, mint="not-a-mint")
+        result_text = page.text_content('#le-result') or ""
+        state = page.evaluate("window.__t")
+        page.close()
+        check("E: an invalid address is refused without connecting or registering", "valid Solana mint address" in result_text and len(calls) == 0 and "getMintCalls" not in state)
+
+        page = new_page(browser)
+        calls = stub_api(page, [409])
+        list_existing(page)
+        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        result_text = page.text_content('#le-result') or ""
+        has_retry = page.is_visible('#le-result button:has-text("Try again")')
+        page.close()
+        check("E: a refusal from the server (e.g. already registered) is shown with Try again", "already registered" in result_text and has_retry)
+
+        # Listing via this form also clears a matching pending-listing record.
+        seed_existing = seed_listing.replace("ListingPendingMint1111111111111111111111", EXISTING_MINT)
+        page = new_page(browser, storage_js=seed_existing)
+        calls = stub_api(page, [201])
+        list_existing(page)
+        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        cleared = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
+        page.close()
+        check("E: listing a mint here also clears its pending-listing record", cleared is None)
 
         browser.close()
 

@@ -65,6 +65,11 @@ async function run() {
   test('the wallet that created and signed the mint is verified', (await outcome(verifySolanaMintCreator(rpc, mint, creator, 6))) === 'verified');
   test('a different wallet is refused', (await outcome(verifySolanaMintCreator(rpc, mint, other, 6))) === 'ownership');
   test('wrong decimals are refused', (await outcome(verifySolanaMintCreator(rpc, mint, creator, 9))) === 'ownership');
+
+  // The real creator, but the mint can still mint more: not listable.
+  const stillMintable = randomSolanaAddress();
+  const stillMintableMints = new Map<string, FakeMint>([[stillMintable, { decimals: 6, initialAuthority: creator, creationSigners: [creator, stillMintable], currentMintAuthority: creator }]]);
+  test('a mint whose authority is still active is refused, even for its creator', (await outcome(verifySolanaMintCreator(fakeSolanaRpc(stillMintableMints), stillMintable, creator, 6))) === 'ownership');
   test('a mint that does not exist is refused', (await outcome(verifySolanaMintCreator(rpc, randomSolanaAddress(), creator, 6))) === 'ownership');
 
   const notMint: SolanaRpcCall = async (method, params) =>

@@ -33,6 +33,7 @@ export function createSetAuthorityInstruction(account, currentAuthority, authori
 // Read-back of the mint. Test knobs on window.__t:
 //   mintReadFails        - every read throws (RPC unavailable)
 //   mintAuthorityAfter   - base58 string reported as the remaining mint authority
+//   existingMintDecimals - decimals reported for the mint (default 6)
 // Otherwise reports what the stubbed transactions would have produced.
 export async function getMint(connection, address) {
   window.__t.getMintCalls = (window.__t.getMintCalls || 0) + 1;
@@ -42,5 +43,6 @@ export async function getMint(connection, address) {
     address,
     mintAuthority: window.__t.mintAuthorityAfter ? { toBase58: () => window.__t.mintAuthorityAfter } : null,
     supply: BigInt(minted ? minted.amount : 0),
+    decimals: window.__t.existingMintDecimals ?? 6,
   };
 }

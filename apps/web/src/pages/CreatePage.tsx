@@ -233,6 +233,32 @@ export function CreatePage() {
           <button type="button" className="btn btn-ghost" data-action="back">Back</button>
         </div>
       </section>
+
+      {/* Outside the wizard steps: always available. launch-solana.js wires it. */}
+      <details id="list-existing" className="tax-box" style={{ marginTop: 28 }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>List an existing token</summary>
+        <p className="hint" style={{ textTransform: 'none', margin: '8px 0 14px' }}>
+          Already launched a token from your wallet but it isn't listed on Signal? Enter its mint address. Signal checks
+          on-chain that your connected wallet created it and that its mint authority is revoked, and your wallet signs a
+          sign-in message (no transaction, no SOL).
+        </p>
+        <div className="field">
+          <label htmlFor="le-mint">Mint address</label>
+          <input className="input" id="le-mint" autoComplete="off" spellCheck={false} />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="le-name">Token name</label>
+            <input className="input" id="le-name" />
+          </div>
+          <div className="field">
+            <label htmlFor="le-symbol">Symbol</label>
+            <input className="input" id="le-symbol" maxLength={10} />
+          </div>
+        </div>
+        <button type="button" className="btn btn-brand" id="le-submit">Connect wallet and list</button>
+        <div id="le-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>
+      </details>
     </div>
   );
 }

@@ -83,6 +83,15 @@ async function run() {
     const noSuchMint = await register(creatorSession, { ...tokenBody, address: randomSolanaAddress() });
     test('a mint that does not exist on-chain is refused (403)', noSuchMint.status === 403, String(noSuchMint.status));
 
+    // "List an existing token" relies on this: the real creator, but the
+    // mint authority is still active, so the supply isn't fixed.
+    const stillMintable = createMint(creator);
+    mints.get(stillMintable)!.currentMintAuthority = creator.address;
+    const activeAuthority = await register(creatorSession, { ...tokenBody, address: stillMintable });
+    test('a mint whose authority is still active is refused (403), even for its creator', activeAuthority.status === 403 && /revoked/.test(activeAuthority.body.message), `${activeAuthority.status} ${activeAuthority.body.message}`);
+    const notRegistered = await fetch(`${BASE}/api/v1/tokens/solana/${stillMintable}`);
+    test('and it is not registered', notRegistered.status === 404, String(notRegistered.status));
+
     // --- Registration ---
     const registered = await register(creatorSession, { ...tokenBody, creatorWalletAddress: creator.address });
     test('the real creator registering their mint returns 201', registered.status === 201, JSON.stringify(registered.body));

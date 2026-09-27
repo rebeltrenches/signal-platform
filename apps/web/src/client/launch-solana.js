@@ -85,11 +85,16 @@ function validateSupply(raw, decimals) {
   return { valid: true, error: null };
 }
 
-// Real, persistent record of a launch that got as far as a genuinely
-// confirmed mint but no further — written the moment step 1 confirms,
-// cleared only once step 2 also confirms. Exists so a failure between
-// the two steps can never lose track of a mint that real SOL was
-// already spent creating (see B1 in the Mainnet-readiness audit).
+// Real, persistent record of a launch that isn't finished yet — written
+// the moment step 1 confirms. Its `stage` says what is left:
+//  - "supply" (or no stage, for older records): the mint exists but its
+//    supply was never minted. Exists so a failure between the two steps
+//    can never lose track of a mint that real SOL was already spent
+//    creating (see B1 in the Mainnet-readiness audit).
+//  - "listing": supply minted and locked, but Signal hasn't confirmed the
+//    listing yet (e.g. the API was down). Kept so the listing can still be
+//    retried after a reload.
+// Cleared only once Signal confirms the listing (or the creator dismisses it).
 const PENDING_LAUNCH_KEY = IS_DEVNET ? "signal_pending_launch_devnet_v1" : "signal_pending_launch_v1";
 function savePendingLaunch(record) {
   try {
@@ -114,6 +119,13 @@ function clearPendingLaunch(mintAddress) {
   } catch {
     // nothing to do — worst case a stale pending notice shows again later
   }
+}
+
+function isListingStage(record) {
+  return record?.stage === "listing";
+}
+function markPendingListing(record) {
+  savePendingLaunch({ ...record, stage: "listing" });
 }
 
 function short(addr) {
@@ -414,8 +426,13 @@ function recordRealLaunch(entry) {
 // A Devnet test build only lists against an explicitly configured test
 // API (SIGNAL_API_BASE_URL); the production API verifies against
 // Mainnet, where a Devnet mint doesn't exist, so it would refuse anyway.
-async function listOnSignal(entry, containerEl) {
-  if (IS_DEVNET && !window.SIGNAL_API_BASE_URL) return;
+// `onListed` runs once Signal confirms the listing (including after a
+// later Try again), and when there is nothing to list against.
+async function listOnSignal(entry, containerEl, onListed = () => {}) {
+  if (IS_DEVNET && !window.SIGNAL_API_BASE_URL) {
+    onListed();
+    return;
+  }
   const line = document.createElement("div");
   containerEl.appendChild(line);
   const register = (sessionToken) => fetch(apiUrl("/api/v1/tokens/register"), {
@@ -440,6 +457,7 @@ async function listOnSignal(entry, containerEl) {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.message || `Registration failed (${res.status}).`);
       line.textContent = "Listed on Signal — creator verified on-chain.";
+      onListed();
     } catch (err) {
       // Timestamped so a retry that fails the same way still visibly changes.
       line.textContent = `Not listed on Signal yet (${new Date().toLocaleTimeString()}): ${err.message} `;
@@ -469,28 +487,43 @@ async function listOnSignal(entry, containerEl) {
 
   const pending = getPendingLaunch();
   if (!pending) return;
+  const listingOnly = isListingStage(pending);
+  const entry = { name: pending.name, symbol: pending.symbol, mint: pending.mint, decimals: pending.decimals, creatorAddress: pending.creatorAddress };
 
   noticeEl.hidden = false;
   noticeEl.innerHTML =
     `<div class="tax-box" style="border-color:var(--gold);margin-bottom:20px;">` +
-    `<b>Incomplete launch found.</b> A mint for "${pending.name}" (${pending.symbol}) was created, ` +
-    `but its supply was never minted \u2014 nothing was lost.<br>` +
+    (listingOnly
+      ? `<b>Launched, not yet listed on Signal.</b> "<span data-pending-name></span>" (<span data-pending-symbol></span>) ` +
+        `was created and its supply minted and locked, but Signal hasn't confirmed the listing yet.<br>`
+      : `<b>Incomplete launch found.</b> A mint for "<span data-pending-name></span>" (<span data-pending-symbol></span>) was created, ` +
+        `but its supply was never minted — nothing was lost.<br>`) +
     `Mint address: <span class="num">${pending.mint}</span><br>` +
     `<a href="${explorerAddressLink(pending.mint)}" target="_blank">View on Solana Explorer</a>` +
     `<div style="margin-top:10px;">` +
-    `<button id="pendingResumeConnect" class="btn btn-ghost">Connect wallet to finish</button>` +
+    `<button id="pendingResumeConnect" class="btn btn-ghost">${listingOnly ? "Connect wallet to list on Signal" : "Connect wallet to finish"}</button>` +
     `<button id="pendingDismiss" class="btn btn-ghost" style="margin-left:8px;">Dismiss</button>` +
     `<span id="pendingResumeStatus" style="margin-left:10px;"></span>` +
     `</div></div>`;
+  // Name and symbol come from storage; set as text, never as HTML.
+  noticeEl.querySelector("[data-pending-name]").textContent = pending.name;
+  noticeEl.querySelector("[data-pending-symbol]").textContent = pending.symbol;
 
   const connectEl = document.getElementById("pendingResumeConnect");
   const dismissEl = document.getElementById("pendingDismiss");
   const statusEl = document.getElementById("pendingResumeStatus");
+  const onListed = () => {
+    clearPendingLaunch(pending.mint);
+    dismissEl.style.display = "none";
+  };
 
   // New launches are blocked while this record exists (see the launch
   // button below), so the creator needs a deliberate way to give up on it.
   dismissEl.addEventListener("click", () => {
-    if (!window.confirm(`Stop tracking mint ${pending.mint}? It stays on-chain with no supply, and this page will no longer offer to finish it.`)) return;
+    const question = listingOnly
+      ? `Stop tracking mint ${pending.mint}? The token stays on-chain; you can still list it later with "List an existing token".`
+      : `Stop tracking mint ${pending.mint}? It stays on-chain with no supply, and this page will no longer offer to finish it.`;
+    if (!window.confirm(question)) return;
     clearPendingLaunch(pending.mint);
     noticeEl.hidden = true;
     noticeEl.innerHTML = "";
@@ -500,7 +533,7 @@ async function listOnSignal(entry, containerEl) {
     connectEl.disabled = true;
     try {
       if (!window.solana || !window.solana.isPhantom) {
-        throw new Error("Phantom not found \u2014 install the extension to continue.");
+        throw new Error("Phantom not found — install the extension to continue.");
       }
       const resp = await window.solana.connect();
       const connected = resp.publicKey;
@@ -511,7 +544,14 @@ async function listOnSignal(entry, containerEl) {
         return;
       }
 
-      connectEl.textContent = "Finishing\u2026";
+      if (listingOnly) {
+        // Nothing left on-chain: only the listing, with its own Try again.
+        connectEl.style.display = "none";
+        await listOnSignal(entry, statusEl.parentElement, onListed);
+        return;
+      }
+
+      connectEl.textContent = "Finishing…";
       const flow = new LaunchFlow(noticeEl);
       flow.wallet = window.solana;
       const mint = new web3.PublicKey(pending.mint);
@@ -520,9 +560,9 @@ async function listOnSignal(entry, containerEl) {
       const { tx, amount } = await flow.buildMintSupplyTx(connected, mint, supply, pending.decimals);
       await flow.signSubmitConfirm(tx, "supply");
 
-      // Confirmed, so final: record it before the read-back, which must
-      // never bring the "finish" button back.
-      clearPendingLaunch(pending.mint);
+      // Confirmed, so the supply is final: never offer "finish" again, but
+      // keep the record (stage "listing") until Signal confirms the listing.
+      markPendingListing(pending);
       recordRealLaunch({
         name: pending.name,
         symbol: pending.symbol,
@@ -532,23 +572,19 @@ async function listOnSignal(entry, containerEl) {
         launchedAt: new Date().toISOString(),
       });
       connectEl.style.display = "none";
-      dismissEl.style.display = "none";
-      const done = `<b>Done.</b> Supply minted \u2014 <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.<br>`;
-      statusEl.innerHTML = done + "Checking the supply lock\u2026";
+      const done = `<b>Done.</b> Supply minted — <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.<br>`;
+      statusEl.innerHTML = done + "Checking the supply lock…";
       try {
         statusEl.innerHTML = done + supplyLockMessage(await flow.verifySupplyLocked(mint, amount), pending.mint);
       } catch (lockErr) {
         statusEl.innerHTML = done + `<b style="color:var(--down)">Supply lock check failed:</b> `;
         statusEl.append(lockErr.message);
       }
-      await listOnSignal(
-        { name: pending.name, symbol: pending.symbol, mint: pending.mint, decimals: pending.decimals, creatorAddress: pending.creatorAddress },
-        statusEl.parentElement,
-      );
+      await listOnSignal(entry, statusEl.parentElement, onListed);
     } catch (err) {
       statusEl.textContent = `Failed: ${err.message}`;
       connectEl.disabled = false;
-      connectEl.textContent = "Connect wallet to finish";
+      connectEl.textContent = listingOnly ? "Connect wallet to list on Signal" : "Connect wallet to finish";
     }
   });
 })();
@@ -626,7 +662,9 @@ async function listOnSignal(entry, containerEl) {
         // new launch here would create a second mint and strand it.
         const pending = getPendingLaunch();
         if (pending) {
-          throw new Error(`An incomplete launch (mint ${pending.mint}) is waiting at the top of this page. Finish or dismiss it before starting a new one.`);
+          throw new Error(isListingStage(pending)
+            ? `Your previous token (mint ${pending.mint}) isn't listed on Signal yet. List or dismiss it at the top of this page before starting a new one.`
+            : `An incomplete launch (mint ${pending.mint}) is waiting at the top of this page. Finish or dismiss it before starting a new one.`);
         }
 
         const wizard = window.launchpadWizard || {};
@@ -673,9 +711,19 @@ async function listOnSignal(entry, containerEl) {
 
       // The supply transaction has confirmed, so the launch is final:
       // record it before the read-back, which must never offer a retry.
+      // The pending record stays (stage "listing") until Signal confirms
+      // the listing, so a failed listing survives a reload.
       flow.log(`<br><b>Done.</b> Mint address: <span class="num">${mint.toBase58()}</span>`);
       flow.log(`<a href="${explorerAddressLink(mint.toBase58())}" target="_blank">View token on Solana Explorer</a>`);
-      clearPendingLaunch(mint.toBase58());
+      markPendingListing({
+        ...(getPendingLaunch() ?? {}),
+        mint: mint.toBase58(),
+        name,
+        symbol,
+        supply: supply.toString(),
+        decimals,
+        creatorAddress: connectedPubkey.toBase58(),
+      });
       recordRealLaunch({
         name,
         symbol,
@@ -691,11 +739,78 @@ async function listOnSignal(entry, containerEl) {
       } catch (lockErr) {
         flow.log(`<b style="color:var(--down)">Supply lock check failed:</b> ${lockErr.message}`);
       }
-      await listOnSignal({ name, symbol, mint: mint.toBase58(), decimals, creatorAddress: connectedPubkey.toBase58() }, resultEl);
+      const listedMint = mint.toBase58();
+      await listOnSignal({ name, symbol, mint: listedMint, decimals, creatorAddress: connectedPubkey.toBase58() }, resultEl, () => clearPendingLaunch(listedMint));
     } catch (err) {
       flow.log(`<b style="color:var(--down)">Failed:</b> ${err.message}`);
       launchBtn.disabled = false;
       launchBtn.textContent = resumeState ? "Finish minting supply" : "Retry";
+    }
+  });
+})();
+
+// ---------------------------------------------------------------------
+// "List an existing token": lists a mint the connected wallet already
+// created, e.g. one whose listing failed after its pending record was
+// gone. The server does the real checks, the same as for a launch: the
+// signed-in wallet created the mint, and its mint authority is revoked.
+// This only reads the mint to get its decimals and to refuse early, with
+// a clear message, if the authority is still active.
+(function () {
+  const section = document.getElementById("list-existing");
+  if (!section) return; // not the Create page
+
+  const mintInput = document.getElementById("le-mint");
+  const nameInput = document.getElementById("le-name");
+  const symbolInput = document.getElementById("le-symbol");
+  const submit = document.getElementById("le-submit");
+  const resultEl = document.getElementById("le-result");
+
+  submit.addEventListener("click", async () => {
+    resultEl.textContent = "";
+    const address = mintInput.value.trim();
+    const name = nameInput.value.trim();
+    const symbol = symbolInput.value.trim().toUpperCase();
+    let mint;
+    try {
+      if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) throw new Error("invalid");
+      mint = new web3.PublicKey(address);
+    } catch {
+      resultEl.textContent = "Enter a valid Solana mint address.";
+      return;
+    }
+    if (!name || !symbol) {
+      resultEl.textContent = "Enter the token's name and symbol.";
+      return;
+    }
+
+    submit.disabled = true;
+    try {
+      if (!window.solana || !window.solana.isPhantom) {
+        throw new Error("Phantom not found — install the extension to continue.");
+      }
+      const { publicKey } = await window.solana.connect();
+      resultEl.textContent = "Reading the mint on-chain…";
+      const connection = new web3.Connection(SOLANA_RPC_ENDPOINT, "confirmed");
+      let info;
+      try {
+        info = await splToken.getMint(connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID);
+      } catch {
+        throw new Error("Couldn't read this address as a token mint on Solana.");
+      }
+      if (info.mintAuthority !== null) {
+        throw new Error("This mint's authority is still active, so its supply isn't locked. Only tokens with a revoked mint authority can be listed.");
+      }
+      resultEl.textContent = "";
+      await listOnSignal(
+        { name, symbol, mint: mint.toBase58(), decimals: info.decimals, creatorAddress: publicKey.toBase58() },
+        resultEl,
+        () => clearPendingLaunch(mint.toBase58()),
+      );
+    } catch (err) {
+      resultEl.textContent = `Not listed: ${err.message}`;
+    } finally {
+      submit.disabled = false;
     }
   });
 })();
