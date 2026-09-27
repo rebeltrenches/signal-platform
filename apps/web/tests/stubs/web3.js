@@ -10,12 +10,30 @@
 //   failSimulation      - simulateTransaction returns this as value.err
 //   failConfirmOnCall   - the Nth confirmation check reports a failed tx
 //   failConfirmError    - the err reported by that failed check
+//   blockhashNotFoundOnce     - the first exact-message simulation reports BlockhashNotFound
+//   sendBlockhashNotFoundOnce - the first send throws "Blockhash not found"
+
+// Instructions carry programId/keys/data like real ones (what
+// launch-integrity.js compares), plus `type` for the tests to read.
+export function stubInstruction(program, type, fields = {}) {
+  return {
+    type,
+    ...fields,
+    programId: new PublicKey(program),
+    keys: [],
+    data: new TextEncoder().encode(JSON.stringify({ type, ...fields })),
+  };
+}
+
 class StubTransaction {
   constructor() { this.instructions = []; }
   add(...ix) { this.instructions.push(...ix); return this; }
-  partialSign() { this.partiallySigned = true; }
+  partialSign() { this.partiallySigned = true; window.__t.partialSigns = (window.__t.partialSigns || 0) + 1; }
+  verifySignatures() { return !window.__t.missingSignature; }
+  // A copy, like the real (separate) Message object: later edits to the
+  // transaction don't change an already compiled message.
   compileMessage() {
-    return { instructions: this.instructions, recentBlockhash: this.recentBlockhash, feePayer: this.feePayer };
+    return { instructions: [...this.instructions], recentBlockhash: this.recentBlockhash, feePayer: this.feePayer };
   }
   serializeMessage() {
     const message = JSON.stringify({
@@ -30,6 +48,12 @@ export { StubTransaction as Transaction };
 
 export class VersionedTransaction {
   constructor(message) { this.message = message; }
+}
+
+export class TransactionMessage {
+  static decompile(message) {
+    return { payerKey: message.feePayer, recentBlockhash: message.recentBlockhash, instructions: message.instructions };
+  }
 }
 
 export class Connection {
@@ -50,9 +74,18 @@ export class Connection {
       types: transaction.message.instructions.map((ix) => ix.type),
       replaceRecentBlockhash: config?.replaceRecentBlockhash,
     });
+    if (config?.replaceRecentBlockhash === false && window.__t.blockhashNotFoundOnce) {
+      window.__t.blockhashNotFoundOnce = false;
+      return { value: { err: 'BlockhashNotFound', unitsConsumed: 0 } };
+    }
     return { value: { err: window.__t.failSimulation || null, unitsConsumed: 5000 } };
   }
   async sendRawTransaction() {
+    window.__t.sendAttempts = (window.__t.sendAttempts || 0) + 1;
+    if (window.__t.sendBlockhashNotFoundOnce) {
+      window.__t.sendBlockhashNotFoundOnce = false;
+      throw new Error('failed to send transaction: Transaction simulation failed: Blockhash not found');
+    }
     window.__t.submittedCount = (window.__t.submittedCount || 0) + 1;
     if (window.__t.forceSubmitError) throw new Error(window.__t.forceSubmitError);
     return 'sig-' + window.__t.submittedCount;
@@ -84,14 +117,30 @@ export class Keypair {
 }
 
 export class SystemProgram {
+  static get programId() { return new PublicKey(SYSTEM_PROGRAM); }
   static transfer(args) {
     window.__t.transferCall = { to: args.toPubkey.toBase58(), lamports: args.lamports };
-    return { type: 'transfer', lamports: args.lamports };
+    return stubInstruction(SYSTEM_PROGRAM, 'transfer', { to: args.toPubkey.toBase58(), lamports: args.lamports });
   }
-  static createAccount(args) { return { type: 'createAccount', space: args.space, lamports: args.lamports }; }
+  static createAccount(args) { return stubInstruction(SYSTEM_PROGRAM, 'createAccount', { space: args.space, lamports: args.lamports }); }
 }
 
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+const COMPUTE_BUDGET_PROGRAM = 'ComputeBudget111111111111111111111111111111';
+
+// Real Compute Budget data layout (launch-integrity.js decodes it).
 export class ComputeBudgetProgram {
-  static setComputeUnitLimit({ units }) { return { type: 'computeUnitLimit', units }; }
-  static setComputeUnitPrice({ microLamports }) { return { type: 'computeUnitPrice', microLamports }; }
+  static get programId() { return new PublicKey(COMPUTE_BUDGET_PROGRAM); }
+  static setComputeUnitLimit({ units }) {
+    const data = new Uint8Array(5);
+    data[0] = 2;
+    new DataView(data.buffer).setUint32(1, units, true);
+    return { type: 'computeUnitLimit', units, programId: new PublicKey(COMPUTE_BUDGET_PROGRAM), keys: [], data };
+  }
+  static setComputeUnitPrice({ microLamports }) {
+    const data = new Uint8Array(9);
+    data[0] = 3;
+    new DataView(data.buffer).setBigUint64(1, BigInt(microLamports), true);
+    return { type: 'computeUnitPrice', microLamports, programId: new PublicKey(COMPUTE_BUDGET_PROGRAM), keys: [], data };
+  }
 }

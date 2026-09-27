@@ -24,6 +24,7 @@ import * as splToken from "./vendor/spl-token.js";
 import { apiUrl } from "./api-config.js";
 // Generated at build time from packages/config (the one place it is set).
 import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
+import { launchTransactionDifference, finalizeSignedTransaction } from "./launch-integrity.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
 const IS_DEVNET = window.SIGNAL_SOLANA_CLUSTER === "devnet";
@@ -41,6 +42,9 @@ const SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000; // 0.001 SOL = 1% of the configure
 // At the ~40k units these transactions use, this price adds ~0.000002 SOL.
 const COMPUTE_UNIT_LIMIT_MAX = 1_400_000;
 const COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 50_000;
+// An RPC node can briefly not know a blockhash another node just returned.
+const BLOCKHASH_RETRIES = 4;
+const BLOCKHASH_RETRY_DELAY_MS = 1_500;
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -301,38 +305,59 @@ this.mintKeypair = web3.Keypair.generate();
 
   /** Simulate the exact transaction, then sign, submit and confirm against
    *  the same blockhash. Wallet mutation of the simulated message is rejected. */
-  async signSubmitConfirm(tx, stepName) {
+  /** Simulates the exact message (retrying briefly if the RPC node hasn't
+   *  seen its fresh blockhash yet); throws with the reason if it fails. */
+  async simulateExact(tx, stepName) {
+    for (let attempt = 1; ; attempt += 1) {
+      // web3.js only accepts a config object alongside a VersionedTransaction;
+      // wrapping the legacy message keeps the exact blockhash and instructions.
+      const simulation = await this.connection.simulateTransaction(
+        new web3.VersionedTransaction(tx.compileMessage()),
+        { sigVerify: false, replaceRecentBlockhash: false },
+      );
+      const err = simulation.value.err;
+      if (!err) return;
+      if (err === "BlockhashNotFound" && attempt < BLOCKHASH_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, BLOCKHASH_RETRY_DELAY_MS));
+        continue;
+      }
+      this.setStepState(stepName, "failed", JSON.stringify(err));
+      throw new Error(`Simulation failed: ${JSON.stringify(err)}`);
+    }
+  }
+
+  /** Simulate the exact transaction, then sign, submit and confirm against
+   *  the same blockhash. The wallet may only add its known safety and
+   *  compute-budget instructions (launch-integrity.js); any change to our
+   *  own instructions, accounts or amounts is rejected. `extraSigners` are
+   *  our own co-signers, re-applied if the wallet changed the message. */
+  async signSubmitConfirm(tx, stepName, extraSigners = []) {
     if (!tx.recentBlockhash || !tx.lastValidBlockHeight) {
       throw new Error("Transaction is missing its confirmation blockhash.");
     }
 
     this.setStepState(stepName, "simulating");
-    // web3.js only accepts a config object alongside a VersionedTransaction;
-    // wrapping the legacy message keeps the exact blockhash and instructions.
-    const simulation = await this.connection.simulateTransaction(
-      new web3.VersionedTransaction(tx.compileMessage()),
-      { sigVerify: false, replaceRecentBlockhash: false },
-    );
-    if (simulation.value.err) {
-      this.setStepState(stepName, "failed", JSON.stringify(simulation.value.err));
-      throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
-    }
+    await this.simulateExact(tx, stepName);
 
-    const simulatedMessage = tx.serializeMessage();
+    // Snapshot what was simulated before the wallet sees the transaction.
+    const expectedMessage = tx.compileMessage();
+    const expectedMessageBytes = tx.serializeMessage();
     this.setStepState(stepName, "awaiting_signature");
     const signed = await this.wallet.signTransaction(tx);
-    const signedMessage = signed.serializeMessage();
-    if (simulatedMessage.length !== signedMessage.length ||
-        simulatedMessage.some((byte, i) => byte !== signedMessage[i])) {
+    const difference = launchTransactionDifference(web3, expectedMessage, signed.compileMessage());
+    if (difference) {
       this.setStepState(stepName, "failed", "wallet changed transaction");
-      throw new Error("Wallet changed the simulated transaction message.");
+      throw new Error(`Wallet changed the transaction (${difference}); nothing was submitted.`);
+    }
+    // The wallet's additions are checks, not changes, but what gets sent is
+    // simulated exactly as signed.
+    if (finalizeSignedTransaction(expectedMessageBytes, signed, extraSigners)) {
+      this.setStepState(stepName, "simulating");
+      await this.simulateExact(signed, stepName);
     }
 
     this.setStepState(stepName, "submitted");
-    const signature = await this.connection.sendRawTransaction(signed.serialize(), {
-      skipPreflight: false,
-      maxRetries: 5,
-    });
+    const signature = await this.sendWithBlockhashRetry(signed.serialize());
     this.setStepState(stepName, "confirming", signature);
 
     try {
@@ -344,6 +369,19 @@ this.mintKeypair = web3.Keypair.generate();
     this.setStepState(stepName, "confirmed", signature);
     this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
     return signature;
+  }
+
+  /** Resending the same signed bytes is safe (same signature); this only
+   *  covers an RPC node that hasn't seen the blockhash yet. */
+  async sendWithBlockhashRetry(rawTransaction) {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.connection.sendRawTransaction(rawTransaction, { skipPreflight: false, maxRetries: 5 });
+      } catch (err) {
+        if (!/blockhash not found/i.test(err?.message ?? "") || attempt >= BLOCKHASH_RETRIES) throw err;
+        await new Promise((resolve) => setTimeout(resolve, BLOCKHASH_RETRY_DELAY_MS));
+      }
+    }
   }
 }
 
@@ -612,7 +650,7 @@ async function listOnSignal(entry, containerEl) {
 
         const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals);
         mint = newMint;
-        await flow.signSubmitConfirm(createTx, "mint");
+        await flow.signSubmitConfirm(createTx, "mint", [flow.mintKeypair]);
 
         // Step 1 has genuinely confirmed — a real mint now exists.
         // Show its address and persist it BEFORE attempting step 2, so
