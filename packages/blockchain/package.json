@@ -4,6 +4,7 @@
   "private": true,
   "main": "src/core/index.ts",
   "dependencies": {
+    "@launchpad/config": "workspace:*",
     "@launchpad/types": "workspace:*",
     "@solana/web3.js": "^1.95.3",
     "@solana/spl-token": "^0.4.9"

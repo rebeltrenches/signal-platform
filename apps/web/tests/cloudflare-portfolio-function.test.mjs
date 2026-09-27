@@ -18,7 +18,7 @@ const response = await portfolio.onRequestPost({
   request: new Request("https://signal.example/api/solana/portfolio", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+    body: JSON.stringify({ address: "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" }),
   }),
   env: { SOLANA_RPC_URL: "https://configured-rpc.example" },
 });
@@ -55,7 +55,7 @@ globalThis.fetch = async (url, init) => {
 const jupiterResponse = await portfolio.onRequestPost({
   request: new Request("https://signal.example/api/solana/portfolio", {
     method: "POST",
-    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+    body: JSON.stringify({ address: "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" }),
   }),
   env: { JUPITER_API_KEY: "test-jupiter-key" },
 });
@@ -67,7 +67,7 @@ assert.deepEqual(jupiterBody.tokens, [
   { mint: "D6jruVcKxnzR4gvvSJchN8WDPGv29rB4Hv7HewpGYGNE", amount: "1171441.157503", name: "Signal Test", symbol: "SIGT" },
   { mint: "8Er7zRjgvBNxzMgTY6Rq2wGp63YLx5uitueUUP8QUom3", amount: "553420613.222526", name: "Community Coin", symbol: "COM" },
 ]);
-assert.equal(jupiterUrls[0], "https://api.jup.ag/ultra/v1/holdings/FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19");
+assert.equal(jupiterUrls[0], "https://api.jup.ag/ultra/v1/holdings/HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg");
 assert.match(jupiterUrls[1], /^https:\/\/api\.jup\.ag\/tokens\/v2\/search\?query=/);
 
 const requestedUrls = [];
@@ -83,7 +83,7 @@ globalThis.fetch = async (url, init) => {
 await portfolio.onRequestPost({
   request: new Request("https://signal.example/api/solana/portfolio", {
     method: "POST",
-    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+    body: JSON.stringify({ address: "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" }),
   }),
   env: { SOLANA_RPC_URL: "https://configured-rpc.example" },
 });
@@ -108,7 +108,7 @@ const failoverResponse = await portfolio.onRequestPost({
   request: new Request("https://signal.example/api/solana/portfolio", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+    body: JSON.stringify({ address: "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" }),
   }),
 });
 const failoverBody = await failoverResponse.json();
@@ -128,7 +128,7 @@ globalThis.fetch = async (_url, init) => {
 const incompleteResponse = await portfolio.onRequestPost({
   request: new Request("https://signal.example/api/solana/portfolio", {
     method: "POST",
-    body: JSON.stringify({ address: "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19" }),
+    body: JSON.stringify({ address: "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" }),
   }),
 });
 const incompleteBody = await incompleteResponse.json();

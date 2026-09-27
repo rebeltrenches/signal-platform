@@ -27,6 +27,7 @@ import {
   unpackAccount,
 } from '@solana/spl-token';
 import { LAUNCH_FEE_BPS, LAUNCH_PRICE_LAMPORTS } from '@launchpad/types';
+import { SIGNAL_PLATFORM_WALLET_ADDRESS } from '@launchpad/config';
 import type { Chain, TokenIdentity, TxResult, DataPoint } from '@launchpad/types';
 import type {
   BlockchainAdapter,
@@ -52,7 +53,7 @@ export interface SolanaAdapterConfig {
   rpcUrl: string;
 }
 
-const SIGNAL_PLATFORM_WALLET = new PublicKey('FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19');
+const SIGNAL_PLATFORM_WALLET = new PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS);
 const SIGNAL_LAUNCH_FEE_LAMPORTS = (LAUNCH_PRICE_LAMPORTS * BigInt(LAUNCH_FEE_BPS)) / 10_000n;
 
 export class SolanaAdapter implements BlockchainAdapter {

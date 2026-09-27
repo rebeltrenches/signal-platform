@@ -139,6 +139,15 @@ becomes a *safe* thing to put real money behind only after Stage 19
   infrastructure this sandbox has never had (a live RPC endpoint, a
   real DEX SDK, a persistent worker) or would mean deciding to build a
   genuinely new feature area, which this ADR does not do.
+- **ADR-0013 (2026-09-27) — new treasury as the platform fee wallet, set
+  in one place.** The launch fee (0.001 SOL) and the 1% SOL swap fee now
+  go to `HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg`, replacing
+  `FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19`. The address is set
+  only in `packages/config/src/platform-wallet.ts`: `SolanaAdapter.ts`
+  imports it, and the web build generates `/client/platform-wallet.js`
+  from it for `launch-solana.js` and `swap-execute.js`, which previously
+  each hardcoded their own copy. `apps/web/tests/fee-wallet-config.test.mjs`
+  guards this. The fee amounts and rules are unchanged.
 - ~~ADR-0009 (2026-09-17) — reverted ADR-0006/0007 back to the
   platform/holder model.~~ **Superseded by ADR-0010.** This was state
   (3) above — kept for history only.

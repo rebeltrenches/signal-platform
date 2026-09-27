@@ -5,7 +5,7 @@ import { submitSolanaSwap } from "../../../functions/api/solana/swap-submit.js";
 import worker from "../../../worker.js";
 
 const TOKEN = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const TAKER = "FzUe6zmHp4gbkBMYQZuMT5fsfE8JEDauNkSSsR14LM19";
+const TAKER = "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg";
 const PROGRAM = "11111111111111111111111111111111";
 const instruction = { programId: PROGRAM, accounts: [], data: "AA==" };
 const clientSource = await readFile("apps/web/src/client/swap-execute.js", "utf8");
