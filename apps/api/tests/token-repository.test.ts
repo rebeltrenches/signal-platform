@@ -10,7 +10,7 @@
 import assert from 'node:assert';
 import { MemoryTokenRepository } from '../src/tokens/MemoryTokenRepository.js';
 import { PrismaTokenRepository, type TokenPrismaLikeClient } from '../src/tokens/PrismaTokenRepository.js';
-import { TokenValidationError } from '../src/tokens/TokenRepository.js';
+import { TokenValidationError, TokenConflictError } from '../src/tokens/TokenRepository.js';
 import type { TokenRepository } from '../src/tokens/TokenRepository.js';
 
 let passed = 0;
@@ -121,6 +121,16 @@ async function runAgainst(repoName: string, repo: TokenRepository) {
     assert.strictEqual(a.id, b.id);
   });
 
+  await test(`[${repoName}] registerToken refuses a different creator for an already-registered token (C2)`, async () => {
+    await repo.registerToken({ chain: 'SOLANA', address: 'MintClaimed', name: 'Claimed', symbol: 'CLM', decimals: 6, creatorWalletAddress: 'RealCreator' });
+    await assert.rejects(
+      () => repo.registerToken({ chain: 'SOLANA', address: 'MintClaimed', name: 'Claimed', symbol: 'CLM', decimals: 6, creatorWalletAddress: 'SomeoneElse' }),
+      TokenConflictError,
+    );
+    const stored = await repo.getTokenByAddress('SOLANA', 'MintClaimed');
+    assert.strictEqual(stored?.creatorWalletAddress, 'RealCreator');
+  });
+
   await test(`[${repoName}] getTokenByAddress returns null for an unregistered address — never fabricates a token`, async () => {
     const result = await repo.getTokenByAddress('SOLANA', 'NeverRegistered');
     assert.strictEqual(result, null);
@@ -154,6 +164,30 @@ async function runAgainst(repoName: string, repo: TokenRepository) {
 async function run() {
   await runAgainst('Memory', new MemoryTokenRepository());
   await runAgainst('Prisma (mock)', new PrismaTokenRepository(createMockClient()));
+
+  // Two registrations race: both see no row, the other one's insert wins
+  // the (chain, address) unique constraint, ours gets P2002.
+  function racedClient(winnerCreator: string): TokenPrismaLikeClient {
+    const client = createMockClient();
+    let lookups = 0;
+    const realFindUnique = client.token.findUnique.bind(client.token);
+    client.token.findUnique = async (args: any) => (lookups++ === 0 ? null : realFindUnique(args));
+    const realCreate = client.token.create.bind(client.token);
+    client.token.create = async (args: any) => {
+      const winner = await client.wallet.create({ data: { address: winnerCreator } });
+      await realCreate({ data: { ...args.data, creatorId: winner.id } });
+      throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    };
+    return client;
+  }
+  const raceInput = { chain: 'SOLANA', address: 'MintRaced', name: 'Raced', symbol: 'RCD', decimals: 6, creatorWalletAddress: 'Loser' };
+  await test('[Prisma (mock)] losing a registration race to another creator throws TokenConflictError', async () => {
+    await assert.rejects(() => new PrismaTokenRepository(racedClient('Winner')).registerToken(raceInput), TokenConflictError);
+  });
+  await test('[Prisma (mock)] losing a registration race to the same creator returns the winning row', async () => {
+    const token = await new PrismaTokenRepository(racedClient('Loser')).registerToken(raceInput);
+    assert.strictEqual(token.creatorWalletAddress, 'Loser');
+  });
 
   await test('MemoryTokenRepository rejects invalid input the same way for missing required fields', async () => {
     const repo = new MemoryTokenRepository();

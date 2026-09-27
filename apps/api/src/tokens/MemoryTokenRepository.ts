@@ -7,7 +7,7 @@ import type {
   HolderRecord,
   RecentTokensPage,
 } from './TokenRepository.js';
-import { TokenValidationError } from './TokenRepository.js';
+import { TokenValidationError, TokenConflictError } from './TokenRepository.js';
 
 function validateRegisterInput(input: RegisterTokenInput): void {
   if (!input.chain) throw new TokenValidationError('chain is required.');
@@ -35,7 +35,12 @@ export class MemoryTokenRepository implements TokenRepository {
     validateRegisterInput(input);
     const key = this.key(input.chain, input.address);
     const existing = this.tokens.get(key);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.creatorWalletAddress !== input.creatorWalletAddress) {
+        throw new TokenConflictError('This token is already registered to a different creator.');
+      }
+      return existing;
+    }
 
     const record: TokenRecord = {
       id: crypto.randomUUID(),

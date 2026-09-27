@@ -49,7 +49,7 @@ const routes: RouteDef[] = [
     path: 'create',
     title: 'Create',
     element: <CreatePage />,
-    clientScripts: ['/client/wizard.js'],
+    clientScripts: ['/client/wizard.js', '/client/auth-client.js'],
     moduleScripts: ['/client/launch-solana.js', '/client/evm-wallet.js'],
     embeddedJson: { chainConfigs: CHAIN_CONFIGS, defaultTaxConfig: DEFAULT_TAX_CONFIG },
   },

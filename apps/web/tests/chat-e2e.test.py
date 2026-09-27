@@ -17,6 +17,7 @@ import subprocess
 import time
 import sys
 import os
+import shutil
 import http.server
 import socketserver
 import threading
@@ -167,7 +168,7 @@ def main():
     env["PORT"] = str(API_PORT)
     env["AUTH_SECRET"] = "chat-e2e-session-secret-that-is-not-a-placeholder"
     api_proc = subprocess.Popen(
-        ["npx", "tsx", os.path.join(REPO_ROOT, "apps/api/src/server.ts")],
+        [shutil.which("npx") or "npx", "tsx", os.path.join(REPO_ROOT, "apps/api/tests/support/test-server.ts")],
         cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
     time.sleep(1.5)
@@ -270,7 +271,7 @@ def main():
             # page normally does correspond to something registered.
             try:
                 req = urllib.request.Request(
-                    f"http://localhost:{API_PORT}/api/v1/tokens/register",
+                    f"http://localhost:{API_PORT}/__test/seed-token",
                     data=json.dumps({
                         "chain": "solana", "address": "example", "name": "E2E Example Token",
                         "symbol": "E2E", "decimals": 6, "creatorWalletAddress": "E2ETestCreator",

@@ -17,7 +17,8 @@
 // it exists only for testing this flow, in a build made with
 // SIGNAL_SOLANA_CLUSTER=devnet (see build.tsx/Shell.tsx). Such a build
 // talks to the public Devnet RPC directly and keeps its launches out of
-// the Mainnet dashboard, recovery record and token registry.
+// the Mainnet dashboard and recovery record (see listOnSignal for the
+// token registry).
 import * as web3 from "https://esm.sh/@solana/web3.js@1.95.3";
 import * as splToken from "https://esm.sh/@solana/spl-token@0.4.9?deps=@solana/web3.js@1.95.3";
 import { apiUrl } from "./api-config.js";
@@ -359,31 +360,58 @@ function recordRealLaunch(entry) {
     // storage unavailable — the real launch itself already succeeded
     // on-chain regardless; this only affects the local dashboard list
   }
-  // Best-effort server-side registration — same "never breaks the real
-  // flow" philosophy as the localStorage write above. The launch
-  // already succeeded on-chain; whether Signal's own backend happens
-  // to be reachable right now (see docs/BACKEND-DEPLOYMENT.md — as of
-  // this writing, it isn't deployed anywhere) doesn't change that. A
-  // failed registration here is silently swallowed, not surfaced as a
-  // launch failure — this is what makes
-  // packages/types' TokenIdentity.launchedOnSignal a real, checkable
-  // fact for anyone (not just this browser) once a backend exists to
-  // answer it, without making that backend's presence a requirement
-  // for launching at all today. Devnet mints are never registered:
-  // the registry's "solana" chain means Mainnet.
-  if (IS_DEVNET) return;
-  fetch(apiUrl("/api/v1/tokens/register"), {
+}
+
+// Lists a confirmed launch on Signal (POST /api/v1/tokens/register) —
+// what makes packages/types' TokenIdentity.launchedOnSignal a real,
+// checkable fact for anyone, not just this browser. The server only
+// accepts it from a signed-in session of the creator wallet and checks
+// on-chain that this wallet created the mint (audit item C2), so this
+// signs in first via auth-client.js: Phantom signs a sign-in message
+// (no transaction, no SOL) unless a session for this wallet is cached.
+// Never breaks the launch: it already succeeded on-chain, so a failure
+// here is shown with a retry button, not as a launch failure.
+// A Devnet test build only lists against an explicitly configured test
+// API (SIGNAL_API_BASE_URL); the production API verifies against
+// Mainnet, where a Devnet mint doesn't exist, so it would refuse anyway.
+async function listOnSignal(entry, containerEl) {
+  if (IS_DEVNET && !window.SIGNAL_API_BASE_URL) return;
+  const line = document.createElement("div");
+  containerEl.appendChild(line);
+  const register = (sessionToken) => fetch(apiUrl("/api/v1/tokens/register"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${sessionToken}` },
     body: JSON.stringify({
       chain: "solana",
       address: entry.mint,
       name: entry.name,
       symbol: entry.symbol,
       decimals: entry.decimals,
-      creatorWalletAddress: entry.creatorAddress,
     }),
-  }).catch(() => {});
+  });
+  const attempt = async () => {
+    line.textContent = "Listing on Signal — Phantom may ask you to sign a message (no transaction, no SOL)…";
+    try {
+      const auth = window.signalAuth;
+      if (!auth) throw new Error("Wallet sign-in isn't available on this page.");
+      let res = await register(await auth.ensureSignedIn(entry.creatorAddress));
+      // A cached session can have expired server-side: sign in once more.
+      if (res.status === 401) res = await register(await auth.signIn(entry.creatorAddress));
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || `Registration failed (${res.status}).`);
+      line.textContent = "Listed on Signal — creator verified on-chain.";
+    } catch (err) {
+      // Timestamped so a retry that fails the same way still visibly changes.
+      line.textContent = `Not listed on Signal yet (${new Date().toLocaleTimeString()}): ${err.message} `;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "btn btn-ghost";
+      retry.textContent = "Try again";
+      retry.addEventListener("click", attempt, { once: true });
+      line.appendChild(retry);
+    }
+  };
+  await attempt();
 }
 
 // ---------------------------------------------------------------------
@@ -473,6 +501,10 @@ function recordRealLaunch(entry) {
         statusEl.innerHTML = done + `<b style="color:var(--down)">Supply lock check failed:</b> `;
         statusEl.append(lockErr.message);
       }
+      await listOnSignal(
+        { name: pending.name, symbol: pending.symbol, mint: pending.mint, decimals: pending.decimals, creatorAddress: pending.creatorAddress },
+        statusEl.parentElement,
+      );
     } catch (err) {
       statusEl.textContent = `Failed: ${err.message}`;
       connectEl.disabled = false;
@@ -619,6 +651,7 @@ function recordRealLaunch(entry) {
       } catch (lockErr) {
         flow.log(`<b style="color:var(--down)">Supply lock check failed:</b> ${lockErr.message}`);
       }
+      await listOnSignal({ name, symbol, mint: mint.toBase58(), decimals, creatorAddress: connectedPubkey.toBase58() }, resultEl);
     } catch (err) {
       flow.log(`<b style="color:var(--down)">Failed:</b> ${err.message}`);
       launchBtn.disabled = false;

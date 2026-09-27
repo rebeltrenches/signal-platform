@@ -10,6 +10,7 @@ Requires: a built apps/web/dist and Python's `playwright` package.
 """
 import http.server
 import os
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -47,7 +48,7 @@ def run():
     env = dict(os.environ)
     env["PORT"] = str(API_PORT)
     api_proc = subprocess.Popen(
-        ["npx", "tsx", "apps/api/src/server.ts"],
+        [shutil.which("npx") or "npx", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
@@ -58,7 +59,7 @@ def run():
         "symbol": "ETT", "decimals": 6, "creatorWalletAddress": "ExploreTestCreator111",
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"http://localhost:{API_PORT}/api/v1/tokens/register", data=payload,
+        f"http://localhost:{API_PORT}/__test/seed-token", data=payload,
         headers={"Content-Type": "application/json"}, method="POST",
     )
     try:

@@ -1,33 +1,93 @@
 /**
  * Real token registration and lookup — the piece that makes
  * TokenIdentity.launchedOnSignal (packages/types) an actual fact to
- * check rather than something assumed. No signature verification here
- * (unlike chat's writes): registering a token doesn't move funds or
- * change on-chain state — it's Signal's own record of a launch that
- * already happened on-chain, and the source of truth for "is this
- * real" is always the chain itself (see GET below), not this record.
- * A false registration can't forge a launch; it can only mislead
- * Signal's own cache, which the indexer's real chain reads keep honest.
+ * check rather than something assumed.
+ *
+ * Registration is a claim of "this wallet launched this token", so it
+ * is proven, not trusted (audit item C2):
+ *  - the creator is the wallet of a verified session (a signed
+ *    sign-in challenge, auth/AuthSession.ts), never a request field;
+ *  - the chain must show that wallet created the mint
+ *    (tokens/verifyMintCreator.ts);
+ *  - a token registered to one creator can never be claimed by another.
  */
 import type { Handler } from '../router.js';
-import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError } from '../tokens/tokenStore.js';
+import { verifySessionToken } from '../auth/AuthSession.js';
+import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError, TokenConflictError } from '../tokens/tokenStore.js';
+import {
+  isSolanaAddress,
+  solanaRpcFromEnv,
+  verifySolanaMintCreator,
+  MintOwnershipError,
+  MintVerificationUnavailableError,
+} from '../tokens/verifyMintCreator.js';
+
+function getSessionWallet(headers: Record<string, string | string[] | undefined>): string | null {
+  const authHeader = headers.authorization;
+  const headerValue = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  const token = headerValue?.startsWith('Bearer ') ? headerValue.slice('Bearer '.length) : '';
+  if (!token) return null;
+  const payload = verifySessionToken(token);
+  return payload?.chain.toUpperCase() === 'SOLANA' ? payload.address : null;
+}
 
 function errorToResponse(err: unknown): { status: number; body: unknown } {
   if (err instanceof TokenValidationError) return { status: 400, body: { error: 'VALIDATION_ERROR', message: err.message } };
+  if (err instanceof TokenConflictError) return { status: 409, body: { error: 'TOKEN_ALREADY_REGISTERED', message: err.message } };
+  if (err instanceof MintOwnershipError) return { status: 403, body: { error: 'NOT_MINT_CREATOR', message: err.message } };
+  if (err instanceof MintVerificationUnavailableError) {
+    return { status: 503, body: { error: 'VERIFICATION_UNAVAILABLE', message: `Could not verify this mint on-chain right now. ${err.message}` } };
+  }
   console.error('[tokens] unexpected error:', err);
   return { status: 500, body: { error: 'INTERNAL_ERROR', message: 'Something went wrong handling this token request.' } };
 }
 
 export const registerTokenRoute: Handler = async (req) => {
+  const wallet = getSessionWallet(req.headers);
+  if (!wallet) return { status: 401, body: { error: 'UNAUTHORIZED', message: 'Sign in with the creator wallet to register a token.' } };
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const chain = typeof body.chain === 'string' ? body.chain.toUpperCase() : '';
+  const address = typeof body.address === 'string' ? body.address : '';
+  const decimals = typeof body.decimals === 'number' ? body.decimals : NaN;
+  const name = typeof body.name === 'string' ? body.name : '';
+  const symbol = typeof body.symbol === 'string' ? body.symbol : '';
+  if (!name || !symbol) {
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'name and symbol are required.' } };
+  }
+  if (chain !== 'SOLANA') {
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'Only Solana tokens can be registered.' } };
+  }
+  if (!isSolanaAddress(address)) {
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'address must be a Solana mint address.' } };
+  }
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 9) {
+    return { status: 400, body: { error: 'VALIDATION_ERROR', message: 'decimals must be a whole number from 0 to 9.' } };
+  }
+  if (body.creatorWalletAddress !== undefined && body.creatorWalletAddress !== wallet) {
+    return { status: 403, body: { error: 'NOT_MINT_CREATOR', message: 'creatorWalletAddress must be the signed-in wallet.' } };
+  }
+
   try {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Cheap check first: never spend RPC calls on a token that is
+    // already registered (to this wallet: idempotent; to another: 409).
+    const existing = await getTokenByAddress(chain, address);
+    if (existing) {
+      if (existing.creatorWalletAddress !== wallet) throw new TokenConflictError('This token is already registered to a different creator.');
+      return { status: 200, body: { token: existing } };
+    }
+
+    const rpc = solanaRpcFromEnv();
+    if (!rpc) throw new MintVerificationUnavailableError('SOLANA_RPC_URL is not configured on this server.');
+    await verifySolanaMintCreator(rpc, address, wallet, decimals);
+
     const token = await registerToken({
-      chain: typeof body.chain === 'string' ? body.chain.toUpperCase() : '',
-      address: typeof body.address === 'string' ? body.address : '',
-      name: typeof body.name === 'string' ? body.name : '',
-      symbol: typeof body.symbol === 'string' ? body.symbol : '',
-      decimals: typeof body.decimals === 'number' ? body.decimals : NaN,
-      creatorWalletAddress: typeof body.creatorWalletAddress === 'string' ? body.creatorWalletAddress : '',
+      chain,
+      address,
+      name,
+      symbol,
+      decimals,
+      creatorWalletAddress: wallet,
     });
     return { status: 201, body: { token } };
   } catch (err) {

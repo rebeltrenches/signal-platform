@@ -58,11 +58,18 @@ window.signalAuth = window.signalAuth || {};
     }
   }
 
+  // Every function below acts for the header's connected wallet, or for
+  // `address` when given (e.g. the Create page's launch wallet, which
+  // connects Phantom itself rather than through the header).
+  function walletAddress(address) {
+    return address || (window.launchpadWallet && window.launchpadWallet.address) || null;
+  }
+
   /** Returns a session token usable RIGHT NOW for the currently
    *  connected wallet, or null if none is cached — never returns a
    *  stale token for a DIFFERENT wallet than the one connected now. */
-  window.signalAuth.getSessionToken = function () {
-    const connected = window.launchpadWallet && window.launchpadWallet.address;
+  window.signalAuth.getSessionToken = function (address) {
+    const connected = walletAddress(address);
     if (!connected) return null;
     const stored = loadStored();
     if (!stored || stored.address !== connected) return null;
@@ -73,8 +80,8 @@ window.signalAuth = window.signalAuth || {};
    *  request a challenge, sign it with the wallet's own signMessage,
    *  exchange for a real session token. Throws on any failure — never
    *  returns a fake token. */
-  window.signalAuth.signIn = async function () {
-    const connected = window.launchpadWallet && window.launchpadWallet.address;
+  window.signalAuth.signIn = async function (address) {
+    const connected = walletAddress(address);
     if (!connected) throw new Error('No wallet connected.');
     const provider = window.phantom?.solana || window.solana;
     if (!provider || typeof provider.signMessage !== 'function') {
@@ -111,9 +118,9 @@ window.signalAuth = window.signalAuth || {};
 
   /** getSessionToken() if already valid for the current wallet,
    *  otherwise performs a real sign-in and returns the new token. */
-  window.signalAuth.ensureSignedIn = async function () {
-    const existing = window.signalAuth.getSessionToken();
+  window.signalAuth.ensureSignedIn = async function (address) {
+    const existing = window.signalAuth.getSessionToken(address);
     if (existing) return existing;
-    return window.signalAuth.signIn();
+    return window.signalAuth.signIn(address);
   };
 })();
