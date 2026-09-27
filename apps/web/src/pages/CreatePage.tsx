@@ -129,6 +129,7 @@ export function CreatePage() {
           <div className="field">
             <label htmlFor="tk-decimals">Decimals</label>
             <input className="input" id="tk-decimals" inputMode="numeric" defaultValue={6} />
+            <p id="tk-decimals-error" className="hint" style={{ color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' }}></p>
           </div>
         </div>
 

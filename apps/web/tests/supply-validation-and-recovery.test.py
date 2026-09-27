@@ -175,6 +175,8 @@ def main():
             ("1000000000", "10", "10 decimals"),
             ("1000000000", "abc", "non-numeric decimals"),
             ("1000000000", "-1", "negative decimals"),
+            ("1000000000", "", "empty decimals (no default to 6)"),
+            ("1000000000", "   ", "whitespace-only decimals"),
         ]
         for supply, decimals, description in invalid_cases:
             page = new_page(browser)
@@ -221,6 +223,33 @@ def main():
         check("B2 (wizard): and shows the maximum", "Maximum supply with 6 decimals" in error_over)
         check("B2 (wizard): lowering decimals to 0 re-validates and enables Next", not next_disabled_at_0)
 
+        # An empty Decimals field must never fall back to 6: the step (and
+        # so the Review screen) stays blocked with a clear error.
+        page = new_page(browser)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
+        page.click('.wizard-step[data-step="0"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="1"] #tk-name', "Empty Decimals")
+        page.fill('.wizard-step[data-step="1"] #tk-symbol', "EDC")
+        page.click('.wizard-step[data-step="1"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
+        enabled_with_prefilled_6 = not page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        page.fill('.wizard-step[data-step="2"] #tk-decimals', "")
+        next_disabled_empty = page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        decimals_error = page.text_content('#tk-decimals-error') or ""
+        supply_error = page.text_content('#tk-supply-error') or ""
+        wizard_decimals = page.evaluate("window.launchpadWizard.decimals")
+        page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
+        enabled_after_retyping = not page.is_disabled('.wizard-step[data-step="2"] [data-action="next"]')
+        error_after_retyping = page.text_content('#tk-decimals-error') or ""
+        page.close()
+        check("B2 (wizard): the pre-filled Decimals value (6) allows Next", enabled_with_prefilled_6)
+        check("B2 (wizard): clearing Decimals disables Next, so Review can't be reached", next_disabled_empty)
+        check("B2 (wizard): an empty Decimals field shows a clear error under it", "Enter the number of decimals" in decimals_error)
+        check("B2 (wizard): the supply field shows no error for it", supply_error == "")
+        check("B2 (wizard): the wizard keeps the empty value, not a default of 6", wizard_decimals == "")
+        check("B2 (wizard): typing a value back re-enables Next and clears the error", enabled_after_retyping and error_after_retyping == "")
+
         # =================================================================
         # C1 — compute budget, exact-message simulation, fee transfer
         # =================================================================
@@ -244,7 +273,7 @@ def main():
             "C1: step 1 pays the 0.001 SOL fee to the platform wallet",
             state.get("transferCall") == {"to": FEE_WALLET, "lamports": 1_000_000},
         )
-        check("C1: the mint uses 6 decimals by default", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
+        check("C1: the mint uses the 6 decimals shown in the Decimals field", (state.get("initMintCalls") or [{}])[0].get("decimals") == 6)
 
         # C3 — mandatory revoke, in the same transaction as mintTo.
         supply_tx = final_sims[1]["types"] if len(final_sims) == 2 else []
