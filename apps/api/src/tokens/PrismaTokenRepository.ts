@@ -1,5 +1,5 @@
 import type { TokenRepository, TokenRecord, RegisterTokenInput, TokenMetadataRecord, HolderRecord, RecentTokensPage } from './TokenRepository.js';
-import { TokenValidationError } from './TokenRepository.js';
+import { TokenValidationError, TokenConflictError } from './TokenRepository.js';
 import { ensureWallet, type WalletCapableClient } from '../db/ensureWallet.js';
 
 /**
@@ -78,25 +78,48 @@ export class PrismaTokenRepository implements TokenRepository {
     if (!input.chain || !input.address || !input.name || !input.symbol || !input.creatorWalletAddress) {
       throw new TokenValidationError('chain, address, name, symbol, and creatorWalletAddress are required.');
     }
+    const existing = await this.findExisting(input);
+    if (existing) return existing;
+
+    const wallet = await ensureWallet(this.db, input.creatorWalletAddress);
+    let created;
+    try {
+      created = await this.db.token.create({
+        data: {
+          chain: input.chain,
+          address: input.address,
+          name: input.name,
+          symbol: input.symbol,
+          decimals: input.decimals,
+          totalSupply: '0', // not known at registration time; the indexer fills this in on first refresh
+          creatorId: wallet.id,
+        },
+      });
+    } catch (err) {
+      // Lost a race on the (chain, address) unique constraint: apply the
+      // same same-creator/other-creator rule to whoever won it.
+      if ((err as { code?: string })?.code === 'P2002') {
+        const winner = await this.findExisting(input);
+        if (winner) return winner;
+      }
+      throw err;
+    }
+    return mapToken({ ...created, creator: { address: input.creatorWalletAddress } });
+  }
+
+  /** The existing row for this (chain, address) if it belongs to the same
+   *  creator, null if there is none; TokenConflictError if it belongs to
+   *  someone else. */
+  private async findExisting(input: RegisterTokenInput): Promise<TokenRecord | null> {
     const existing = await this.db.token.findUnique({
       where: { chain_address: { chain: input.chain, address: input.address } },
       include: { creator: true },
     });
-    if (existing) return mapToken(existing);
-
-    const wallet = await ensureWallet(this.db, input.creatorWalletAddress);
-    const created = await this.db.token.create({
-      data: {
-        chain: input.chain,
-        address: input.address,
-        name: input.name,
-        symbol: input.symbol,
-        decimals: input.decimals,
-        totalSupply: '0', // not known at registration time; the indexer fills this in on first refresh
-        creatorId: wallet.id,
-      },
-    });
-    return mapToken({ ...created, creator: { address: input.creatorWalletAddress } });
+    if (!existing) return null;
+    if (existing.creator?.address !== input.creatorWalletAddress) {
+      throw new TokenConflictError('This token is already registered to a different creator.');
+    }
+    return mapToken(existing);
   }
 
   async getTokenByAddress(chain: string, address: string): Promise<TokenRecord | null> {

@@ -96,6 +96,10 @@ def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
         isPhantom: true,
         connect: async () => ({{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}' }} }}),
         signTransaction: {sign_js},
+        signMessage: async (bytes) => {{
+          (window.__t.signedMessages = window.__t.signedMessages || []).push(new TextDecoder().decode(bytes));
+          return {{ signature: new Uint8Array(64).fill(7) }};
+        }},
       }};
       if (!sessionStorage.getItem('__seeded')) {{
         sessionStorage.setItem('__seeded', '1');
@@ -312,6 +316,78 @@ def main():
         state = page.evaluate("window.__t")
         page.close()
         check("C1: a failed simulation never asks the wallet to sign", "signRequested" not in state)
+
+        # =================================================================
+        # C2 — listing on Signal needs a signed-in session of the creator
+        # =================================================================
+        print()
+
+        def stub_api(page, register_statuses):
+            """Fake sign-in and register endpoints; register answers with
+            the given statuses in order and records each request."""
+            calls = []
+            page.route("**/api/v1/auth/challenge**", lambda r: r.fulfill(
+                status=200, content_type="application/json",
+                body=json.dumps({"nonce": "n1", "timestamp": 1, "message": f"signal-auth|{CREATOR_WALLET}|solana|n1|1"}),
+            ))
+            page.route("**/api/v1/auth/session", lambda r: r.fulfill(
+                status=200, content_type="application/json",
+                body=json.dumps({"sessionToken": f"session-{len(calls) + 1}"}),
+            ))
+
+            def register(route):
+                request = route.request
+                calls.append({"authorization": request.headers.get("authorization"), "body": json.loads(request.post_data)})
+                status = register_statuses[min(len(calls), len(register_statuses)) - 1]
+                message = "This token is already registered to a different creator." if status == 409 else ""
+                route.fulfill(status=status, content_type="application/json", body=json.dumps({"message": message}))
+            page.route("**/api/v1/tokens/register", register)
+            return calls
+
+        def wait_for_listing(page):
+            page.wait_for_function(
+                "() => /Listed on Signal|Not listed on Signal yet/.test(document.querySelector('#launch-result').textContent)",
+                timeout=10000,
+            )
+
+        page = new_page(browser)
+        calls = stub_api(page, [201])
+        fill_wizard_to_review(page, name="Listed Token", symbol="LST")
+        launch(page)
+        wait_for_listing(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        mint_address = (state.get("initMintCalls") or [{}])[0].get("mint")
+        check("C2: after launch, the creator wallet signs the server's sign-in message", state.get("signedMessages") == [f"signal-auth|{CREATOR_WALLET}|solana|n1|1"])
+        check("C2: registration is sent with that session as a Bearer token", len(calls) == 1 and calls[0]["authorization"] == "Bearer session-1")
+        check("C2: it registers the launched mint", len(calls) == 1 and calls[0]["body"]["address"] == mint_address)
+        check("C2: it does not send a creator field (the server takes it from the session)", len(calls) == 1 and "creatorWalletAddress" not in calls[0]["body"])
+        check("C2: success is shown", "Listed on Signal" in result_text)
+
+        page = new_page(browser)
+        calls = stub_api(page, [409])
+        fill_wizard_to_review(page)
+        launch(page)
+        wait_for_listing(page)
+        result_text = page.text_content('#launch-result') or ""
+        has_retry = page.is_visible('#launch-result button:has-text("Try again")')
+        button_text = page.text_content('#mainnetLaunchBtn') or ""
+        page.close()
+        check("C2: a refused registration (409) is shown with the server's reason", "Not listed on Signal yet" in result_text and "already registered" in result_text)
+        check("C2: with a Try again button", has_retry)
+        check("C2: and the launch itself stays final", button_text == "Launched")
+
+        page = new_page(browser)
+        calls = stub_api(page, [401, 201])
+        fill_wizard_to_review(page)
+        launch(page)
+        wait_for_listing(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("C2: an expired session (401) signs in once more and retries", len(calls) == 2 and len(state.get("signedMessages") or []) == 2)
+        check("C2: and then succeeds", "Listed on Signal" in result_text)
 
         # =================================================================
         # B1 — same-session recovery: step 2 fails, retry resumes SAME mint

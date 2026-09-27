@@ -86,6 +86,10 @@ jobs:
           pnpm exec tsx apps/api/tests/token-repository.test.ts
           pnpm exec tsx apps/api/tests/watchlist-repository.test.ts
           pnpm exec tsx apps/api/tests/alert-repository.test.ts
+      - name: Token registration ownership tests (C2)
+        run: |
+          pnpm exec tsx apps/api/tests/mint-creator-verification.test.ts
+          pnpm exec tsx apps/api/tests/token-routes.test.ts
       - name: TypeScript verification
         run: pnpm typecheck
       - name: Bubble Map data tests

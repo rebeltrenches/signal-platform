@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createServer } from '../src/server.js';
 import { __resetForTests as resetAlerts } from '../src/alerts/alertStore.js';
-import { __resetForTests as resetTokens } from '../src/tokens/tokenStore.js';
+import { __resetForTests as resetTokens, registerToken } from '../src/tokens/tokenStore.js';
 
 let passed = 0;
 function test(name: string, condition: boolean, detail?: string) {
@@ -75,13 +75,11 @@ async function run() {
     const tokenA = await signIn(BASE, walletA);
     const tokenB = await signIn(BASE, walletB);
 
-    // --- Register a REAL token via the real Stage 2 endpoint first ---
-    const registerRes = await fetch(`${BASE}/api/v1/tokens/register`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chain: 'solana', address: 'RealAlertTestMint111', name: 'Alert Test', symbol: 'ALT', decimals: 6, creatorWalletAddress: 'SomeCreator111' }),
-    });
-    test('setup: real token registration succeeds', registerRes.status === 201, String(registerRes.status));
+    // --- A registered token to alert on, written straight to the store
+    // (the register route itself needs a creator session and an on-chain
+    // proof; token-routes.test.ts covers that) ---
+    const seeded = await registerToken({ chain: 'SOLANA', address: 'RealAlertTestMint111', name: 'Alert Test', symbol: 'ALT', decimals: 6, creatorWalletAddress: 'SomeCreator111' });
+    test('setup: a registered token exists', seeded.address === 'RealAlertTestMint111');
 
     // --- No session at all ---
     const noAuthRes = await fetch(`${BASE}/api/v1/alerts`);

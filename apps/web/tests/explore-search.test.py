@@ -12,6 +12,7 @@ Requires: a built apps/web/dist and Python's `playwright` package.
 """
 import http.server
 import os
+import shutil
 import socketserver
 import subprocess
 import sys
@@ -47,7 +48,7 @@ def register(api_port, address, name, symbol):
         "symbol": symbol, "decimals": 6, "creatorWalletAddress": "SearchTestCreator",
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"http://localhost:{api_port}/api/v1/tokens/register", data=payload,
+        f"http://localhost:{api_port}/__test/seed-token", data=payload,
         headers={"Content-Type": "application/json"}, method="POST",
     )
     with urllib.request.urlopen(req) as resp:
@@ -62,7 +63,7 @@ def run():
     env = dict(os.environ)
     env["PORT"] = str(API_PORT)
     api_proc = subprocess.Popen(
-        ["npx", "tsx", "apps/api/src/server.ts"],
+        [shutil.which("npx") or "npx", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )

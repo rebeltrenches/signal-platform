@@ -58,10 +58,14 @@ export interface RecentTokensPage {
 }
 
 export class TokenValidationError extends Error {}
+/** The (chain, address) is already registered to a different creator. */
+export class TokenConflictError extends Error {}
 
 export interface TokenRepository {
-  /** Idempotent — registering the same (chain, address) twice returns
-   *  the existing row rather than erroring or duplicating. */
+  /** Idempotent for the same creator — registering the same (chain,
+   *  address) twice returns the existing row rather than duplicating.
+   *  Throws TokenConflictError if it is registered to a different
+   *  creator: a registration can never be claimed by someone else. */
   registerToken(input: RegisterTokenInput): Promise<TokenRecord>;
   getTokenByAddress(chain: string, address: string): Promise<TokenRecord | null>;
   listTokensByCreator(creatorWalletAddress: string): Promise<TokenRecord[]>;
