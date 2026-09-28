@@ -4,6 +4,7 @@ import { DEFAULT_TAX_CONFIG, PROTOCOL_MAX_TAX_BPS } from '@launchpad/types';
 import { bpsToDisplay } from '@launchpad/utils';
 
 const LAUNCH_CHAINS = ['solana', 'base', 'bnb']; // mainnet entries only for the picker; devnet is a toggle, not a separate tile
+const errorStyle = { color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' } as const;
 
 export function CreatePage() {
   const totalPct = bpsToDisplay(DEFAULT_TAX_CONFIG.totalBps);
@@ -92,24 +93,33 @@ export function CreatePage() {
       {/* ---- Step 1: Token info ---- */}
       <section className="wizard-step" data-step="1" hidden>
         <div className="step-label"><span className="current">Step 2 of 4</span><span>Token info</span></div>
+        <p className="hint" style={{ textTransform: 'none', marginBottom: 16 }}>
+          The name, symbol, logo and description become your token's permanent on-chain metadata. They can never be
+          changed after launch.
+        </p>
         <div className="field">
           <label htmlFor="tk-name">Token name</label>
-          <input className="input" id="tk-name" placeholder="e.g. Signal Coin" />
+          <input className="input" id="tk-name" placeholder="e.g. Signal Coin" aria-describedby="tk-name-error" />
+          <p id="tk-name-error" className="hint" style={errorStyle}></p>
         </div>
         <div className="field-row">
           <div className="field">
             <label htmlFor="tk-symbol">Symbol</label>
-            <input className="input" id="tk-symbol" placeholder="e.g. SIGNAL" maxLength={10} />
+            <input className="input" id="tk-symbol" placeholder="e.g. SIGNAL" maxLength={10} aria-describedby="tk-symbol-error" />
+            <p id="tk-symbol-error" className="hint" style={errorStyle}></p>
           </div>
           <div className="field">
             <label htmlFor="tk-logo">Logo</label>
-            <input className="input" id="tk-logo" type="file" accept="image/*" />
-            <div className="hint">Local preview only. The selected image is not uploaded or written on-chain in the current launch flow.</div>
+            <input className="input" id="tk-logo" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="tk-logo-hint tk-logo-error" />
+            <div id="tk-logo-hint" className="hint">PNG, JPEG, GIF or WebP, up to 100 KB. Stored permanently on Arweave.</div>
+            <p id="tk-logo-error" className="hint" style={errorStyle}></p>
+            <img id="tk-logo-preview" alt="Logo preview" width={64} height={64} style={{ borderRadius: 12, objectFit: 'cover' }} hidden />
           </div>
         </div>
         <div className="field">
-          <label htmlFor="tk-desc">Description</label>
-          <textarea className="input" id="tk-desc" rows={4} placeholder="What is this token for?" />
+          <label htmlFor="tk-desc">Description (optional)</label>
+          <textarea className="input" id="tk-desc" rows={4} placeholder="What is this token for?" aria-describedby="tk-desc-error" />
+          <p id="tk-desc-error" className="hint" style={errorStyle}></p>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28 }}>
           <button type="button" className="btn btn-ghost" data-action="back">Back</button>
@@ -167,8 +177,13 @@ export function CreatePage() {
         <div className="step-label"><span className="current">Step 4 of 4</span><span>Review</span></div>
         <div className="card" id="review-summary">
           <div className="review-row"><span className="k">Chain</span><span className="v" id="rv-chain">—</span></div>
+          <div className="review-row"><span className="k">Logo</span><span className="v"><img id="rv-logo" alt="Logo" width={48} height={48} style={{ borderRadius: 10, objectFit: 'cover' }} /></span></div>
           <div className="review-row"><span className="k">Name</span><span className="v" id="rv-name">—</span></div>
           <div className="review-row"><span className="k">Symbol</span><span className="v" id="rv-symbol">—</span></div>
+          <div className="review-row"><span className="k">Description</span><span className="v" id="rv-description">—</span></div>
+          <div className="review-row"><span className="k">Token metadata</span><span className="v">Permanent — can never be changed</span></div>
+          <div className="review-row"><span className="k">Logo + metadata storage</span><span className="v">Arweave via ArDrive Turbo — free; if free storage is refused, you see the SOL cost and approve it first</span></div>
+          <div className="review-row"><span className="k">Metadata account</span><span className="v">≈0.0137 SOL (0.0037 SOL rent + Metaplex's 0.01 SOL protocol fee)</span></div>
           <div className="review-row"><span className="k">Total supply</span><span className="v" id="rv-supply">—</span></div>
           <div className="review-row"><span className="k">Decimals</span><span className="v" id="rv-decimals">—</span></div>
           <div className="review-row"><span className="k">Creator trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
@@ -209,6 +224,12 @@ export function CreatePage() {
               <button type="button" className="connect-btn" id="mainnetConnectBtn">Connect Phantom</button>
             </div>
 
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--ink-dim)', marginBottom: 10, cursor: 'pointer' }}>
+              <input type="checkbox" id="metadataAck" style={{ marginTop: 3 }} />
+              I've checked the logo, name, symbol and description above. They're stored permanently on Arweave and
+              on-chain, and can never be changed. Your wallet signs each file (a message, not a transaction).
+            </label>
+
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--ink-dim)', marginBottom: 14, cursor: 'pointer' }}>
               <input type="checkbox" id="mainnetAck" style={{ marginTop: 3 }} />
               I understand this sends a real Solana Mainnet transaction using real SOL from my connected
@@ -221,9 +242,11 @@ export function CreatePage() {
             </button>
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
-              <div className="review-row" data-launch-step="mint"><span className="k">1. Create mint + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="supply"><span className="k">2. Mint total supply + revoke mint authority</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="lock"><span className="k">3. Verify supply locked on-chain</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="upload"><span className="k">1. Store logo + metadata on Arweave</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="mint"><span className="k">2. Create mint + token metadata + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="supply"><span className="k">3. Mint total supply + revoke mint authority</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="lock"><span className="k">4. Verify supply locked on-chain</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="meta"><span className="k">5. Verify token metadata on-chain</span><span className="v" data-state>Not started</span></div>
             </div>
             <div id="launch-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>
           </div>

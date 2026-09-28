@@ -19,12 +19,35 @@
 // talks to the public Devnet RPC directly and keeps its launches out of
 // the Mainnet dashboard and recovery record (see listOnSignal for the
 // token registry).
+//
+// Every launch gets immutable on-chain metadata (name, symbol, logo; see
+// token-metadata.js). Before any transaction, the creator's wallet signs
+// the logo and metadata JSON and they are stored permanently on Arweave
+// through ArDrive Turbo, free where Turbo allows and otherwise paid from
+// the creator's wallet after they approve the shown cost (turbo-upload.js).
+// The metadata account is created in the mint transaction, while the
+// creator is still mint authority. Turbo has no Devnet, so a Devnet test
+// build signs the files but never uploads them (nothing reaches Arweave
+// Mainnet); its metadata link doesn't resolve.
 import * as web3 from "./vendor/solana-web3.js";
 import * as splToken from "./vendor/spl-token.js";
 import { apiUrl } from "./api-config.js";
 // Generated at build time from packages/config (the one place it is set).
 import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
 import { launchTransactionDifference, finalizeSignedTransaction } from "./launch-integrity.js";
+import { createSignedDataItem, toHex } from "./ans104.js";
+import { createTurboClient, uploadDataItems, arweaveUrl, StoragePaymentDeclined } from "./turbo-upload.js";
+import {
+  validateTokenName,
+  validateTokenSymbol,
+  validateDescription,
+  validateLogo,
+  buildMetadataJson,
+  createMetadataInstruction,
+  metadataAddress,
+  decodeMetadataAccount,
+  TOKEN_METADATA_PROGRAM_ID,
+} from "./token-metadata.js";
 
 const SIGNAL_SOLANA_RPC_PROXY = "/api/solana/rpc";
 const IS_DEVNET = window.SIGNAL_SOLANA_CLUSTER === "devnet";
@@ -45,6 +68,9 @@ const COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 50_000;
 // An RPC node can briefly not know a blockhash another node just returned.
 const BLOCKHASH_RETRIES = 4;
 const BLOCKHASH_RETRY_DELAY_MS = 1_500;
+// A transaction's blockhash expires after ~150 blocks (about a minute);
+// one still unseen after this long can never land.
+const STORAGE_PAYMENT_EXPIRY_MS = 3 * 60_000;
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -121,6 +147,38 @@ function clearPendingLaunch(mintAddress) {
   }
 }
 
+// Turbo's sent-but-not-credited payment record (turbo-upload.js), kept
+// across reloads so a retry never pays twice.
+const turboStore = {
+  get(key) {
+    try {
+      return JSON.parse(localStorage.getItem(`signal_${key}`) || "null");
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(`signal_${key}`, JSON.stringify(value));
+    } catch {
+      // storage unavailable — the payment's signature is still in the launch log
+    }
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(`signal_${key}`);
+    } catch {
+      // nothing to do
+    }
+  },
+};
+
+function formatSol(lamports) {
+  const whole = BigInt(lamports);
+  const fraction = (whole % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "");
+  return `${whole / 1_000_000_000n}${fraction ? "." + fraction : ""} SOL`;
+}
+
 function isListingStage(record) {
   return record?.stage === "listing";
 }
@@ -186,9 +244,22 @@ class LaunchFlow {
     if (row) row.textContent = state + (extra ? ` \u2014 ${extra}` : "");
   }
 
+  /** Appends a line of our own markup. Never pass it text from outside
+   *  this page (RPC or Turbo responses, error messages, token metadata):
+   *  use logText for those. Appending (not `innerHTML +=`) also keeps
+   *  earlier lines' buttons working. */
   log(html) {
     const el = this.root.querySelector("#launch-result");
-    if (el) el.innerHTML += html + "<br>";
+    if (el) el.insertAdjacentHTML("beforeend", html + "<br>");
+  }
+
+  /** Appends `labelHtml` (our own markup) followed by `text` as plain
+   *  text, never parsed as HTML. */
+  logText(labelHtml, text) {
+    const el = this.root.querySelector("#launch-result");
+    if (!el) return;
+    if (labelHtml) el.insertAdjacentHTML("beforeend", labelHtml);
+    el.append(String(text), document.createElement("br"));
   }
 
   async connectWallet() {
@@ -200,14 +271,15 @@ class LaunchFlow {
     return resp.publicKey;
   }
 
-  /** Create the mint account and initialize the mint.
+  /** Create the mint account, initialize the mint and create its
+   *  immutable token metadata account (name, symbol, `metadata.uri`).
    *  SIGNAL's creator trading fee is not a Token-2022 transfer fee:
    *  it will be collected in SOL by the trading layer. This avoids
    *  accumulating potentially worthless project tokens.
    *  The same transaction pays SIGNAL's fixed 0.001 SOL launch fee
    *  to the public platform wallet. */
-  async buildCreateTx(launcherPubkey, decimals) {
-this.mintKeypair = web3.Keypair.generate();
+  async buildCreateTx(launcherPubkey, decimals, metadata) {
+    this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
     const mintLen = splToken.MINT_SIZE;
     const lamports = await this.connection.getMinimumBalanceForRentExemption(mintLen);
@@ -226,9 +298,186 @@ this.mintKeypair = web3.Keypair.generate();
         programId: splToken.TOKEN_PROGRAM_ID,
       }),
       splToken.createInitializeMintInstruction(mint, decimals, launcherPubkey, null, splToken.TOKEN_PROGRAM_ID),
+      // Needs the creator as mint authority, so it can only happen here,
+      // before the supply transaction revokes that authority.
+      createMetadataInstruction(web3, {
+        mint,
+        mintAuthority: launcherPubkey,
+        payer: launcherPubkey,
+        name: metadata.name,
+        symbol: metadata.symbol,
+        uri: metadata.uri,
+      }),
     ]);
     tx.partialSign(this.mintKeypair);
     return { tx, mint, lamports };
+  }
+
+  /** Signs the logo and metadata JSON with the creator's wallet (one
+   *  signMessage each) and stores them on Arweave. Returns the metadata
+   *  JSON's URI. Kept for this page view, so a retry after a failed or
+   *  rejected mint transaction reuses the stored files instead of
+   *  signing (or paying) again. */
+  async storeMetadata(launcherPubkey, { name, symbol, description, logoBytes, logoType }) {
+    const logoHash = toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", logoBytes)));
+    const key = JSON.stringify([launcherPubkey.toBase58(), name, symbol, description, logoType, logoHash]);
+    if (this.storedMetadata?.key === key) return this.storedMetadata.uri;
+
+    this.setStepState("upload", "awaiting_signature", "sign the logo upload in your wallet");
+    const owner = launcherPubkey.toBytes();
+    const signMessage = async (bytes) => {
+      const { signature } = await this.wallet.signMessage(bytes, "utf8");
+      return Uint8Array.from(signature);
+    };
+    const appTag = { name: "App-Name", value: "Signal" };
+    const logo = await createSignedDataItem({
+      owner,
+      data: logoBytes,
+      tags: [{ name: "Content-Type", value: logoType }, appTag],
+      signMessage,
+    });
+    const imageUri = arweaveUrl(logo.id);
+    this.setStepState("upload", "awaiting_signature", "sign the metadata upload in your wallet");
+    const json = await createSignedDataItem({
+      owner,
+      data: buildMetadataJson({ name, symbol, description, imageUri, imageType: logoType }),
+      tags: [{ name: "Content-Type", value: "application/json" }, appTag],
+      signMessage,
+    });
+    const uri = arweaveUrl(json.id);
+
+    if (IS_DEVNET) {
+      this.setStepState("upload", "signed, not uploaded (Devnet test build)");
+      this.log(`Devnet test build: logo and metadata were signed but not uploaded; the metadata link won't resolve.`);
+    } else {
+      await uploadDataItems({
+        items: [
+          { label: "the logo", id: logo.id, bytes: logo.bytes },
+          { label: "the metadata", id: json.id, bytes: json.bytes },
+        ],
+        ownerAddress: launcherPubkey.toBase58(),
+        turbo: createTurboClient(),
+        store: turboStore,
+        approvePayment: (quote) => this.confirmStoragePayment(quote),
+        pay: ({ lamports, depositAddress, onSent }) => this.payForStorage(launcherPubkey, lamports, depositAddress, onSent),
+        paymentStatus: (signature, sentAt) => this.storagePaymentStatus(signature, sentAt),
+        onStatus: (text) => this.setStepState("upload", text),
+      });
+      this.setStepState("upload", "stored on Arweave");
+      this.log(`✓ Logo: <a href="${imageUri}" target="_blank" rel="noopener noreferrer">${imageUri}</a>`);
+      this.log(`✓ Metadata: <a href="${uri}" target="_blank" rel="noopener noreferrer">${uri}</a>`);
+    }
+    this.storedMetadata = { key, uri };
+    return uri;
+  }
+
+  /** Shows the storage cost and resolves true only if the creator
+   *  approves it. Nothing is sent before that. */
+  confirmStoragePayment({ lamports, reason, depositAddress }) {
+    const resultEl = this.root.querySelector("#launch-result");
+    const box = document.createElement("div");
+    box.className = "tax-box";
+    box.id = "storage-payment";
+    box.style.cssText = "border-color:var(--gold);margin:8px 0;";
+    const text = document.createElement("div");
+    text.append(
+      "Free Arweave storage isn't available for this upload (ArDrive Turbo said: ",
+      Object.assign(document.createElement("i"), { textContent: reason }),
+      "). Storing your logo and metadata permanently costs ",
+      Object.assign(document.createElement("b"), { textContent: formatSol(lamports) }),
+      `, sent from your wallet to ArDrive Turbo (${short(depositAddress)}), plus the usual network fee (under 0.00001 SOL). Nothing has been sent yet.`,
+    );
+    const approve = Object.assign(document.createElement("button"), {
+      type: "button",
+      id: "storagePayApprove",
+      className: "btn btn-brand",
+      textContent: `Pay ${formatSol(lamports)} and continue`,
+    });
+    const decline = Object.assign(document.createElement("button"), {
+      type: "button",
+      id: "storagePayDecline",
+      className: "btn btn-ghost",
+      textContent: "Cancel launch",
+    });
+    decline.style.marginLeft = "8px";
+    const actions = document.createElement("div");
+    actions.style.marginTop = "10px";
+    actions.append(approve, decline);
+    box.append(text, actions);
+    resultEl.appendChild(box);
+    return new Promise((resolve) => {
+      const answer = (approved) => {
+        approve.disabled = true;
+        decline.disabled = true;
+        actions.textContent = approved ? "Approved — confirm the payment in your wallet." : "Declined.";
+        resolve(approved);
+      };
+      approve.addEventListener("click", () => answer(true), { once: true });
+      decline.addEventListener("click", () => answer(false), { once: true });
+    });
+  }
+
+  /** The approved storage payment: a plain SOL transfer to Turbo's
+   *  deposit address, checked like every launch transaction. */
+  async payForStorage(launcherPubkey, lamports, depositAddress, onSent) {
+    const tx = await this.buildBudgetedTx(launcherPubkey, [
+      web3.SystemProgram.transfer({
+        fromPubkey: launcherPubkey,
+        toPubkey: new web3.PublicKey(depositAddress),
+        lamports: Number(lamports),
+      }),
+    ]);
+    return this.signSubmitConfirm(tx, "upload", [], onSent);
+  }
+
+  /** Whether an earlier storage payment landed: "confirmed", "failed"
+   *  (it failed, or was never seen and its blockhash has long expired, so
+   *  it can never land), or "pending" (can't tell yet). */
+  async storagePaymentStatus(signature, sentAt) {
+    const { value } = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+    if (value?.err) return "failed";
+    if (value?.confirmationStatus === "confirmed" || value?.confirmationStatus === "finalized") return "confirmed";
+    if (value) return "pending";
+    return Date.now() - Date.parse(sentAt) > STORAGE_PAYMENT_EXPIRY_MS ? "failed" : "pending";
+  }
+
+  /** Reads the token metadata account back after launch. Returns true when
+   *  it shows exactly the previewed name, symbol and URI and is immutable;
+   *  throws if it shows anything else; false if it can't be read. */
+  async verifyMetadata(mint, expected) {
+    this.setStepState("meta", "checking");
+    const address = metadataAddress(web3, mint);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      let account;
+      try {
+        account = await this.connection.getAccountInfo(address, "confirmed");
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        continue;
+      }
+      if (!account) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+        continue;
+      }
+      if (account.owner.toBase58() !== TOKEN_METADATA_PROGRAM_ID) {
+        this.setStepState("meta", "failed", "wrong owner");
+        throw new Error("The token metadata account isn't owned by the Token Metadata program.");
+      }
+      const found = decodeMetadataAccount(account.data);
+      const mismatch = ["name", "symbol", "uri"].find((field) => found[field] !== expected[field]);
+      if (mismatch) {
+        this.setStepState("meta", "failed", `${mismatch} differs`);
+        throw new Error(`On-chain ${mismatch} is "${found[mismatch]}", expected "${expected[mismatch]}".`);
+      }
+      if (found.isMutable) {
+        this.setStepState("meta", "failed", "metadata is mutable");
+        throw new Error("The token metadata is marked mutable.");
+      }
+      this.setStepState("meta", "metadata locked");
+      return true;
+    }
+    this.setStepState("meta", "not verified yet");
+    return false;
   }
 
   /** Prefixes the instructions with a compute unit limit (measured by a
@@ -342,8 +591,11 @@ this.mintKeypair = web3.Keypair.generate();
    *  the same blockhash. The wallet may only add its known safety and
    *  compute-budget instructions (launch-integrity.js); any change to our
    *  own instructions, accounts or amounts is rejected. `extraSigners` are
-   *  our own co-signers, re-applied if the wallet changed the message. */
-  async signSubmitConfirm(tx, stepName, extraSigners = []) {
+   *  our own co-signers, re-applied if the wallet changed the message.
+   *  `onSubmitted(signature)` runs as soon as the RPC accepts it, before
+   *  confirmation, so a caller can record a transaction that may land
+   *  even if confirming it fails. */
+  async signSubmitConfirm(tx, stepName, extraSigners = [], onSubmitted = () => {}) {
     if (!tx.recentBlockhash || !tx.lastValidBlockHeight) {
       throw new Error("Transaction is missing its confirmation blockhash.");
     }
@@ -370,6 +622,7 @@ this.mintKeypair = web3.Keypair.generate();
 
     this.setStepState(stepName, "submitted");
     const signature = await this.sendWithBlockhashRetry(signed.serialize());
+    onSubmitted(signature);
     this.setStepState(stepName, "confirming", signature);
 
     try {
@@ -379,7 +632,17 @@ this.mintKeypair = web3.Keypair.generate();
       throw err;
     }
     this.setStepState(stepName, "confirmed", signature);
-    this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
+    // The signature comes back from the RPC: add it as text, not HTML.
+    const resultEl = this.root.querySelector("#launch-result");
+    if (resultEl) {
+      const link = Object.assign(document.createElement("a"), {
+        href: explorerLink(encodeURIComponent(signature)),
+        target: "_blank",
+        rel: "noopener noreferrer",
+        textContent: signature,
+      });
+      resultEl.append(`✓ ${stepName}: `, link, document.createElement("br"));
+    }
     return signature;
   }
 
@@ -596,6 +859,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
   const connectBtn = document.getElementById("mainnetConnectBtn");
   const launchBtn = document.getElementById("mainnetLaunchBtn");
   const ackCheckbox = document.getElementById("mainnetAck");
+  const metadataAck = document.getElementById("metadataAck");
   const addrEl = document.getElementById("mainnetWalletAddr");
   const resultEl = document.getElementById("launch-result");
 
@@ -621,7 +885,9 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
   let resumeState = null;
 
   function refreshLaunchButton() {
-    launchBtn.disabled = !(connectedPubkey && ackCheckbox.checked);
+    // metadataAck: the creator confirmed the metadata preview, which can
+    // never be changed after launch.
+    launchBtn.disabled = !(connectedPubkey && ackCheckbox.checked && metadataAck.checked);
   }
 
   connectBtn.addEventListener("click", async () => {
@@ -641,6 +907,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
   });
 
   ackCheckbox.addEventListener("change", refreshLaunchButton);
+  metadataAck.addEventListener("change", refreshLaunchButton);
 
   launchBtn.addEventListener("click", async () => {
     launchBtn.disabled = true;
@@ -648,13 +915,13 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
     document.getElementById("launch-steps").style.display = "block";
 
     try {
-      let mint, name, symbol, supply, decimals;
+      let mint, name, symbol, supply, decimals, metadataUri;
 
       if (resumeState) {
         // Resuming a mint that already exists on-chain. buildCreateTx
         // must NOT run in this branch — calling it again would generate
         // a fresh Keypair and abandon the mint we're trying to finish.
-        ({ mint, name, symbol, decimals } = resumeState);
+        ({ mint, name, symbol, decimals, metadataUri } = resumeState);
         supply = BigInt(resumeState.supply);
       } else {
         // A mint saved as incomplete (e.g. before a reload) must be
@@ -668,12 +935,25 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
         }
 
         const wizard = window.launchpadWizard || {};
-        name = wizard.name || "Untitled Token";
-        symbol = (wizard.symbol || "TOKEN").toUpperCase();
 
         // The real gate. Independent of wizard.js's own check — does not
-        // trust that it ran, loaded, or agreed. Invalid decimals or supply
-        // must never reach buildCreateTx below this line.
+        // trust that it ran, loaded, or agreed. Invalid metadata, decimals
+        // or supply must never reach the upload or buildCreateTx below.
+        // The metadata is permanent, so nothing falls back to a default.
+        const nameCheck = validateTokenName(wizard.name);
+        if (!nameCheck.valid) throw new Error(nameCheck.error);
+        name = nameCheck.value;
+        const symbolCheck = validateTokenSymbol(wizard.symbol);
+        if (!symbolCheck.valid) throw new Error(symbolCheck.error);
+        symbol = symbolCheck.value;
+        const descriptionCheck = validateDescription(wizard.description);
+        if (!descriptionCheck.valid) throw new Error(descriptionCheck.error);
+        if (!wizard.logoFile) throw new Error("Choose a logo image.");
+        const logoBytes = new Uint8Array(await wizard.logoFile.arrayBuffer());
+        const logoCheck = validateLogo(logoBytes);
+        if (!logoCheck.valid) throw new Error(logoCheck.error);
+        if (!metadataAck.checked) throw new Error("Confirm the token metadata preview first.");
+
         const decimalsRaw = String(wizard.decimals ?? "");
         const decimalsCheck = validateDecimals(decimalsRaw);
         if (!decimalsCheck.valid) {
@@ -686,7 +966,17 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
         }
         supply = BigInt(wizard.supply.trim());
 
-        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals);
+        // Before any transaction: the files the metadata points to must
+        // already be stored.
+        metadataUri = await flow.storeMetadata(connectedPubkey, {
+          name,
+          symbol,
+          description: descriptionCheck.value,
+          logoBytes,
+          logoType: logoCheck.contentType,
+        });
+
+        const { tx: createTx, mint: newMint } = await flow.buildCreateTx(connectedPubkey, decimals, { name, symbol, uri: metadataUri });
         mint = newMint;
         await flow.signSubmitConfirm(createTx, "mint", [flow.mintKeypair]);
 
@@ -694,13 +984,14 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
         // Show its address and persist it BEFORE attempting step 2, so
         // a failure there can never lose track of it.
         flow.log(`Mint created: <span class="num">${mint.toBase58()}</span> \u2014 <a href="${explorerAddressLink(mint.toBase58())}" target="_blank">view on Explorer</a>`);
-        resumeState = { mint, name, symbol, supply: supply.toString(), decimals };
+        resumeState = { mint, name, symbol, supply: supply.toString(), decimals, metadataUri };
         savePendingLaunch({
           mint: mint.toBase58(),
           name,
           symbol,
           supply: supply.toString(),
           decimals,
+          metadataUri,
           creatorAddress: connectedPubkey.toBase58(),
           createdAt: new Date().toISOString(),
         });
@@ -737,12 +1028,23 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       try {
         flow.log(supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mint.toBase58()));
       } catch (lockErr) {
-        flow.log(`<b style="color:var(--down)">Supply lock check failed:</b> ${lockErr.message}`);
+        flow.logText(`<b style="color:var(--down)">Supply lock check failed:</b> `, lockErr.message);
+      }
+      try {
+        const verified = await flow.verifyMetadata(mint, { name, symbol, uri: metadataUri });
+        flow.log(verified
+          ? `<b>Metadata locked.</b> Name, symbol and logo are on-chain and can never be changed.`
+          : `The token metadata couldn't be read back yet. Check <a href="${explorerAddressLink(mint.toBase58())}" target="_blank">Explorer</a> shows the name and symbol.`);
+      } catch (metaErr) {
+        // The message can quote on-chain text: logText adds it as text.
+        flow.logText(`<b style="color:var(--down)">Metadata check failed:</b> `, metaErr.message);
       }
       const listedMint = mint.toBase58();
       await listOnSignal({ name, symbol, mint: listedMint, decimals, creatorAddress: connectedPubkey.toBase58() }, resultEl, () => clearPendingLaunch(listedMint));
     } catch (err) {
-      flow.log(`<b style="color:var(--down)">Failed:</b> ${err.message}`);
+      // Error messages can carry third-party text (Turbo response bodies,
+      // RPC errors): always shown as plain text.
+      flow.logText(err instanceof StoragePaymentDeclined ? "" : `<b style="color:var(--down)">Failed:</b> `, err.message);
       launchBtn.disabled = false;
       launchBtn.textContent = resumeState ? "Finish minting supply" : "Retry";
     }

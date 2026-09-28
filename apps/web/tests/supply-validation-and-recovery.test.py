@@ -102,8 +102,97 @@ PHANTOM_ADDS_TRANSFER_SIGN_JS = """async (tx) => {
 }"""
 
 
-def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
+TURBO_DEPOSIT = "HepiT2k93CFQaSB7i3ZNXhybZKn5MeWiv3UkLsaJKk4i"
+# A minimal valid PNG header; the rest is padding up to the wanted size.
+def png_bytes(size=2048):
+    header = bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    return header + bytes(size - len(header))
+
+
+def data_item_fields(body):
+    """Parses what the page uploaded (an ANS-104 data item, signature
+    type 4): its id, tags and data."""
+    import hashlib, base64
+    sig_type = int.from_bytes(body[0:2], "little")
+    signature = body[2:66]
+    owner = body[66:98]
+    o = 98
+    o += 1 + (32 if body[o] else 0)
+    o += 1 + (32 if body[o] else 0)
+    tag_count = int.from_bytes(body[o:o + 8], "little"); o += 8
+    tag_len = int.from_bytes(body[o:o + 8], "little"); o += 8
+    tag_bytes = body[o:o + tag_len]; o += tag_len
+
+    def read_long(buf, i):
+        n, shift = 0, 0
+        while True:
+            b = buf[i]; i += 1
+            n |= (b & 0x7F) << shift; shift += 7
+            if not b & 0x80:
+                return (n >> 1) ^ -(n & 1), i
+    tags, i = {}, 0
+    if tag_bytes:
+        count, i = read_long(tag_bytes, i)
+        for _ in range(count):
+            ln, i = read_long(tag_bytes, i); name = tag_bytes[i:i + ln].decode(); i += ln
+            ln, i = read_long(tag_bytes, i); value = tag_bytes[i:i + ln].decode(); i += ln
+            tags[name] = value
+    item_id = base64.urlsafe_b64encode(hashlib.sha256(signature).digest()).decode().rstrip("=")
+    return {"type": sig_type, "id": item_id, "owner": owner, "tag_count": tag_count, "tags": tags, "data": body[o:]}
+
+
+def fake_turbo(page, free=True, balance=None, deposit=TURBO_DEPOSIT, upload_error=None):
+    """ArDrive Turbo, answered locally (no network). free=False refuses
+    free uploads with 402 until the wallet's paid balance covers them."""
+    turbo = {"uploads": [], "refused": 0, "submitted": [], "balance": balance, "free": free, "upload_error": upload_error}
+    winc_per_byte, winc_per_lamport = 1000, 10
+
+    def upload(route):
+        if turbo["upload_error"]:
+            return route.fulfill(status=500, body=turbo["upload_error"])
+        body = route.request.post_data_buffer
+        item = data_item_fields(body)
+        price = len(body) * winc_per_byte
+        if turbo["free"]:
+            turbo["uploads"].append(item)
+        elif (turbo["balance"] or 0) >= price:
+            turbo["balance"] -= price
+            turbo["uploads"].append(item)
+        else:
+            turbo["refused"] += 1
+            return route.fulfill(status=402, body="Insufficient balance")
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"id": item["id"]}))
+
+    def payment(route):
+        url = route.request.url
+        if "/v1/price/bytes/" in url:
+            n = int(url.rsplit("/", 1)[1])
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"winc": str(n * winc_per_byte)}))
+        if "/v1/price/solana/" in url:
+            n = int(url.rsplit("/", 1)[1])
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"winc": str(n * winc_per_lamport)}))
+        if url.endswith("/v1/info"):
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"addresses": {"solana": deposit}}))
+        if "/v1/account/balance/solana" in url and route.request.method == "POST":
+            turbo["submitted"].append(json.loads(route.request.post_data)["tx_id"])
+            # Credit the payment (the amount sent is checked from the
+            # page's recorded transfer instead).
+            turbo["balance"] = (turbo["balance"] or 0) + 10**12
+            return route.fulfill(status=200, content_type="application/json", body="{}")
+        if "/v1/account/balance/solana" in url:
+            if turbo["balance"] is None:
+                return route.fulfill(status=404, body="User Not Found")
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"winc": str(turbo["balance"])}))
+        route.fulfill(status=500, body="unexpected")
+
+    page.route("https://upload.ardrive.io/**", upload)
+    page.route("https://payment.ardrive.io/**", payment)
+    return turbo
+
+
+def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", turbo_free=True, turbo_balance=None, turbo_upload_error=None):
     page = browser.new_page()
+    page.turbo = fake_turbo(page, free=turbo_free, balance=turbo_balance, upload_error=turbo_upload_error)
     # The wallet libraries are bundled locally (scripts/build.tsx); swap the
     # bundles for the recording stubs.
     page.route(
@@ -118,14 +207,25 @@ def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
     page.route("**/api/v1/tokens/register", lambda r: r.fulfill(status=503, body="{}"))
     page.add_init_script(f"""
       window.__t = {init_t};
+      const creatorBytes = new Uint8Array(32);
+      creatorBytes.set(new TextEncoder().encode('{CREATOR_WALLET}').slice(0, 32));
       window.solana = {{
         isPhantom: true,
-        connect: async () => ({{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}' }} }}),
+        connect: async () => ({{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}', toBytes: () => creatorBytes }} }}),
         signTransaction: {sign_js},
         signMessage: async (bytes) => {{
-          (window.__t.signedMessages = window.__t.signedMessages || []).push(new TextDecoder().decode(bytes));
-          return {{ signature: new Uint8Array(64).fill(7) }};
+          const text = new TextDecoder().decode(bytes);
+          (window.__t.signedMessages = window.__t.signedMessages || []).push(text);
+          // Deterministic per message, like ed25519: same file, same id.
+          const digest = new Uint8Array(await crypto.subtle.digest('SHA-512', bytes));
+          return {{ signature: digest }};
         }},
+      }};
+      // Records the order of uploads and transaction sends.
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, init) => {{
+        if (String(url).includes('upload.ardrive.io')) (window.__t.events = window.__t.events || []).push('upload');
+        return realFetch(url, init);
       }};
       if (!sessionStorage.getItem('__seeded')) {{
         sessionStorage.setItem('__seeded', '1');
@@ -137,12 +237,15 @@ def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js=""):
     return page
 
 
-def fill_wizard_to_review(page, name="Test Token", symbol="TST"):
+def fill_wizard_to_review(page, name="Test Token", symbol="TST", description="A test token.", logo=None):
     page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
     page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
     page.click('.wizard-step[data-step="0"] [data-action="next"]')
     page.fill('.wizard-step[data-step="1"] #tk-name', name)
     page.fill('.wizard-step[data-step="1"] #tk-symbol', symbol)
+    page.fill('.wizard-step[data-step="1"] #tk-desc', description)
+    page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": logo or png_bytes()}])
+    page.wait_for_function("() => !document.querySelector('.wizard-step[data-step=\"1\"] [data-action=\"next\"]').disabled", timeout=5000)
     page.click('.wizard-step[data-step="1"] [data-action="next"]')
     page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
     # The Decimals field starts empty; the creator must type it.
@@ -159,6 +262,8 @@ def launch(page, supply=None, decimals=None):
     if decimals is not None:
         page.evaluate(f"window.launchpadWizard.decimals = {json.dumps(decimals)};")
     page.click('#mainnetConnectBtn')
+    page.wait_for_function("() => document.getElementById('mainnetConnectBtn').textContent === 'Connected'", timeout=5000)
+    page.check('#metadataAck')
     page.check('#mainnetAck')
     page.click('#mainnetLaunchBtn')
     wait_for_result(page)
@@ -244,6 +349,8 @@ def main():
         page.click('.wizard-step[data-step="0"] [data-action="next"]')
         page.fill('.wizard-step[data-step="1"] #tk-name', "Wizard Limit")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "WZL")
+        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": png_bytes()}])
+        page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
         page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
         page.fill('.wizard-step[data-step="2"] #tk-supply', str(max_at_6 + 1))
@@ -265,6 +372,8 @@ def main():
         page.click('.wizard-step[data-step="0"] [data-action="next"]')
         page.fill('.wizard-step[data-step="1"] #tk-name', "Empty Decimals")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "EDC")
+        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": png_bytes()}])
+        page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
         field_value_at_start = page.input_value('.wizard-step[data-step="2"] #tk-decimals')
         wizard_decimals_at_start = page.evaluate("window.launchpadWizard.decimals")
@@ -468,7 +577,9 @@ def main():
         pending_after_listed = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
         page.close()
         mint_address = (state.get("initMintCalls") or [{}])[0].get("mint")
-        check("C2: after launch, the creator wallet signs the server's sign-in message", state.get("signedMessages") == [f"signal-auth|{CREATOR_WALLET}|solana|n1|1"])
+        signed = state.get("signedMessages") or []
+        check("C2: after launch, the creator wallet signs the server's sign-in message", signed[-1:] == [f"signal-auth|{CREATOR_WALLET}|solana|n1|1"])
+        check("C2: the only other signed messages are the two Arweave uploads", len(signed) == 3 and all(len(m) == 96 for m in signed[:2]))
         check("C2: registration is sent with that session as a Bearer token", len(calls) == 1 and calls[0]["authorization"] == "Bearer session-1")
         check("C2: it registers the launched mint", len(calls) == 1 and calls[0]["body"]["address"] == mint_address)
         check("C2: it does not send a creator field (the server takes it from the session)", len(calls) == 1 and "creatorWalletAddress" not in calls[0]["body"])
@@ -503,8 +614,303 @@ def main():
         state = page.evaluate("window.__t")
         result_text = page.text_content('#launch-result') or ""
         page.close()
-        check("C2: an expired session (401) signs in once more and retries", len(calls) == 2 and len(state.get("signedMessages") or []) == 2)
+        check("C2: an expired session (401) signs in once more and retries", len(calls) == 2 and len([m for m in state.get("signedMessages") or [] if m.startswith("signal-auth|")]) == 2)
         check("C2: and then succeeds", "Listed on Signal" in result_text)
+
+        # =================================================================
+        # M — on-chain metadata: Arweave upload, then metadata in the mint tx
+        # =================================================================
+        print()
+        page = new_page(browser)
+        fill_wizard_to_review(page, name="Meta Coin", symbol="meta", description="Permanent test.")
+        review_name = page.text_content('#rv-name')
+        review_symbol = page.text_content('#rv-symbol')
+        review_logo = page.get_attribute('#rv-logo', 'src') or ""
+        launch_disabled_without_ack = True
+        page.click('#mainnetConnectBtn')
+        page.wait_for_function("() => document.getElementById('mainnetConnectBtn').textContent === 'Connected'", timeout=5000)
+        page.check('#mainnetAck')
+        launch_disabled_without_ack = page.is_disabled('#mainnetLaunchBtn')
+        page.check('#metadataAck')
+        launch_enabled_with_ack = not page.is_disabled('#mainnetLaunchBtn')
+        page.click('#mainnetLaunchBtn')
+        wait_for_result(page)
+        page.wait_for_function("() => /Metadata locked|Metadata check failed|couldn't be read back yet/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        meta_state = page.text_content('[data-launch-step="meta"] [data-state]')
+        uploads = page.turbo["uploads"]
+        page.close()
+        check("M: the review shows the metadata preview (logo, name, upper-case symbol)", review_name == "Meta Coin" and review_symbol == "META" and review_logo.startswith("blob:"))
+        check("M: launch stays disabled until the metadata preview is confirmed", launch_disabled_without_ack and launch_enabled_with_ack)
+        check("M: two files are uploaded, logo first, both signed by the creator (type 4)", len(uploads) == 2 and all(u["type"] == 4 for u in uploads) and uploads[0]["owner"].startswith(CREATOR_WALLET.encode()[:32]))
+        logo_item, json_item = (uploads + [{}, {}])[:2]
+        check("M: the logo is stored with its detected content type", logo_item.get("tags", {}).get("Content-Type") == "image/png" and logo_item.get("data") == png_bytes())
+        meta_json = json.loads(json_item.get("data") or b"{}") if json_item else {}
+        check(
+            "M: the metadata JSON has the name, symbol, description and the logo's Arweave URL",
+            json_item.get("tags", {}).get("Content-Type") == "application/json"
+            and meta_json.get("name") == "Meta Coin" and meta_json.get("symbol") == "META"
+            and meta_json.get("description") == "Permanent test."
+            and meta_json.get("image") == f"https://arweave.net/{logo_item.get('id')}",
+        )
+        check("M: the wallet signed exactly the two uploads before listing", len([m for m in state.get("signedMessages") or [] if len(m) == 96]) == 2)
+        events = state.get("events") or []
+        check("M: both uploads finish before any transaction is sent", events[:2] == ["upload", "upload"] and "send" in events)
+        mint_sim = [s for s in state.get("simulations", []) if s["replaceRecentBlockhash"] is False][0]["types"]
+        check("M: the mint transaction creates the metadata right after initializing the mint", mint_sim[2:] == ["transfer", "createAccount", "initMint", "createMetadata"])
+        create_meta = (state.get("createMetadataCalls") or [{}])[0]
+        new_mint = (state.get("initMintCalls") or [{}])[0].get("mint")
+        check(
+            "M: CreateMetadataAccountV3 for the new mint with the previewed name, symbol and metadata URI",
+            create_meta.get("discriminator") == 33 and create_meta.get("mint") == new_mint
+            and create_meta.get("name") == "Meta Coin" and create_meta.get("symbol") == "META"
+            and create_meta.get("uri") == f"https://arweave.net/{json_item.get('id')}",
+        )
+        check(
+            "M: the metadata is immutable, with no royalties, creators, collection or uses",
+            create_meta.get("isMutable") is False and create_meta.get("sellerFeeBasisPoints") == 0
+            and [create_meta.get(k) for k in ("creators", "collection", "uses", "collectionDetails")] == [0, 0, 0, 0]
+            and create_meta.get("trailing") == 0,
+        )
+        check("M: the creator signs as mint authority, payer and update authority", [k[1] for k in create_meta.get("keys", [])] == [False, False, True, True, True, False] and create_meta.get("keys", [[]] * 3)[2][0] == CREATOR_WALLET)
+        check("M: the supply lock is unchanged: mintTo + revoke in the next transaction", "Supply locked." in result_text and state.get("submittedCount") == 2)
+        check("M: the metadata is read back and shown locked", "Metadata locked." in result_text and meta_state == "metadata locked")
+
+        # The real gate in launch-solana.js, independent of wizard.js.
+        for field, value, expected in [
+            ("name", "x" * 33, "at most 32 bytes"),
+            ("symbol", "TOOLONGSYMB", "at most 10 bytes"),
+            ("symbol", "TWO WORDS", "can't contain spaces"),
+            ("description", "d" * 501, "at most 500 characters"),
+            ("logoFile", None, "Choose a logo"),
+        ]:
+            page = new_page(browser)
+            fill_wizard_to_review(page)
+            page.evaluate(f"window.launchpadWizard[{json.dumps(field)}] = {json.dumps(value)};")
+            launch(page)
+            state = page.evaluate("window.__t")
+            result_text = page.text_content('#launch-result') or ""
+            uploads = page.turbo["uploads"]
+            page.close()
+            check(f"M: a tampered {field} is refused before any upload or transaction", expected in result_text and not uploads and "initMintCalls" not in state and "signedMessages" not in state)
+
+        page = new_page(browser)
+        fill_wizard_to_review(page)
+        page.evaluate("window.launchpadWizard.logoFile = new File([new TextEncoder().encode('<svg xmlns=\"http://www.w3.org/2000/svg\"/>')], 'x.png', { type: 'image/png' });")
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        uploads = page.turbo["uploads"]
+        page.close()
+        check("M: a logo that isn't really an image (SVG named .png) is refused by its bytes", "PNG, JPEG, GIF or WebP" in result_text and not uploads)
+
+        # wizard.js mirrors the rules for immediate feedback.
+        page = new_page(browser)
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.click('.wizard-step[data-step="0"] [data-chain="solana"]')
+        page.click('.wizard-step[data-step="0"] [data-action="next"]')
+        next_btn = '.wizard-step[data-step="1"] [data-action="next"]'
+        page.fill('#tk-name', "Good Name")
+        page.fill('#tk-symbol', "GOOD")
+        disabled_without_logo = page.is_disabled(next_btn)
+        page.set_input_files('#tk-logo', files=[{"name": "big.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024 + 1)}])
+        page.wait_for_function("() => document.getElementById('tk-logo-error').textContent.length > 0", timeout=5000)
+        big_error = page.text_content('#tk-logo-error') or ""
+        disabled_big = page.is_disabled(next_btn)
+        page.set_input_files('#tk-logo', files=[{"name": "fake.png", "mimeType": "image/png", "buffer": b"<svg xmlns='http://www.w3.org/2000/svg'/>"}])
+        page.wait_for_function("() => /PNG, JPEG/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
+        disabled_svg = page.is_disabled(next_btn)
+        page.set_input_files('#tk-logo', files=[{"name": "ok.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024)}])
+        page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
+        enabled_ok = not page.is_disabled(next_btn)
+        page.fill('#tk-name', "é" * 17)
+        name_error = page.text_content('#tk-name-error') or ""
+        disabled_long_name = page.is_disabled(next_btn)
+        page.fill('#tk-name', "Good Name")
+        page.fill('#tk-symbol', "A B")
+        symbol_error = page.text_content('#tk-symbol-error') or ""
+        disabled_symbol = page.is_disabled(next_btn)
+        page.close()
+        check("M (wizard): Continue needs a logo", disabled_without_logo)
+        check("M (wizard): a logo over 100 KB is refused with its size", disabled_big and "maximum is 100 KB" in big_error)
+        check("M (wizard): a non-image renamed .png is refused", disabled_svg)
+        check("M (wizard): a 100 KB PNG is accepted and previewed", enabled_ok)
+        check("M (wizard): a name over 32 bytes (17 × 'é') is refused with the byte limit", disabled_long_name and "32 bytes" in name_error)
+        check("M (wizard): a symbol with a space is refused", disabled_symbol and "spaces" in symbol_error)
+
+        # Retrying after the mint transaction fails reuses the stored files:
+        # no new signatures, no new uploads (and so never a second payment).
+        page = new_page(browser, init_t="{ failConfirmOnCall: 1, failConfirmError: 'simulated mint failure' }")
+        fill_wizard_to_review(page)
+        launch(page)
+        page.evaluate("window.__t.failConfirmOnCall = null;")
+        page.click('#mainnetLaunchBtn')
+        wait_for_text_count = page.wait_for_function("() => document.querySelector('#launch-result').textContent.includes('Done.')", timeout=15000)
+        state = page.evaluate("window.__t")
+        uploads = page.turbo["uploads"]
+        page.close()
+        check("M: a retry after a failed mint transaction doesn't re-sign or re-upload the files", len(uploads) == 2 and len([m for m in state.get("signedMessages") or [] if len(m) == 96]) == 2)
+        check("M: and the retried mint transaction uses the same metadata URI", len({c["uri"] for c in state.get("createMetadataCalls") or []}) == 1)
+
+        # A read-back that doesn't match is reported; the launch stays final.
+        page = new_page(browser, init_t="{ metadataMutable: true }")
+        fill_wizard_to_review(page)
+        launch(page)
+        page.wait_for_function("() => /Metadata check failed/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
+        result_text = page.text_content('#launch-result') or ""
+        button_text = page.text_content('#mainnetLaunchBtn') or ""
+        page.close()
+        check("M: mutable metadata on-chain is reported as a failed metadata check", "marked mutable" in result_text and "Metadata locked." not in result_text)
+        check("M: and the launch is still final", button_text == "Launched")
+
+        page = new_page(browser, init_t="{ metadataNameOnChain: '<img src=x onerror=xss=1>' }")
+        fill_wizard_to_review(page)
+        launch(page)
+        page.wait_for_function("() => /Metadata check failed/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
+        result_text = page.text_content('#launch-result') or ""
+        xss = page.evaluate("window.xss")
+        page.close()
+        check("M: a different on-chain name is reported, as text (never HTML)", "name is" in result_text and "<img" in result_text and xss is None)
+
+        # =================================================================
+        # P — free storage refused: automatic, approved, paid fallback
+        # =================================================================
+        print()
+
+        def start_paid_launch(page):
+            fill_wizard_to_review(page)
+            page.click('#mainnetConnectBtn')
+            page.wait_for_function("() => document.getElementById('mainnetConnectBtn').textContent === 'Connected'", timeout=5000)
+            page.check('#metadataAck')
+            page.check('#mainnetAck')
+            page.click('#mainnetLaunchBtn')
+            page.wait_for_selector('#storagePayApprove', timeout=15000)
+
+        page = new_page(browser, turbo_free=False)
+        start_paid_launch(page)
+        prompt_text = page.text_content('#storage-payment') or ""
+        before_approval = page.evaluate("window.__t")
+        page.click('#storagePayApprove')
+        wait_for_result(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        turbo = page.turbo
+        page.close()
+        paid = [t for t in state.get("transferCalls") or [] if t["to"] == TURBO_DEPOSIT]
+        shown = prompt_text.split("costs ")[1].split(" SOL")[0] if "costs " in prompt_text else ""
+        check("P: a refused free upload shows the exact SOL cost and Turbo's reason", "Insufficient balance" in prompt_text and shown != "" and "Nothing has been sent yet" in prompt_text)
+        check("P: nothing is sent or signed as a transaction before the creator approves", "submittedCount" not in before_approval and "initMintCalls" not in before_approval)
+        check("P: after approval, exactly the shown amount goes to Turbo's deposit address", len(paid) == 1 and paid[0]["lamports"] / 1e9 == float(shown))
+        check("P: the payment is reported to Turbo, then both files are uploaded", turbo["submitted"] == ["sig-1"] and len(turbo["uploads"]) == 2)
+        check("P: and the launch completes (payment + mint + supply = 3 transactions)", "Supply locked." in result_text and state.get("submittedCount") == 3)
+        payment_sim = [s for s in state.get("simulations", []) if s["replaceRecentBlockhash"] is False][0]["types"]
+        check("P: the payment transaction is budgeted and simulated like the launch transactions", payment_sim == ["computeUnitLimit", "computeUnitPrice", "transfer"])
+
+        page = new_page(browser, turbo_free=False)
+        start_paid_launch(page)
+        page.click('#storagePayDecline')
+        page.wait_for_function("() => /Launch cancelled/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
+        state = page.evaluate("window.__t")
+        button_text = page.text_content('#mainnetLaunchBtn') or ""
+        uploads = page.turbo["uploads"]
+        page.close()
+        check("P: declining cancels the launch before anything is sent", "submittedCount" not in state and "initMintCalls" not in state and not uploads)
+        check("P: and the launch can be started again", button_text == "Retry")
+
+        # The payment is sent but confirming it times out. It is recorded
+        # the moment it's sent, so Retry finds it on-chain and applies it
+        # instead of asking for (and sending) a second payment.
+        page = new_page(browser, turbo_free=False, init_t="{ unconfirmedOnCall: 1 }")
+        start_paid_launch(page)
+        page.click('#storagePayApprove')
+        wait_for_result(page)
+        first_text = page.text_content('#launch-result') or ""
+        record = json.loads(page.evaluate(f"localStorage.getItem('signal_turbo_payment_{CREATOR_WALLET}')") or "null")
+        first_state = page.evaluate("window.__t")
+        submitted_before_retry = list(page.turbo["submitted"])
+        page.click('#mainnetLaunchBtn')
+        wait_for_result(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        prompt_on_retry = page.query_selector('#storage-payment') is not None
+        record_after = page.evaluate(f"localStorage.getItem('signal_turbo_payment_{CREATOR_WALLET}')")
+        submitted = list(page.turbo["submitted"])
+        page.close()
+        deposits = [t for t in state.get("transferCalls") or [] if t["to"] == TURBO_DEPOSIT]
+        check("P: an unconfirmed payment fails the attempt, saying Retry won't charge again", "was sent but couldn't be confirmed" in first_text and "won't charge you again" in first_text)
+        check("P: its signature was recorded when it was sent, before confirmation failed", record is not None and record.get("signature") == "sig-1" and "initMintCalls" not in first_state)
+        check("P: it isn't reported to Turbo until it has confirmed on-chain", submitted_before_retry == [])
+        check("P: Retry looks the payment up on-chain and applies it", state.get("historyLookups") == ["sig-1"] and submitted == ["sig-1"])
+        check("P: without a new prompt or a second transfer", not prompt_on_retry and len(deposits) == 1)
+        check("P: and the launch completes, clearing the payment record", "Supply locked." in result_text and record_after is None)
+
+        # A Turbo balance that already covers the files is used silently.
+        page = new_page(browser, turbo_free=False, turbo_balance=10**9)
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        prompt_shown = page.query_selector('#storage-payment') is not None
+        page.close()
+        check("P: an existing Turbo balance is used without a prompt or payment", not prompt_shown and state.get("submittedCount") == 2)
+
+        # =================================================================
+        # X — third-party and user text is shown as text, never run as HTML
+        # =================================================================
+        print()
+
+        def injected(page):
+            """True if any payload ran or created an element."""
+            return page.evaluate("window.xss !== undefined || document.querySelector('img[src=\"x\"], b.injected') !== null")
+
+        # A malicious Turbo error body (the P1 in PR review).
+        payload = '<img src=x onerror="window.xss=1"><b class=injected>bold</b>'
+        page = new_page(browser, turbo_upload_error=payload)
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        ran = injected(page)
+        state = page.evaluate("window.__t")
+        page.close()
+        check("X: a Turbo error body with HTML is shown literally in the failure message", "Failed:" in result_text and payload in result_text)
+        check("X: and never runs or creates elements", not ran)
+        check("X: nothing was sent", "submittedCount" not in state)
+
+        # A malicious token name, symbol and description: through the review,
+        # the launch log, the on-chain read-back, and the recovery notice.
+        name = "<img src=x onerror=xss=2>"
+        symbol = "<B>X</B>"
+        description = '<b class=injected>desc</b><img src=x onerror="window.xss=3">'
+        page = new_page(browser)
+        stub_api(page, [503])
+        fill_wizard_to_review(page, name=name, symbol=symbol, description=description)
+        review = [page.text_content(s) for s in ('#rv-name', '#rv-symbol', '#rv-description')]
+        ran_review = injected(page)
+        launch(page)
+        wait_for_listing(page)
+        result_text = page.text_content('#launch-result') or ""
+        state = page.evaluate("window.__t")
+        ran_launch = injected(page)
+        page.reload(wait_until="networkidle")
+        notice_text = page.text_content('#pending-launch-notice') or ""
+        ran_notice = injected(page)
+        page.close()
+        create_meta = (state.get("createMetadataCalls") or [{}])[0]
+        check("X: a name/symbol/description with HTML is previewed literally", review == [name, symbol, description] and not ran_review)
+        check("X: it goes on-chain exactly as typed", create_meta.get("name") == name and create_meta.get("symbol") == symbol)
+        check("X: the launch completes and verifies without running it", "Metadata locked." in result_text and not ran_launch)
+        check("X: the recovery notice after a reload shows it literally", name in notice_text and symbol in notice_text and not ran_notice)
+
+        # A malicious signature string from the RPC in the ✓ log line.
+        rpc_payload = "<img src=x onerror=xss=4>"
+        page = new_page(browser, init_t=f"{{ rpcSignature: {json.dumps(rpc_payload)} }}")
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        link = page.get_attribute('#launch-result a[href*="explorer.solana.com/tx/"]', 'href') or ""
+        ran = injected(page)
+        page.close()
+        check("X: a signature returned by the RPC is shown as text in the log", f"mint: {rpc_payload}" in result_text and not ran)
+        check("X: and URL-encoded in its Explorer link", "%3Cimg" in link and "<" not in link)
 
         # =================================================================
         # B1 — same-session recovery: step 2 fails, retry resumes SAME mint
