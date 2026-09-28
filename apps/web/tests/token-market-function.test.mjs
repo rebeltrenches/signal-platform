@@ -359,6 +359,7 @@ await test("logo: Metaplex metadata is used for SPL tokens; a non-https image is
   const mintData = Buffer.alloc(82);
   mintData.writeBigUInt64LE(1_000n, 36);
   mintData[44] = 6;
+  mintData[45] = 1; // is_initialized
   const str = (s, size) => { const b = Buffer.alloc(4 + size); b.writeUInt32LE(size, 0); b.write(s, 4); return b; };
   const metaData = Buffer.concat([Buffer.from([4]), Buffer.alloc(64), str("Meta Coin", 32), str("MC", 10), str("https://arweave.net/META", 200), Buffer.alloc(5)]);
   const accounts = {
@@ -375,6 +376,83 @@ await test("logo: Metaplex metadata is used for SPL tokens; a non-https image is
   upstream({ accounts, metadataJson: { image: "javascript:alert(1)" } });
   const bad = await (await get(splMint.toBase58())).json();
   assert.match(bad.logo.unavailable, /https image/);
+});
+
+// ---- review fixes: streaming limit, mint validation, quote-side pairs ----------------
+await test("metadata bodies are read in chunks and cancelled past 64 KB (a huge body is never buffered)", async () => {
+  let pulled = 0;
+  let cancelled = false;
+  const huge = new ReadableStream({
+    pull(controller) {
+      pulled += 1;
+      controller.enqueue(new Uint8Array(16 * 1024));
+      if (pulled > 10_000) controller.close();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  assert.equal(await tm.readLimited(new Response(huge), 64 * 1024), null);
+  assert.ok(cancelled, "the stream is cancelled");
+  assert.ok(pulled <= 6, `stopped after ${pulled} chunks, not 10,000`);
+
+  let bodyRead = false;
+  const declared = new Response(new ReadableStream({ pull() { bodyRead = true; } }), { headers: { "content-length": String(10 * 1024 * 1024) } });
+  assert.equal(await tm.readLimited(declared, 64 * 1024), null);
+  assert.equal(bodyRead, false, "a declared oversize body isn't read at all");
+
+  assert.equal(await tm.readLimited(new Response('{"image":"https://x"}'), 64 * 1024), '{"image":"https://x"}');
+});
+
+await test("a huge metadata file from the token's creator makes the logo Unavailable, not a crash", async () => {
+  upstream({ accounts: pumpAccounts });
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url).startsWith("https://ipfs.io/")
+    ? new Response(new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(64 * 1024)); } }))
+    : inner(url, init));
+  const response = await get(MINT);
+  assert.equal(response.status, 200);
+  assert.match((await response.json()).logo.unavailable, /too large/);
+});
+
+await test("only real mints are accepted: token accounts, multisigs and uninitialized mints are 404", async () => {
+  assert.equal(tm.isMintAccount("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", bytes(fixture.mintAccount.data)), true, "real Token-2022 mint");
+  assert.equal(tm.isMintAccount("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", bytes(fixture.mayhemVaultTokenAccountData.data)), false, "real Token-2022 token account");
+  const legacyMint = Buffer.alloc(82); legacyMint[45] = 1;
+  assert.equal(tm.isMintAccount("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", legacyMint), true);
+  const splTokenAccount = Buffer.alloc(165, 1); // worst case: byte 45 happens to be 1
+  assert.equal(tm.isMintAccount("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", splTokenAccount), false);
+  const multisig = Buffer.alloc(355, 1);
+  assert.equal(tm.isMintAccount("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", multisig), false);
+  assert.equal(tm.isMintAccount("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", multisig), false);
+  assert.equal(tm.isMintAccount("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", Buffer.alloc(82)), false, "uninitialized");
+
+  // Through the endpoint: a token account address gets MINT_NOT_FOUND, not made-up supply/decimals.
+  const accountAddress = web3.Keypair.generate().publicKey.toBase58();
+  upstream({ accounts: { [accountAddress]: { owner: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", data: splTokenAccount.toString("base64") } } });
+  const response = await get(accountAddress);
+  assert.equal(response.status, 404);
+  assert.equal((await response.json()).code, "MINT_NOT_FOUND");
+});
+
+await test("DEX pairs where the token is the quote side are used, with price and liquidity from its side", async () => {
+  // SOL is the base, our token the quote: 1 SOL = 4,000,000 tokens, SOL = $120.
+  const quoteSide = { dexId: "meteora", baseToken: { address: SOL }, quoteToken: { address: MINT }, priceUsd: "120", priceNative: "4000000", marketCap: 60_000_000_000, liquidity: { usd: 250_000, base: 1000, quote: 500_000_000 } };
+  const baseSide = { dexId: "raydium", baseToken: { address: MINT }, quoteToken: { address: SOL }, priceUsd: "0.00003", priceNative: "0.00000025", marketCap: 60_000, liquidity: { usd: 5_000, quote: 20 } };
+  upstream({ accounts: graduated(), dexPairs: [baseSide, quoteSide] });
+  const body = await (await get(MINT)).json();
+  assert.equal(body.source, "DEX Screener (meteora)", "the deeper, quote-side pool");
+  assert.ok(Math.abs(body.price.usd.value - 120 / 4_000_000) < 1e-15);
+  assert.ok(Math.abs(body.price.sol.value - 1 / 4_000_000) < 1e-15);
+  assert.deepEqual(body.liquidity, { sol: { value: 1000, unit: "SOL" }, usd: { value: 250_000, unit: "USD" } });
+  // Not DEX Screener's marketCap (that's SOL's): this token's price × its real supply (2B).
+  assert.ok(Math.abs(body.marketCap.usd.value - (120 / 4_000_000) * 2_000_000_000) < 1e-6);
+  assert.match(body.marketCapBasis, /quote side/);
+
+  tm.resetForTests();
+  upstream({ accounts: graduated(), dexPairs: [quoteSide] });
+  const only = await (await get(MINT)).json();
+  assert.equal(only.source, "DEX Screener (meteora)", "a token that only appears as a quote still gets DEX data");
 });
 
 // ---- quota protection ------------------------------------------------------------

@@ -194,6 +194,28 @@ export function decodeMint(bytes) {
   return { supply: u64(bytes, 36), decimals: bytes[44] };
 }
 
+/** Whether an account owned by a token program is really an initialized
+ *  mint, not a token account or multisig (which the same programs own).
+ *  Legacy mints are exactly 82 bytes; Token-2022 mints with extensions
+ *  carry account type 1 at byte 165 and a well-formed extension area. */
+export function isMintAccount(owner, bytes) {
+  if (bytes.length < 82 || bytes[45] !== 1) return false; // is_initialized
+  if (bytes.length === 82) return owner === TOKEN_PROGRAM_ID || owner === TOKEN_2022_PROGRAM_ID;
+  if (owner !== TOKEN_2022_PROGRAM_ID || bytes.length <= 166 || bytes[165] !== 1) return false;
+  // Between the mint's 82 bytes and the account type, Token-2022 pads with zeros.
+  for (let i = 82; i < 165; i += 1) if (bytes[i] !== 0) return false;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 166;
+  while (offset < bytes.length) {
+    if (offset + 4 > bytes.length) return false;
+    const type = view.getUint16(offset, true);
+    const length = view.getUint16(offset + 2, true);
+    if (type === 0 && length === 0) return bytes.subarray(offset).every((b) => b === 0);
+    offset += 4 + length;
+  }
+  return offset === bytes.length;
+}
+
 /** Token-2022's TokenMetadata extension (name, symbol, uri), or null. */
 export function decodeToken2022Metadata(bytes) {
   // Extensions follow the 165-byte base area and a 1-byte account type (1 = mint).
@@ -320,8 +342,12 @@ async function dexScreenerPair(mint) {
     const response = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mint}`, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
     if (!response.ok) return { error: `DEX Screener HTTP ${response.status}` };
     const pairs = await response.json();
-    const own = (Array.isArray(pairs) ? pairs : []).filter((pair) => pair?.baseToken?.address === mint);
-    const imageUrl = own.map((pair) => pair?.info?.imageUrl).find(isHttpsUrl) || null;
+    // Pairs where the token is either side; its price is normalized later.
+    const own = (Array.isArray(pairs) ? pairs : []).filter(
+      (pair) => pair?.baseToken?.address === mint || pair?.quoteToken?.address === mint,
+    );
+    // DEX Screener's image is the base token's: only base-side pairs give one.
+    const imageUrl = own.filter((pair) => pair?.baseToken?.address === mint).map((pair) => pair?.info?.imageUrl).find(isHttpsUrl) || null;
     const dexPairs = own.filter((pair) => !BONDING_CURVE_DEX_IDS.has(String(pair?.dexId)));
     dexPairs.sort((a, b) => (Number(b?.liquidity?.usd) || 0) - (Number(a?.liquidity?.usd) || 0));
     return { pair: dexPairs[0] || null, imageUrl };
@@ -394,6 +420,38 @@ function isHttpsUrl(value) {
   }
 }
 
+/** A response body as text, or null once it passes `limit` bytes. Read in
+ *  chunks and cancelled at the limit, so a huge body chosen by a token's
+ *  creator is never buffered whole. */
+export async function readLimited(response, limit) {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
+}
+
 // The same IPFS content through another public gateway, for when one
 // rate-limits us (ipfs.io often answers 429).
 const IPFS_GATEWAYS = ["https://ipfs.io", "https://dweb.link"];
@@ -413,8 +471,8 @@ async function metadataImage(uri) {
         reason = `Metadata file HTTP ${response.status}.`;
         continue;
       }
-      const text = await response.text();
-      if (text.length > MAX_METADATA_JSON_BYTES) return { unavailable: "Metadata file is too large." };
+      const text = await readLimited(response, MAX_METADATA_JSON_BYTES);
+      if (text === null) return { unavailable: "Metadata file is too large." };
       const image = JSON.parse(text)?.image;
       return isHttpsUrl(image) ? { url: image, source: "on-chain metadata" } : { unavailable: "The metadata has no https image." };
     } catch {
@@ -488,14 +546,34 @@ export function curveMetrics(curve, mint, global, solUsd, mayhem = { detected: f
   };
 }
 
-function dexMetrics(pair) {
-  const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== undefined ? Number(v) : null);
-  const priceUsd = num(pair.priceUsd);
-  const solQuoted = pair.quoteToken?.address === WRAPPED_SOL_MINT;
-  const priceSol = solQuoted ? num(pair.priceNative) : null;
-  const marketCap = num(pair.marketCap ?? pair.fdv);
-  const liquidityUsd = num(pair.liquidity?.usd);
-  const liquiditySol = solQuoted ? num(pair.liquidity?.quote) : null;
+/** A DEX Screener pair's figures from the requested token's side. DEX
+ *  Screener prices the pair's base token (priceUsd; priceNative = base in
+ *  quote units), so when the token is the quote side its price is derived
+ *  from those, and market cap is its price × its own on-chain supply
+ *  (DEX Screener's marketCap describes the other token). */
+export function dexMetrics(pair, mint, supplyTokens) {
+  const num = (v) => (v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
+  const isBase = pair.baseToken?.address === mint;
+  const other = isBase ? pair.quoteToken?.address : pair.baseToken?.address;
+  const otherIsSol = other === WRAPPED_SOL_MINT;
+  const baseUsd = num(pair.priceUsd);
+  const baseInQuote = num(pair.priceNative);
+  let priceUsd;
+  let priceSol;
+  if (isBase) {
+    priceUsd = baseUsd;
+    priceSol = otherIsSol ? baseInQuote : null;
+  } else {
+    // 1 quote token = (base USD price) / (base price in quote) USD.
+    priceUsd = baseUsd !== null && baseInQuote ? baseUsd / baseInQuote : null;
+    priceSol = otherIsSol && baseInQuote ? 1 / baseInQuote : null;
+  }
+  const marketCap = isBase
+    ? num(pair.marketCap ?? pair.fdv)
+    : priceUsd !== null ? priceUsd * supplyTokens : null;
+  const marketCapSol = !isBase && priceSol !== null ? priceSol * supplyTokens : null;
+  const liquidityUsd = num(pair.liquidity?.usd); // the whole pool, either side
+  const liquiditySol = otherIsSol ? num(isBase ? pair.liquidity?.quote : pair.liquidity?.base) : null;
   const orUnavailable = (v, unit, reason) => (v === null ? unavailable(reason) : value(v, unit));
   return {
     price: {
@@ -503,9 +581,10 @@ function dexMetrics(pair) {
       usd: orUnavailable(priceUsd, "USD", "DEX Screener has no USD price for this pair."),
     },
     marketCap: {
-      sol: unavailable("DEX Screener reports market cap in USD."),
+      sol: orUnavailable(marketCapSol, "SOL", "DEX Screener reports market cap in USD."),
       usd: orUnavailable(marketCap, "USD", "DEX Screener has no market cap for this pair."),
     },
+    ...(isBase ? {} : { marketCapBasis: `Price × on-chain supply (${formatTokens(supplyTokens)}); this token is the quote side of the pair.` }),
     liquidity: {
       sol: orUnavailable(liquiditySol, "SOL", "This DEX pair isn't quoted in SOL."),
       usd: orUnavailable(liquidityUsd, "USD", "DEX Screener has no liquidity for this pair."),
@@ -529,7 +608,11 @@ async function lookup(mint, env, now) {
     [mint, curveAddress, metaplexAddress, vaultAta2022, vaultAtaSpl],
     env,
   );
-  if (!mintAccount || (mintAccount.owner !== TOKEN_PROGRAM_ID && mintAccount.owner !== TOKEN_2022_PROGRAM_ID)) {
+  if (
+    !mintAccount ||
+    (mintAccount.owner !== TOKEN_PROGRAM_ID && mintAccount.owner !== TOKEN_2022_PROGRAM_ID) ||
+    !isMintAccount(mintAccount.owner, mintAccount.data)
+  ) {
     return { status: 404, body: { code: "MINT_NOT_FOUND", error: "No token mint exists at this address." }, ttl: CACHE_TTL_MS.notFound };
   }
   const mintInfo = decodeMint(mintAccount.data);
@@ -561,7 +644,7 @@ async function lookup(mint, env, now) {
     market = curveMetrics(curve, mintInfo, global, solUsd, mayhem);
   } else if (dex.pair) {
     source = `DEX Screener (${String(dex.pair.dexId || "DEX")})`;
-    market = dexMetrics(dex.pair);
+    market = dexMetrics(dex.pair, mint, toNumber(mintInfo.supply, mintInfo.decimals));
   } else {
     const reason = curve?.complete
       ? "The bonding curve is complete; no DEX pair data is available yet."
