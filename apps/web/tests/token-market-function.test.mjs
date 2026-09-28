@@ -122,8 +122,9 @@ await test("decodes the real Token-2022 mint's own metadata extension (newer pum
 await test("decodes the real bonding curve and Global accounts, and refuses other account types", () => {
   assert.deepEqual(tm.decodeBondingCurve(curve), {
     virtualTokenReserves: u64(curve, 8), virtualSolReserves: u64(curve, 16), realTokenReserves: u64(curve, 24),
-    realSolReserves: u64(curve, 32), tokenTotalSupply: u64(curve, 40), complete: false,
+    realSolReserves: u64(curve, 32), tokenTotalSupply: u64(curve, 40), complete: false, mayhemFlag: true,
   });
+  assert.equal(tm.decodeBondingCurve(bytes(fixture.normal.curveAccount.data)).mayhemFlag, false);
   assert.deepEqual(tm.decodeGlobal(bytes(fixture.globalAccount.data)), {
     initialVirtualTokenReserves: 1_073_000_000_000_000n, initialRealTokenReserves: 793_100_000_000_000n,
   });
@@ -161,6 +162,103 @@ await test("no DEX pair: real price, market cap (SOL and USD), liquidity and pro
   assert.equal(body.name, "magic 🪄");
   // One account read for mint+curve+Metaplex, one for Global, one DAS page.
   assert.deepEqual(calls.filter((c) => /^(helius|public):/.test(c)).sort(), ["helius:getMultipleAccounts", "helius:getMultipleAccounts", "helius:getTokenAccounts"].sort());
+});
+
+// ---- pump.fun Mayhem Mode ---------------------------------------------------------
+const MAYHEM_PROGRAM = new web3.PublicKey("MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e");
+const [MAYHEM_WALLET] = web3.PublicKey.findProgramAddressSync([Buffer.from("sol-vault")], MAYHEM_PROGRAM);
+const vaultAccount = fixture.mayhemVaultTokenAccountData;
+const vaultBalance = bytes(vaultAccount.data).readBigUInt64LE(64);
+const priceOf = (curveBytes, dec) => (Number(curveBytes.readBigUInt64LE(16)) / 1e9) / (Number(curveBytes.readBigUInt64LE(8)) / 10 ** dec);
+const withMint = (supplyRaw) => {
+  const data = Buffer.from(bytes(fixture.mintAccount.data));
+  data.writeBigUInt64LE(supplyRaw, 36);
+  return { ...fixture.mintAccount, data: data.toString("base64") };
+};
+const withCurveFlag = (flag) => {
+  const data = Buffer.from(curve);
+  data[81] = flag;
+  return { ...fixture.curveAccount, data: data.toString("base64") };
+};
+
+await test("Mayhem wallet: derived as the Mayhem program's PDA [\"sol-vault\"], matching the wallet seen on-chain", () => {
+  assert.equal(MAYHEM_WALLET.toBase58(), fixture.mayhemVault);
+  assert.equal(MAYHEM_WALLET.toBase58(), "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s");
+  assert.equal(tm.decodeTokenAccount(bytes(vaultAccount.data)).owner, MAYHEM_WALLET.toBase58());
+});
+
+await test("Mayhem coin (real data): market cap leaves out the Mayhem wallet's exact balance; full supply returned too", async () => {
+  const accountReads = [];
+  upstream({ accounts: { ...pumpAccounts, [fixture.mayhemVaultTokenAccount]: vaultAccount } });
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = init?.body ? JSON.parse(init.body) : null;
+    if (body?.method === "getMultipleAccounts") accountReads.push(body.params[0]);
+    return inner(url, init);
+  };
+  const body = await (await get(MINT)).json();
+  const price = priceOf(curve, decimals);
+  const counted = 2_000_000_000 - Number(vaultBalance) / 1e6;
+  assert.deepEqual(body.mayhem, { detected: true, wallet: MAYHEM_WALLET.toBase58(), walletBalance: vaultBalance.toString() });
+  assert.deepEqual(body.marketCap.sol, { value: price * counted, unit: "SOL" });
+  assert.deepEqual(body.marketCapFullSupply.sol, { value: price * 2_000_000_000, unit: "SOL" });
+  assert.equal(body.marketCapFullSupply.usd.value, price * 2_000_000_000 * 150);
+  assert.equal(body.marketCapBasis, "Excludes 1,000,668,247 tokens held by pump.fun's Mayhem wallet (999,331,753 of 2,000,000,000).");
+  // Detection costs no extra request: the wallet's token account is in the one account read.
+  assert.equal(accountReads[0].length, 5);
+  assert.ok(accountReads[0].includes(fixture.mayhemVaultTokenAccount));
+});
+
+await test("normal coin (real data): no Mayhem, market cap on the full 1B supply", async () => {
+  upstream({ accounts: { [fixture.normal.mint]: fixture.normal.mintAccount, [fixture.normal.curve]: fixture.normal.curveAccount, [fixture.global]: fixture.globalAccount } });
+  const body = await (await get(fixture.normal.mint)).json();
+  const normalCurve = bytes(fixture.normal.curveAccount.data);
+  const dec = bytes(fixture.normal.mintAccount.data)[44];
+  assert.equal(body.source, "pump.fun bonding curve");
+  assert.deepEqual(body.mayhem, { detected: false });
+  assert.deepEqual(body.marketCap.sol, { value: priceOf(normalCurve, dec) * 1_000_000_000, unit: "SOL" });
+  assert.equal(body.marketCapBasis, "Full on-chain supply (1,000,000,000).");
+  assert.equal(body.marketCapFullSupply, undefined);
+});
+
+const uncertainCases = [
+  ["the Mayhem wallet's token account is missing", () => ({ ...pumpAccounts }), /holdings couldn't be read/],
+  ["the wallet account is for another mint", () => {
+    const data = Buffer.from(bytes(vaultAccount.data));
+    data.set(tm.decodeAddress(fixture.normal.mint), 0);
+    return { ...pumpAccounts, [fixture.mayhemVaultTokenAccount]: { ...vaultAccount, data: data.toString("base64") } };
+  }, /holdings couldn't be read/],
+  ["the curve is flagged but the supply isn't 2x", () => ({ ...pumpAccounts, [MINT]: withMint(1_000_000_000_000_000n), [fixture.mayhemVaultTokenAccount]: vaultAccount }), /supply isn't twice/],
+  ["the supply is 2x but the curve isn't flagged", () => ({ ...pumpAccounts, [fixture.curve]: withCurveFlag(0), [fixture.mayhemVaultTokenAccount]: vaultAccount }), /isn't marked Mayhem Mode/],
+];
+for (const [name, accounts, reason] of uncertainCases) {
+  await test(`uncertain Mayhem (${name}): full on-chain market cap with a note, never a guess`, async () => {
+    const set = accounts();
+    upstream({ accounts: set });
+    const body = await (await get(MINT)).json();
+    const fullSupply = Number(tm.decodeMint(bytes(set[MINT].data)).supply) / 1e6;
+    assert.match(body.mayhem.uncertain, reason);
+    assert.deepEqual(body.marketCap.sol, { value: priceOf(bytes(set[fixture.curve].data), decimals) * fullSupply, unit: "SOL" });
+    assert.ok(body.marketCapBasis.startsWith(`Full on-chain supply (${fullSupply.toLocaleString("en-US")}).`));
+    assert.match(body.marketCapBasis, reason);
+    assert.equal(body.marketCapFullSupply, undefined);
+  });
+}
+
+await test("mayhemStatus refuses a wallet balance larger than the supply", () => {
+  const data = Buffer.alloc(165);
+  data.set(tm.decodeAddress(MINT), 0);
+  data.set(MAYHEM_WALLET.toBytes(), 32);
+  data.writeBigUInt64LE(5n, 64);
+  const status = tm.mayhemStatus({
+    curve: { mayhemFlag: true, tokenTotalSupply: 1n },
+    mintInfo: { supply: 2n },
+    mint: MINT,
+    mintProgram: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    vault: MAYHEM_WALLET.toBase58(),
+    vaultTokenAccount: { owner: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", data },
+  });
+  assert.match(status.uncertain, /larger than the supply/);
 });
 
 await test("a full DAS page is reported as an exact lower bound (N+), never extrapolated", async () => {

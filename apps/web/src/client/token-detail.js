@@ -202,6 +202,31 @@
         stat.appendChild(detail);
       }
     }
+    function addDetail(name, text) {
+      const stat = stats.querySelector(`[data-stat="${name}"]`);
+      if (!stat || !text) return;
+      const detail = document.createElement('div');
+      detail.className = 'l';
+      detail.setAttribute('data-stat-detail', '');
+      detail.textContent = text;
+      stat.appendChild(detail);
+    }
+    // What the market cap counts (e.g. leaving out pump.fun's Mayhem
+    // wallet), the full-supply figure when that applies, and a badge.
+    function showMarketCapBasis(body) {
+      addDetail('marketCap', body.marketCapBasis);
+      const full = formatted(body.marketCapFullSupply?.usd) || formatted(body.marketCapFullSupply?.sol);
+      if (full) addDetail('marketCap', `Full on-chain supply: ${full}`);
+      const chain = document.getElementById('token-chain');
+      if (chain && body.mayhem?.detected && !document.getElementById('token-mayhem-badge')) {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.id = 'token-mayhem-badge';
+        badge.textContent = 'Mayhem Mode';
+        badge.title = "pump.fun Mayhem Mode: an extra 1B tokens were minted into pump.fun's Mayhem wallet.";
+        chain.after(badge);
+      }
+    }
     function showLogo(logo, label) {
       const slot = document.getElementById('token-logo-slot');
       if (!slot || !window.signalLogoImage) return;
@@ -221,6 +246,7 @@
         }
         setStat('price', body.price?.usd?.value !== undefined ? body.price.usd : body.price?.sol, body.price?.usd?.value !== undefined ? body.price?.sol : null);
         setStat('marketCap', body.marketCap?.usd?.value !== undefined ? body.marketCap.usd : body.marketCap?.sol, body.marketCap?.usd?.value !== undefined ? body.marketCap?.sol : null);
+        showMarketCapBasis(body);
         setStat('liquidity', body.liquidity?.sol?.value !== undefined ? body.liquidity.sol : body.liquidity?.usd, body.liquidity?.sol?.value !== undefined ? body.liquidity?.usd : null);
         const holders = body.holders || {};
         setStat('holders', typeof holders.count === 'number'

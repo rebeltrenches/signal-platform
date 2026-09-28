@@ -7,6 +7,12 @@
 //     mint's real supply (SOL, and USD with a live Jupiter SOL price),
 //     liquidity = real SOL in the curve, and progress from the real tokens
 //     sold (pump.fun's Global account holds the starting amount).
+//     pump.fun "Mayhem Mode" coins mint an extra 1B into pump.fun's Mayhem
+//     wallet. When a coin's own data confirms it (curve flag AND mint supply
+//     exactly twice the curve's AND the wallet's token account readable),
+//     the headline market cap leaves out that wallet's exact balance and the
+//     full-supply figure is returned alongside. If any part is uncertain,
+//     the full on-chain supply is used, with a note saying why.
 //   - Otherwise (no curve, or it has completed) the deepest DEX pair on DEX
 //     Screener. Its listing of the bonding curve itself doesn't count.
 //   - Holders: an exact count of accounts with a balance, from Helius DAS
@@ -33,6 +39,13 @@ const METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+// pump.fun "Mayhem Mode": such coins mint a second 1B into pump.fun's
+// Mayhem wallet, the Mayhem program's PDA ["sol-vault"] (checked on 10
+// Mayhem coins, 2026-09-28). The curve marks these coins with a flag
+// right after its creator field.
+const MAYHEM_PROGRAM_ID = "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e";
+const CURVE_MAYHEM_FLAG_OFFSET = 81;
 // Anchor account discriminators: sha256("account:<Name>")[0..8].
 const BONDING_CURVE_DISCRIMINATOR = [23, 183, 248, 55, 96, 216, 172, 96];
 const GLOBAL_DISCRIMINATOR = [167, 232, 232, 177, 200, 108, 114, 127];
@@ -221,7 +234,32 @@ export function decodeBondingCurve(bytes) {
     realSolReserves: u64(bytes, 32),
     tokenTotalSupply: u64(bytes, 40),
     complete: bytes[48] === 1,
+    mayhemFlag: bytes.length > CURVE_MAYHEM_FLAG_OFFSET && bytes[CURVE_MAYHEM_FLAG_OFFSET] === 1,
   };
+}
+
+/** SPL / Token-2022 token account: mint, owner, amount (same base layout). */
+export function decodeTokenAccount(bytes) {
+  if (bytes.length < 72) return null;
+  return { mint: encodeAddress(bytes.subarray(0, 32)), owner: encodeAddress(bytes.subarray(32, 64)), amount: u64(bytes, 64) };
+}
+
+/** Whether this coin is a pump.fun Mayhem Mode coin, from its own data:
+ *  the curve's Mayhem flag AND a mint supply of exactly twice the curve's,
+ *  plus a readable Mayhem-wallet token account for this mint. Anything
+ *  less certain is reported as `uncertain`, never guessed. */
+export function mayhemStatus({ curve, mintInfo, mint, mintProgram, vault, vaultTokenAccount }) {
+  if (!curve) return { detected: false };
+  const doubled = mintInfo.supply === 2n * curve.tokenTotalSupply;
+  if (!curve.mayhemFlag && !doubled) return { detected: false };
+  if (!curve.mayhemFlag) return { uncertain: "The mint's supply is twice the curve's, but the curve isn't marked Mayhem Mode." };
+  if (!doubled) return { uncertain: "The curve is marked Mayhem Mode, but the mint's supply isn't twice the curve's." };
+  const account = vaultTokenAccount && vaultTokenAccount.owner === mintProgram ? decodeTokenAccount(vaultTokenAccount.data) : null;
+  if (!account || account.mint !== mint || account.owner !== vault) {
+    return { uncertain: "The curve is marked Mayhem Mode, but the Mayhem wallet's holdings couldn't be read." };
+  }
+  if (account.amount > mintInfo.supply) return { uncertain: "The Mayhem wallet's balance is larger than the supply." };
+  return { detected: true, wallet: vault, walletBalance: account.amount };
 }
 
 export function decodeGlobal(bytes) {
@@ -292,7 +330,13 @@ async function dexScreenerPair(mint) {
   }
 }
 
-const shared = { solPrice: null, global: null };
+const shared = { solPrice: null, global: null, vault: null };
+
+/** pump.fun's Mayhem wallet: the Mayhem program's PDA ["sol-vault"]. */
+async function mayhemVault() {
+  shared.vault = shared.vault || (await findProgramAddress([encoder.encode("sol-vault")], MAYHEM_PROGRAM_ID));
+  return shared.vault;
+}
 
 async function solUsdPrice(env, now) {
   if (shared.solPrice && shared.solPrice.expires > now) return shared.solPrice.value;
@@ -403,15 +447,28 @@ function toNumber(amount, decimals) {
   return Number(amount) / 10 ** decimals;
 }
 
-export function curveMetrics(curve, mint, global, solUsd) {
+const formatTokens = (n) => Math.round(n).toLocaleString("en-US");
+
+export function curveMetrics(curve, mint, global, solUsd, mayhem = { detected: false }) {
   const tokens = toNumber(curve.virtualTokenReserves, mint.decimals);
   const priceSol = tokens > 0 ? toNumber(curve.virtualSolReserves, 9) / tokens : null;
-  // The mint's actual on-chain supply, not the curve's own figure: some
-  // pump.fun tokens mint more than the curve's 1B (seen: 2B on-chain).
+  // The mint's actual on-chain supply. For a confirmed Mayhem Mode coin the
+  // headline market cap leaves out what pump.fun's Mayhem wallet holds
+  // (an exact on-chain balance); the full-supply figure is returned too.
   const supply = toNumber(mint.supply, mint.decimals);
-  const marketCapSol = priceSol === null ? null : priceSol * supply;
+  const mayhemTokens = mayhem.detected ? toNumber(mayhem.walletBalance, mint.decimals) : 0;
+  const counted = supply - mayhemTokens;
+  const marketCapSol = priceSol === null ? null : priceSol * counted;
   const liquiditySol = toNumber(curve.realSolReserves, 9);
   const usd = (sol) => (solUsd && sol !== null ? value(sol * solUsd, "USD") : unavailable("Live SOL/USD price unavailable (Jupiter)."));
+  const marketCapBasis = mayhem.detected
+    ? `Excludes ${formatTokens(mayhemTokens)} tokens held by pump.fun's Mayhem wallet (${formatTokens(counted)} of ${formatTokens(supply)}).`
+    : mayhem.uncertain
+      ? `Full on-chain supply (${formatTokens(supply)}). ${mayhem.uncertain}`
+      : `Full on-chain supply (${formatTokens(supply)}).`;
+  const fullSupply = mayhem.detected && priceSol !== null
+    ? { marketCapFullSupply: { sol: value(priceSol * supply, "SOL"), usd: usd(priceSol * supply) } }
+    : {};
   let progress = unavailable("pump.fun's Global account couldn't be read.");
   if (curve.complete) progress = value(100, "%");
   else if (global && global.initialRealTokenReserves > 0n) {
@@ -421,6 +478,10 @@ export function curveMetrics(curve, mint, global, solUsd) {
   return {
     price: { sol: priceSol === null ? unavailable("The curve has no tokens left.") : value(priceSol, "SOL"), usd: usd(priceSol) },
     marketCap: { sol: marketCapSol === null ? unavailable("The curve has no tokens left.") : value(marketCapSol, "SOL"), usd: usd(marketCapSol) },
+    marketCapBasis,
+    ...fullSupply,
+    // BigInt isn't JSON: the balance goes out as a base-unit string.
+    mayhem: mayhem.detected ? { ...mayhem, walletBalance: mayhem.walletBalance.toString() } : mayhem,
     liquidity: { sol: value(liquiditySol, "SOL"), usd: usd(liquiditySol) },
     curveProgress: progress,
     curveComplete: curve.complete,
@@ -455,11 +516,19 @@ function dexMetrics(pair) {
 
 async function lookup(mint, env, now) {
   const mintBytes = decodeAddress(mint);
-  const [curveAddress, metaplexAddress] = await Promise.all([
+  const vault = await mayhemVault();
+  // The Mayhem wallet's token account for this mint, under either token
+  // program; read in the same call so detection costs no extra request.
+  const [curveAddress, metaplexAddress, vaultAta2022, vaultAtaSpl] = await Promise.all([
     findProgramAddress([encoder.encode("bonding-curve"), mintBytes], PUMP_PROGRAM_ID),
     findProgramAddress([encoder.encode("metadata"), decodeAddress(METADATA_PROGRAM_ID), mintBytes], METADATA_PROGRAM_ID),
+    findProgramAddress([decodeAddress(vault), decodeAddress(TOKEN_2022_PROGRAM_ID), mintBytes], ASSOCIATED_TOKEN_PROGRAM_ID),
+    findProgramAddress([decodeAddress(vault), decodeAddress(TOKEN_PROGRAM_ID), mintBytes], ASSOCIATED_TOKEN_PROGRAM_ID),
   ]);
-  const [mintAccount, curveAccount, metaplexAccount] = await getAccounts([mint, curveAddress, metaplexAddress], env);
+  const [mintAccount, curveAccount, metaplexAccount, vault2022Account, vaultSplAccount] = await getAccounts(
+    [mint, curveAddress, metaplexAddress, vaultAta2022, vaultAtaSpl],
+    env,
+  );
   if (!mintAccount || (mintAccount.owner !== TOKEN_PROGRAM_ID && mintAccount.owner !== TOKEN_2022_PROGRAM_ID)) {
     return { status: 404, body: { code: "MINT_NOT_FOUND", error: "No token mint exists at this address." }, ttl: CACHE_TTL_MS.notFound };
   }
@@ -481,7 +550,15 @@ async function lookup(mint, env, now) {
   if (curve && !curve.complete) {
     source = "pump.fun bonding curve";
     const [global, solUsd] = await Promise.all([pumpGlobal(env, now).catch(() => null), solUsdPrice(env, now)]);
-    market = curveMetrics(curve, mintInfo, global, solUsd);
+    const mayhem = mayhemStatus({
+      curve,
+      mintInfo,
+      mint,
+      mintProgram: mintAccount.owner,
+      vault,
+      vaultTokenAccount: mintAccount.owner === TOKEN_2022_PROGRAM_ID ? vault2022Account : vaultSplAccount,
+    });
+    market = curveMetrics(curve, mintInfo, global, solUsd, mayhem);
   } else if (dex.pair) {
     source = `DEX Screener (${String(dex.pair.dexId || "DEX")})`;
     market = dexMetrics(dex.pair);

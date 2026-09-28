@@ -131,6 +131,43 @@ def main():
         check("the logo is an https <img>: 48px, lazy, no referrer", logo == {"src": LOGO, "w": "48", "h": "48", "lazy": "lazy", "ref": "no-referrer"})
         check("the page asks for market data once (no polling)", market_requests == 1)
 
+        # --- pump.fun Mayhem Mode: confirmed, uncertain, and a normal coin ----
+        mayhem = json.loads(json.dumps(CURVE_RESPONSE))
+        mayhem["marketCap"] = {"sol": {"value": 31.76, "unit": "SOL"}, "usd": {"value": 3782.2, "unit": "USD"}}
+        mayhem["marketCapFullSupply"] = {"sol": {"value": 63.57, "unit": "SOL"}, "usd": {"value": 7569.21, "unit": "USD"}}
+        mayhem["marketCapBasis"] = "Excludes 1,000,668,247 tokens held by pump.fun's Mayhem wallet (999,331,753 of 2,000,000,000)."
+        mayhem["mayhem"] = {"detected": True, "wallet": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s", "walletBalance": "1000668246767000"}
+        page = open_page(browser, market_body=mayhem)
+        page.wait_for_function("() => document.getElementById('token-market-source').textContent.length > 0", timeout=10000)
+        cap = stat_text(page, "marketCap")
+        badge = page.text_content('#token-mayhem-badge') if page.query_selector('#token-mayhem-badge') else None
+        page.close()
+        check("Mayhem: the headline market cap leaves out the Mayhem wallet, with the basis stated", cap.startswith("$3,782.2") and "Excludes 1,000,668,247 tokens held by pump.fun's Mayhem wallet" in cap)
+        check("Mayhem: the full on-chain supply market cap is shown too", "Full on-chain supply: $7,569.21" in cap)
+        check("Mayhem: a 'Mayhem Mode' badge is shown", badge == "Mayhem Mode")
+
+        uncertain = json.loads(json.dumps(CURVE_RESPONSE))
+        uncertain["marketCapBasis"] = "Full on-chain supply (2,000,000,000). The curve is marked Mayhem Mode, but the Mayhem wallet's holdings couldn't be read."
+        uncertain["mayhem"] = {"uncertain": "The curve is marked Mayhem Mode, but the Mayhem wallet's holdings couldn't be read."}
+        page = open_page(browser, market_body=uncertain)
+        page.wait_for_function("() => document.getElementById('token-market-source').textContent.length > 0", timeout=10000)
+        cap = stat_text(page, "marketCap")
+        has_badge = page.query_selector('#token-mayhem-badge') is not None
+        page.close()
+        check("uncertain Mayhem: the full on-chain market cap with the note saying why", cap.startswith("$7,569.21") and "Full on-chain supply (2,000,000,000). The curve is marked Mayhem Mode" in cap)
+        check("uncertain Mayhem: no badge and no second market cap line", not has_badge and "Full on-chain supply:" not in cap)
+
+        normal = json.loads(json.dumps(CURVE_RESPONSE))
+        normal["marketCap"] = {"sol": {"value": 28.4, "unit": "SOL"}, "usd": {"value": 3380.0, "unit": "USD"}}
+        normal["marketCapBasis"] = "Full on-chain supply (1,000,000,000)."
+        normal["mayhem"] = {"detected": False}
+        page = open_page(browser, market_body=normal)
+        page.wait_for_function("() => document.getElementById('token-market-source').textContent.length > 0", timeout=10000)
+        cap = stat_text(page, "marketCap")
+        has_badge = page.query_selector('#token-mayhem-badge') is not None
+        page.close()
+        check("normal coin: market cap on the full supply, no Mayhem badge", cap.startswith("$3,380") and "Full on-chain supply (1,000,000,000)." in cap and not has_badge)
+
         # --- values the endpoint couldn't read stay Unavailable, with the reason
         body = json.loads(json.dumps(CURVE_RESPONSE))
         body["price"]["usd"] = {"unavailable": "Live SOL/USD price unavailable (Jupiter)."}
