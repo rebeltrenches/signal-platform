@@ -36,37 +36,10 @@
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
-  // Logos come from third parties (DEX Screener, token metadata): only
-  // https URLs, only ever as an <img> built with DOM properties.
-  const LOGO_SIZE = 32;
-  function safeLogoUrl(value) {
-    try {
-      return typeof value === 'string' && value.length <= 2048 && new URL(value).protocol === 'https:' ? value : null;
-    } catch {
-      return null;
-    }
-  }
-  function logoPlaceholder(item) {
-    const placeholder = document.createElement('span');
-    placeholder.className = 'token-logo token-logo-placeholder';
-    placeholder.setAttribute('aria-hidden', 'true');
-    placeholder.textContent = String(item.symbol || item.name || '?').trim().charAt(0).toUpperCase() || '?';
-    return placeholder;
-  }
+  // Logos come from third parties: drawn only by logo-image.js (https only,
+  // <img> via DOM properties, placeholder on failure).
   function logoElement(item) {
-    const url = safeLogoUrl(item.logo);
-    if (!url) return logoPlaceholder(item);
-    const img = document.createElement('img');
-    img.className = 'token-logo';
-    img.alt = '';
-    img.width = LOGO_SIZE;
-    img.height = LOGO_SIZE;
-    img.loading = 'lazy';
-    img.decoding = 'async';
-    img.referrerPolicy = 'no-referrer';
-    img.addEventListener('error', () => img.replaceWith(logoPlaceholder(item)), { once: true });
-    img.src = url;
-    return img;
+    return window.signalLogoImage.logoElement({ url: item.logo, label: item.symbol || item.name, size: 32 });
   }
   // Signal launches' logos live in their on-chain metadata; the reader
   // (and the wallet library it needs) is only loaded when there are some.

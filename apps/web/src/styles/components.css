@@ -555,3 +555,15 @@
   font-weight: 700;
   color: var(--ink-faint);
 }
+/* Token workspace header logo (logo-image.js sets width/height inline). */
+.token-logo-lg { border-radius: 12px; font: var(--text-body); }
+/* Stat values can be long (tiny prices, "Unavailable" with a reason):
+   wrap inside the tile instead of being clipped. */
+.stat { min-width: 0; }
+.stat .v { overflow-wrap: anywhere; }
+/* Five stats (token workspace with bonding-curve progress). */
+.stat-grid.stat-grid-5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 900px) {
+  .stat-grid.stat-grid-5 { grid-template-columns: 1fr 1fr; }
+  .stat-grid.stat-grid-5 > .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
