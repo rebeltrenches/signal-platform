@@ -535,3 +535,23 @@
   .hero-side-label-right { right: 3%; top: 56px; transform: none; text-align: left; align-items: flex-start; }
   .hero-side-label i { width: 18px; margin-top: 5px; }
 }
+
+/* Token logos (Explore). Third-party images: fixed size, cropped, and a
+   neutral placeholder when there is none or it fails to load. */
+.token-logo {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  object-fit: cover;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+}
+.token-logo-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: var(--text-micro);
+  font-weight: 700;
+  color: var(--ink-faint);
+}

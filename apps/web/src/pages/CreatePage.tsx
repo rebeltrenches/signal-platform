@@ -177,7 +177,7 @@ export function CreatePage() {
         <div className="step-label"><span className="current">Step 4 of 4</span><span>Review</span></div>
         <div className="card" id="review-summary">
           <div className="review-row"><span className="k">Chain</span><span className="v" id="rv-chain">—</span></div>
-          <div className="review-row"><span className="k">Logo</span><span className="v"><img id="rv-logo" alt="Logo" width={48} height={48} style={{ borderRadius: 10, objectFit: 'cover' }} /></span></div>
+          <div className="review-row"><span className="k">Logo</span><span className="v"><img id="rv-logo" alt="Logo" width={48} height={48} style={{ borderRadius: 10, objectFit: 'cover' }} hidden /></span></div>
           <div className="review-row"><span className="k">Name</span><span className="v" id="rv-name">—</span></div>
           <div className="review-row"><span className="k">Symbol</span><span className="v" id="rv-symbol">—</span></div>
           <div className="review-row"><span className="k">Description</span><span className="v" id="rv-description">—</span></div>

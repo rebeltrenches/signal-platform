@@ -109,6 +109,16 @@ def png_bytes(size=2048):
     return header + bytes(size - len(header))
 
 
+def real_png():
+    """A genuine 1x1 PNG a browser can draw (png_bytes is only a header)."""
+    import struct, zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"\x00\x7c\x5c\xff\xff")) + chunk(b"IEND", b""))
+
+
 def data_item_fields(body):
     """Parses what the page uploaded (an ANS-104 data item, signature
     type 4): its id, tags and data."""
@@ -713,13 +723,26 @@ def main():
         page.fill('#tk-name', "Good Name")
         page.fill('#tk-symbol', "GOOD")
         disabled_without_logo = page.is_disabled(next_btn)
+        # is_visible checks what is actually rendered, not just the attribute.
+        preview_visible_at_start = page.is_visible('#tk-logo-preview')
         page.set_input_files('#tk-logo', files=[{"name": "big.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024 + 1)}])
         page.wait_for_function("() => document.getElementById('tk-logo-error').textContent.length > 0", timeout=5000)
         big_error = page.text_content('#tk-logo-error') or ""
         disabled_big = page.is_disabled(next_btn)
+        preview_visible_big = page.is_visible('#tk-logo-preview')
+        page.set_input_files('#tk-logo', files=[{"name": "ok.png", "mimeType": "image/png", "buffer": real_png()}])
+        page.wait_for_function("() => { const p = document.getElementById('tk-logo-preview'); return !p.hidden && p.complete && p.naturalWidth > 0; }", timeout=5000)
+        preview_visible_valid = page.is_visible('#tk-logo-preview')
         page.set_input_files('#tk-logo', files=[{"name": "fake.png", "mimeType": "image/png", "buffer": b"<svg xmlns='http://www.w3.org/2000/svg'/>"}])
         page.wait_for_function("() => /PNG, JPEG/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
         disabled_svg = page.is_disabled(next_btn)
+        preview_visible_after_reject = page.is_visible('#tk-logo-preview')
+        page.set_input_files('#tk-logo', files=[{"name": "ok.png", "mimeType": "image/png", "buffer": real_png()}])
+        page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
+        page.set_input_files('#tk-logo', files=[])
+        page.wait_for_function("() => document.getElementById('tk-logo-preview').hidden", timeout=5000)
+        preview_visible_after_clear = page.is_visible('#tk-logo-preview')
+        disabled_after_clear = page.is_disabled(next_btn)
         page.set_input_files('#tk-logo', files=[{"name": "ok.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024)}])
         page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
         enabled_ok = not page.is_disabled(next_btn)
@@ -732,6 +755,10 @@ def main():
         disabled_symbol = page.is_disabled(next_btn)
         page.close()
         check("M (wizard): Continue needs a logo", disabled_without_logo)
+        check("M (wizard): no preview (and no broken image) is shown before a logo is chosen", not preview_visible_at_start)
+        check("M (wizard): a rejected logo shows no preview", not preview_visible_big and not preview_visible_after_reject)
+        check("M (wizard): a valid logo is previewed (really drawn)", preview_visible_valid)
+        check("M (wizard): clearing the file hides the preview again and disables Continue", not preview_visible_after_clear and disabled_after_clear)
         check("M (wizard): a logo over 100 KB is refused with its size", disabled_big and "maximum is 100 KB" in big_error)
         check("M (wizard): a non-image renamed .png is refused", disabled_svg)
         check("M (wizard): a 100 KB PNG is accepted and previewed", enabled_ok)
@@ -1038,6 +1065,37 @@ def main():
         check("B1 (dismiss): cancelling the confirmation keeps the record", kept_after_cancel is not None)
         check("B1 (dismiss): confirming clears the record", cleared_after_accept is None)
         check("B1 (dismiss): and hides the notice", notice_hidden is True)
+
+        # Every stored value in the recovery notice is text, never HTML:
+        # the record comes from localStorage, which a script or extension
+        # on this origin could have written.
+        evil_mint = '"><img src=x onerror="window.xss=1"><b class=injected>'
+        evil_name = '<img src=x onerror="window.xss=2">'
+        evil_symbol = '<b class=injected>SYM</b>'
+        for stage in ("supply", "listing"):
+            seed_evil = f"""localStorage.setItem('{PENDING_KEY}', JSON.stringify({{
+                mint: {json.dumps(evil_mint)}, name: {json.dumps(evil_name)}, symbol: {json.dumps(evil_symbol)},
+                supply: '500000000', decimals: 6, stage: {json.dumps(stage)},
+                creatorAddress: '{CREATOR_WALLET}', createdAt: new Date().toISOString(),
+            }}));"""
+            page = new_page(browser, storage_js=seed_evil)
+            page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+            notice_text = page.text_content('#pending-launch-notice') or ""
+            explorer_href = page.get_attribute('#pending-launch-notice a', 'href') or ""
+            ran = page.evaluate("window.xss !== undefined || !!document.querySelector('#pending-launch-notice img, #pending-launch-notice .injected')")
+            finished_text, ran_after = "", False
+            if stage == "supply":
+                page.click('#pendingResumeConnect')
+                page.wait_for_function("() => /Failed|Supply locked\\.|Supply lock check failed|couldn't be read back/.test(document.querySelector('#pendingResumeStatus').textContent)", timeout=20000)
+                finished_text = page.text_content('#pendingResumeStatus') or ""
+                ran_after = page.evaluate("window.xss !== undefined || !!document.querySelector('#pending-launch-notice img, #pending-launch-notice .injected')")
+            page.close()
+            check(f"R ({stage}): a stored mint, name and symbol with HTML are shown literally in the notice",
+                  evil_mint in notice_text and f'"{evil_name}" ({evil_symbol})' in notice_text)
+            check(f"R ({stage}): and never run or create elements", not ran)
+            check(f"R ({stage}): the Explorer link keeps the stored mint URL-encoded", explorer_href.startswith("https://explorer.solana.com/address/%22%3E%3Cimg"))
+            if stage == "supply":
+                check("R (supply): finishing from the notice shows the result without running stored HTML", "Done." in finished_text and "Supply locked." in finished_text and not ran_after)
 
         # =================================================================
         # L — a launch stays recoverable until Signal confirms the listing

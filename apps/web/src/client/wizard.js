@@ -188,7 +188,12 @@
     const preview = document.getElementById('tk-logo-preview');
     state.logoFile = null;
     state.logoValid = false;
-    if (preview) { preview.hidden = true; preview.removeAttribute('src'); }
+    // Hidden (and its old image released) until a new file passes the checks.
+    if (preview) {
+      preview.hidden = true;
+      if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+      preview.removeAttribute('src');
+    }
     let error = '';
     if (!file) {
       error = '';
@@ -269,7 +274,12 @@
     });
     const logoPreview = document.getElementById('tk-logo-preview');
     const reviewLogo = document.getElementById('rv-logo');
-    if (reviewLogo && logoPreview && logoPreview.src) reviewLogo.src = logoPreview.src;
+    if (reviewLogo) {
+      const hasLogo = !!(state.logoValid && logoPreview && logoPreview.src);
+      if (hasLogo) reviewLogo.src = logoPreview.src;
+      else reviewLogo.removeAttribute('src');
+      reviewLogo.hidden = !hasLogo;
+    }
 
     // Only Solana has a real deployment adapter (Stage 6). Base/BNB show
     // an honest "not available" notice instead of a flow with nowhere

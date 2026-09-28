@@ -58,6 +58,9 @@ h1, h2, h3, p, figure { margin: 0; }
 a { color: inherit; }
 button { font-family: var(--font-sans); }
 img { max-width: 100%; display: block; }
+/* The hidden attribute must win over display rules like the one above
+   (without this, a hidden <img> still showed as a broken image). */
+[hidden] { display: none !important; }
 .num { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
