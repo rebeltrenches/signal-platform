@@ -56,7 +56,25 @@ function headerValue(headers: Record<string, string | string[] | undefined>, nam
  * must be this session's wallet. Without the secret configured here,
  * registration fails safe (nothing is accepted).
  */
+/**
+ * Devnet test APIs only: Devnet test builds register straight with their
+ * own test API (there is no Worker in front of it). Allowed only when BOTH
+ * SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION is exactly "devnet" AND this API's
+ * SOLANA_RPC_URL is a Devnet endpoint, so the flag can never open a way
+ * around the Worker on a Mainnet API, even if set there by mistake.
+ */
+export function directRegistrationAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION !== 'devnet') return false;
+  try {
+    const host = new URL(env.SOLANA_RPC_URL ?? '').hostname.toLowerCase();
+    return host.includes('devnet');
+  } catch {
+    return false;
+  }
+}
+
 function edgeRefusal(headers: Record<string, string | string[] | undefined>, wallet: string): { status: number; body: unknown } | null {
+  if (directRegistrationAllowed()) return null;
   const expected = process.env.SIGNAL_EDGE_SECRET ?? '';
   if (!expected) {
     return { status: 503, body: { error: 'REGISTRATION_NOT_CONFIGURED', message: 'Listing on Signal is not available right now.' } };

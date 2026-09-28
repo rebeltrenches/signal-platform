@@ -34,6 +34,7 @@ DIST_DIR = os.path.join(REPO_ROOT, "apps/web/dist")
 PORT = 8101
 WALLET = "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg"
 MINT = "BM2k8mJUbMthHoioykyUm2NjMrXvLBYhoXruwYLpump"
+EVM_WALLET = "0xabc1230000000000000000000000000000de0d00"
 RESTRICTIONS = json.load(open(os.path.join(REPO_ROOT, "config/restrictions.json"), encoding="utf-8"))
 TERMS = RESTRICTIONS["termsVersion"]
 ALLOWED = {"country": "DE", "region": None, "level": "allowed", "termsVersion": TERMS}
@@ -92,6 +93,17 @@ def open_page(browser, path="/", geo=ALLOWED, screening="clear", acceptance=None
     page.route(lambda url: not url.startswith(f"http://localhost:{PORT}/"), lambda r: r.abort())
     page.add_init_script(f"""
       window.__connects = [];
+      // A Base (EVM) wallet, for the Create page's Base/BNB connect buttons.
+      window.__evm = [];
+      window.ethereum = {{
+        request: async ({{ method }}) => {{
+          window.__evm.push(method);
+          if (method === 'eth_requestAccounts') return ['{EVM_WALLET}'];
+          if (method === 'eth_chainId') return '0x2105';
+          return null;
+        }},
+        on: () => {{}},
+      }};
       window.solana = {{
         isPhantom: true,
         publicKey: null,
@@ -219,6 +231,33 @@ def main():
         builds = list(page.calls["build"])
         page.close()
         check("a cleared wallet goes on to build the trade (the Worker checks again there)", len(builds) == 1 and builds[0]["taker"] == WALLET)
+
+        # --- Base/BNB (EVM) wallets follow the same rules ---------------------
+        def choose_base(page):
+            page.click('#chain-grid [data-chain="base"]')
+            page.wait_for_selector('#evm-connect-base:not([hidden])', timeout=5000)
+
+        page = open_page(browser, path="/create/", geo=BLOCKED)
+        choose_base(page)
+        page.click('[data-evm-connect="base"]')
+        page.wait_for_timeout(500)
+        evm_calls = page.evaluate("window.__evm")
+        status = page.text_content('[data-evm-status="base"]') or ""
+        page.close()
+        check("Base wallet: a blocked region never asks the wallet to connect", evm_calls == [] and "terms accepted" in status)
+
+        page = open_page(browser, path="/create/")
+        choose_base(page)
+        page.click('[data-evm-connect="base"]')
+        page.wait_for_selector('#terms-acceptance', timeout=5000)
+        evm_before_accept = page.evaluate("window.__evm")
+        accept_all(page)
+        page.wait_for_function("() => window.launchpadEvmWallet && window.launchpadEvmWallet.address", timeout=5000)
+        page.wait_for_timeout(300)
+        screened = list(page.calls["screen"])
+        page.close()
+        check("Base wallet: the terms screen comes first; the wallet isn't asked before accepting", evm_before_accept == [])
+        check("Base wallet: once connected, its address is screened too", screened == [EVM_WALLET])
 
         # --- the terms page --------------------------------------------------
         page = open_page(browser, path="/terms/")

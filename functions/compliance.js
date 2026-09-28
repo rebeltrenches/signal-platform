@@ -17,6 +17,7 @@ export const SCREENING_CACHE_MS = { clear: 10 * 60_000, sanctioned: 10 * 60_000 
 const SCREENING_TIMEOUT_MS = 6_000;
 const CHAINALYSIS_URL = "https://public.chainalysis.com/api/v1/address/";
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MAX_CACHE_ENTRIES = 5_000;
 
 /** Visitor location from Cloudflare. Unknown locations (none, XX, Tor's T1)
@@ -61,10 +62,15 @@ export function isSolanaAddress(value) {
   return typeof value === "string" && SOLANA_ADDRESS.test(value);
 }
 
+/** Addresses the screening accepts: Solana, and EVM (Base/BNB wallets). */
+export function isScreenableAddress(value) {
+  return isSolanaAddress(value) || (typeof value === "string" && EVM_ADDRESS.test(value));
+}
+
 /** { status: "clear" } | { status: "sanctioned", names } |
  *  { status: "unavailable", reason }. Only "clear" may proceed. */
 export async function screenWallet(address, env, now = Date.now()) {
-  if (!isSolanaAddress(address)) return { status: "unavailable", reason: "Not a valid wallet address." };
+  if (!isScreenableAddress(address)) return { status: "unavailable", reason: "Not a valid wallet address." };
   const apiKey = typeof env?.CHAINALYSIS_API_KEY === "string" ? env.CHAINALYSIS_API_KEY.trim() : "";
   if (!apiKey) return { status: "unavailable", reason: "Wallet screening isn't configured yet." };
 

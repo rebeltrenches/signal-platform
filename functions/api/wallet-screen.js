@@ -1,9 +1,9 @@
-// POST /api/wallet-screen { address } — sanctions screening of a Solana
-// wallet (Chainalysis, via compliance.js), used by the site right after a
+// POST /api/wallet-screen { address } — sanctions screening of a Solana (or
+// Base/BNB) wallet (Chainalysis, via compliance.js), used by the site right after a
 // wallet connects. The Worker screens again itself before registering a
 // launch or building a trade, so this answer is never the only check.
 // Rate-limited per IP; answers are cached briefly in compliance.js.
-import { screenWallet, isSolanaAddress, geoForRequest, jsonResponse } from "../compliance.js";
+import { screenWallet, isScreenableAddress, geoForRequest, jsonResponse } from "../compliance.js";
 
 export const SCREEN_RATE_LIMIT = { requests: 30, windowMs: 60_000 };
 const windows = new Map(); // ip -> [timestamps]
@@ -32,7 +32,7 @@ export async function onRequestPost({ request, env, now = Date.now() }) {
     return jsonResponse(400, { code: "INVALID_JSON", error: "Invalid JSON body." });
   }
   const address = typeof body?.address === "string" ? body.address.trim() : "";
-  if (!isSolanaAddress(address)) return jsonResponse(400, { code: "INVALID_ADDRESS", error: "Not a valid Solana wallet address." });
+  if (!isScreenableAddress(address)) return jsonResponse(400, { code: "INVALID_ADDRESS", error: "Not a valid wallet address." });
   if (geoForRequest(request).level === "blocked") {
     return jsonResponse(451, { code: "REGION_BLOCKED", error: "Signal isn't available in your region." });
   }

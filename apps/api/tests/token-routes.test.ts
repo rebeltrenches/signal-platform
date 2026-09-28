@@ -12,6 +12,7 @@
  */
 import { createServer } from '../src/server.js';
 import { __resetForTests } from '../src/tokens/tokenStore.js';
+import { directRegistrationAllowed } from '../src/routes/tokens.js';
 import { makeWallet, signIn, randomSolanaAddress, startFakeSolanaRpcServer, type FakeMint } from './support/solanaTestKit.js';
 
 let passed = 0;
@@ -91,6 +92,20 @@ async function run() {
     const unconfigured = await register(creatorSession, tokenBody);
     process.env.SIGNAL_EDGE_SECRET = EDGE_SECRET;
     test('without SIGNAL_EDGE_SECRET configured, registration fails safe with 503', unconfigured.status === 503 && unconfigured.body.error === 'REGISTRATION_NOT_CONFIGURED', JSON.stringify(unconfigured));
+
+    // Devnet test APIs may take registrations straight from Devnet builds,
+    // but the flag alone never opens a way around the Worker on Mainnet.
+    process.env.SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION = 'devnet';
+    const flagOnMainnetApi = await register(creatorSession, tokenBody, { 'x-signal-edge-secret': '' });
+    delete process.env.SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION;
+    test('the devnet flag on an API whose RPC is not Devnet still requires the edge secret', flagOnMainnetApi.status === 403 && flagOnMainnetApi.body.error === 'EDGE_REQUIRED', JSON.stringify(flagOnMainnetApi));
+    test('direct registration is allowed only with the devnet flag AND a Devnet RPC',
+      directRegistrationAllowed({ SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION: 'devnet', SOLANA_RPC_URL: 'https://api.devnet.solana.com' }) === true &&
+      directRegistrationAllowed({ SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION: 'devnet', SOLANA_RPC_URL: 'https://devnet.helius-rpc.com/?api-key=x' }) === true &&
+      directRegistrationAllowed({ SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION: 'devnet', SOLANA_RPC_URL: 'https://mainnet.helius-rpc.com/?api-key=x' }) === false &&
+      directRegistrationAllowed({ SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION: 'true', SOLANA_RPC_URL: 'https://api.devnet.solana.com' }) === false &&
+      directRegistrationAllowed({ SOLANA_RPC_URL: 'https://api.devnet.solana.com' }) === false &&
+      directRegistrationAllowed({ SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION: 'devnet', SOLANA_RPC_URL: 'https://evil.example/devnet' }) === false);
 
     // --- C2: the creator must be the signed-in wallet AND have created the mint ---
     const claimedByStranger = await register(strangerSession, tokenBody);

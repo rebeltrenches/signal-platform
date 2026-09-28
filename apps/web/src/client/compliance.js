@@ -211,12 +211,15 @@
   loadGeo().then((geo) => {
     if (geo && geo.level === 'blocked') showBlockedNotice(geo);
   });
-  // Screen each wallet as soon as it connects; a sanctioned one gets a notice.
-  document.addEventListener('launchpad:wallet-connected', (event) => {
+  // Screen each wallet as soon as it connects (Solana, and Base/BNB wallets
+  // from evm-wallet.js); a sanctioned one gets a notice.
+  const screenOnConnect = (event) => {
     const address = event.detail && event.detail.address;
     if (!address || IS_DEVNET) return;
     screen(address).then((result) => {
       if (result.status === 'sanctioned') showWalletNotice(result.message);
     });
-  });
+  };
+  document.addEventListener('launchpad:wallet-connected', screenOnConnect);
+  document.addEventListener('launchpad:evm-wallet-connected', screenOnConnect);
 })();

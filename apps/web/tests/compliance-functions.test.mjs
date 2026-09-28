@@ -187,6 +187,9 @@ await test("POST /api/wallet-screen: clear / sanctioned / unavailable, 451 in bl
   assert.equal((await (await post(SANCTIONED)).json()).status, "sanctioned");
   assert.equal((await post(WALLET, { country: "KP" })).status, 451);
   assert.equal((await post("nope")).status, 400);
+  // Base/BNB wallets connected on the Create page are screened too.
+  assert.deepEqual(await (await post("0xabc1230000000000000000000000000000de0d00")).json(), { status: "clear" });
+  assert.equal((await post("0xabc123")).status, 400);
   compliance.resetComplianceForTests();
   network({ chainalysis: () => new Response("down", { status: 500 }) });
   const unavailable = await (await post(WALLET)).json();
