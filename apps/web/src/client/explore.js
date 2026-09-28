@@ -12,6 +12,21 @@
   let searchRequestId = 0;
   const chainMap = { solana: 'solana', base: 'base', bsc: 'bnb' };
   const chainLabel = { solana: 'Solana', base: 'Base', bnb: 'BNB Chain' };
+  // One spelling per chain on this page, whatever the source sends: the
+  // Signal API returns "SOLANA", DEX Screener "bsc". Every chain value is
+  // normalized on the way in and in every comparison.
+  function normalizeChain(value) {
+    const chain = String(value ?? '').trim().toLowerCase();
+    return chainMap[chain] || chain;
+  }
+  // A token from the Signal API (/api/v1/tokens or /api/v1/search).
+  function signalTokenItem(token) {
+    return {
+      name: token.name, symbol: token.symbol, address: token.address, chain: normalizeChain(token.chain),
+      createdAt: Date.parse(token.createdAt), origin: 'Signal', market: 'Signal',
+      url: `/token/${encodeURIComponent(token.address)}`,
+    };
+  }
 
   function apiPath(path) {
     const base = window.SIGNAL_API_BASE_URL;
@@ -57,7 +72,7 @@
   // (and the wallet library it needs) is only loaded when there are some.
   let signalLogoReader = null;
   function resolveSignalLogos(items) {
-    const solana = items.filter((item) => item.chain === 'solana' && !item.logo && item.address);
+    const solana = items.filter((item) => normalizeChain(item.chain) === 'solana' && !item.logo && item.address);
     if (!solana.length) return;
     signalLogoReader = signalLogoReader || import('/client/token-logo.js').catch(() => null);
     signalLogoReader.then((reader) => {
@@ -66,7 +81,7 @@
         reader.signalLogoUrl(item.address).then((logo) => {
           if (!logo) return;
           state.signal.forEach((entry) => {
-            if (entry.chain === item.chain && entry.address === item.address) entry.logo = logo;
+            if (normalizeChain(entry.chain) === normalizeChain(item.chain) && entry.address === item.address) entry.logo = logo;
           });
           render();
         });
@@ -96,7 +111,7 @@
   function dedupe(items) {
     const byKey = new Map();
     items.forEach((item) => {
-      const key = `${item.chain}:${String(item.address).toLowerCase()}`;
+      const key = `${normalizeChain(item.chain)}:${String(item.address).toLowerCase()}`;
       const current = byKey.get(key);
       if (!current || (item.createdAt || 0) >= (current.createdAt || 0)) {
         byKey.set(key, { ...current, ...item });
@@ -107,7 +122,7 @@
   function visibleItems() {
     let items = state.origin === 'signal' ? state.signal
       : state.origin === 'external' ? state.external : [...state.signal, ...state.external];
-    if (state.chains.size) items = items.filter((item) => state.chains.has(item.chain));
+    if (state.chains.size) items = items.filter((item) => state.chains.has(normalizeChain(item.chain)));
     if (state.query) {
       const needle = state.query.toLowerCase();
       items = items.filter((item) => [item.name, item.symbol, item.address]
@@ -130,7 +145,8 @@
     if (liquidity) metrics.push(`Liquidity ${liquidity}`);
     if (marketCap) metrics.push(marketCap);
     const sourceUrl = /^https:\/\//.test(item.url || '') ? item.url : null;
-    const workspaceUrl = item.chain === 'solana' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(item.address || '')
+    const chain = normalizeChain(item.chain);
+    const workspaceUrl = chain === 'solana' &&/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(item.address || '')
       ? `/token/${encodeURIComponent(item.address)}?${new URLSearchParams({
         chain: 'solana', name: item.name || '', symbol: item.symbol || '',
         market: item.market || '', source: sourceUrl || '',
@@ -154,7 +170,7 @@
           </span>
         </span>
         <span class="v" style="text-align:right;font-size:.76rem;line-height:1.5;">
-          ${escapeHtml(chainLabel[item.chain] || item.chain)} · ${escapeHtml(item.market || item.origin)} · ${escapeHtml(relativeTime(item.createdAt))}
+          ${escapeHtml(chainLabel[chain] || chain)} ·${escapeHtml(item.market || item.origin)} · ${escapeHtml(relativeTime(item.createdAt))}
           ${metrics.length ? `<br>${escapeHtml(metrics.join(' · '))}` : ''}
           ${destination}
         </span>
@@ -182,11 +198,7 @@
       const response = await fetch(apiPath('/api/v1/tokens?limit=50'));
       if (!response.ok) return;
       const body = await response.json();
-      state.signal = (body.tokens || []).map((token) => ({
-        name: token.name, symbol: token.symbol, address: token.address, chain: token.chain,
-        createdAt: Date.parse(token.createdAt), origin: 'Signal', market: 'Signal',
-        url: `/token/${encodeURIComponent(token.address)}`,
-      }));
+      state.signal = (body.tokens || []).map(signalTokenItem);
       render();
       resolveSignalLogos(state.signal);
     } catch { /* External feeds can still populate discovery. */ }
@@ -197,7 +209,7 @@
       if (!profilesResponse.ok) throw new Error('DEX Screener profiles unavailable');
       const profiles = await profilesResponse.json();
       const supported = (Array.isArray(profiles) ? profiles : [])
-        .filter((profile) => chainMap[profile.chainId]);
+        .filter((profile) => chainMap[String(profile.chainId ?? '').toLowerCase()]);
       const groups = new Map();
       supported.forEach((profile) => {
         if (!groups.has(profile.chainId)) groups.set(profile.chainId, []);
@@ -225,7 +237,8 @@
       name: pair.baseToken?.name,
       symbol: pair.baseToken?.symbol,
       address: pair.baseToken?.address,
-      chain: chainMap[pair.chainId],
+      // Only supported chains (chainMap keys); others are filtered out.
+      chain: chainMap[String(pair.chainId ?? '').toLowerCase()],
       createdAt: pair.pairCreatedAt,
       origin: 'External',
       market: pair.dexId || 'DEX',
@@ -281,11 +294,7 @@
       ]);
       state.signal = dedupe([
         ...state.signal,
-        ...signalTokens.map((token) => ({
-          name: token.name, symbol: token.symbol, address: token.address, chain: token.chain,
-          createdAt: Date.parse(token.createdAt), origin: 'Signal', market: 'Signal',
-          url: `/token/${encodeURIComponent(token.address)}`,
-        })),
+        ...signalTokens.map(signalTokenItem),
       ]);
       setFeedStatus(`Search complete · ${dexPairs.length + signalTokens.length} market matches received`);
       render();
@@ -334,7 +343,7 @@
   }));
   document.querySelectorAll('.chip[data-filter-chain]').forEach((chip) => {
     chip.addEventListener('click', () => {
-      const chain = chip.getAttribute('data-filter-chain');
+      const chain = normalizeChain(chip.getAttribute('data-filter-chain'));
       if (state.chains.has(chain)) state.chains.delete(chain); else state.chains.add(chain);
       chip.setAttribute('aria-pressed', String(state.chains.has(chain)));
       render();

@@ -42,6 +42,14 @@ SIGNAL_GOOD = "8NPCV3YrcQbxYXE8jTBA37LsuZL6muMPjdVdspuPyVsZ"
 SIGNAL_GOOD_PDA = "EADC4YJoWXoauAe66KFNTMBRsyVLMD5cETfUCutyGFY2"
 SIGNAL_BAD = "3mwznTzZ5LJic9nvBCMLkXgw7scA6HnX1GNuQwmUf4Ar"
 SIGNAL_BAD_PDA = "Drod8Htcndf7kMvHaSqi2qbLiqFJ7JWHSoRFXiCo6ErP"
+# A Signal launch that only arrives through search (/api/v1/search).
+SIGNAL_SEARCH = "9B5XszUGdMaxCZ7uSQhPzdks5ZQSmWxrmzCSvtJ6Ns6g"
+SIGNAL_SEARCH_PDA = "ASaqNGqmxSPz74ChLu8Q4dAHpL2nZ7k6gwgYWYuqj7VG"
+SEARCH_IMAGE = "https://arweave.net/IMG_SIGNAL_SEARCH"
+# Exactly what the real API returns: registerTokenRoute stores the chain
+# upper-cased (apps/api/src/routes/tokens.ts), and both the list and
+# search endpoints return it unchanged.
+API_CHAIN = "SOLANA"
 
 GOOD_IMAGE = "https://arweave.net/IMG_SIGNAL_GOOD"
 DEX_IMAGE = "https://cdn.dexscreener.test/good.png"
@@ -109,24 +117,33 @@ def main():
                    lambda r: r.abort())
 
         page.route("**/api/v1/tokens?limit=50", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"tokens": [
-            {"name": '<img src=x onerror="window.xss=1">', "symbol": "SIGGOOD", "address": SIGNAL_GOOD, "chain": "solana", "createdAt": "2026-09-28T01:00:00Z"},
-            {"name": "Signal Bad Image", "symbol": "SIGBAD", "address": SIGNAL_BAD, "chain": "solana", "createdAt": "2026-09-28T00:00:00Z"},
+            {"name": '<img src=x onerror="window.xss=1">', "symbol": "SIGGOOD", "address": SIGNAL_GOOD, "chain": API_CHAIN, "createdAt": "2026-09-28T01:00:00Z"},
+            {"name": "Signal Bad Image", "symbol": "SIGBAD", "address": SIGNAL_BAD, "chain": API_CHAIN, "createdAt": "2026-09-28T00:00:00Z"},
         ]})))
+        page.route("**/api/v1/search?**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"tokens": [
+            {"name": "Signal Search Find", "symbol": "SIGFIND", "address": SIGNAL_SEARCH, "chain": API_CHAIN, "createdAt": "2026-09-28T02:00:00Z"},
+        ]})))
+        page.route("https://api.dexscreener.com/latest/dex/search**", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"pairs": []})))
 
         def rpc(route):
             body = json.loads(route.request.post_data)
             address = body["params"][0]
-            uri = {SIGNAL_GOOD_PDA: "https://arweave.net/META_GOOD", SIGNAL_BAD_PDA: "https://arweave.net/META_BAD"}.get(address)
+            uri = {
+                SIGNAL_GOOD_PDA: "https://arweave.net/META_GOOD",
+                SIGNAL_BAD_PDA: "https://arweave.net/META_BAD",
+                SIGNAL_SEARCH_PDA: "https://arweave.net/META_SEARCH",
+            }.get(address)
             value = None if uri is None else {"owner": METADATA_PROGRAM, "data": [base64.b64encode(metadata_account(uri)).decode(), "base64"]}
             route.fulfill(status=200, content_type="application/json", body=json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": {"value": value}}))
         page.route("**/api/solana/rpc", rpc)
 
         page.route("https://arweave.net/META_GOOD", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"name": "x", "image": GOOD_IMAGE})))
-        page.route("https://arweave.net/META_BAD", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"name": "x", "image": "javascript:window.xss=5"})))
+        page.route("https://arweave.net/META_SEARCH", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"name": "x", "image": SEARCH_IMAGE})))
+        page.route("https://arweave.net/META_BAD",lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps({"name": "x", "image": "javascript:window.xss=5"})))
 
         def image(route):
             image_requests.append({"url": route.request.url, "referer": route.request.headers.get("referer")})
-            if route.request.url in (GOOD_IMAGE, DEX_IMAGE):
+            if route.request.url in (GOOD_IMAGE, DEX_IMAGE, SEARCH_IMAGE):
                 route.fulfill(status=200, content_type="image/png", body=png)
             else:
                 route.fulfill(status=404, body="")
@@ -182,6 +199,23 @@ def main():
         ran = page.evaluate("window.xss")
         injected = page.evaluate("document.querySelectorAll('#explore-new-list img[src=\"x\"], #explore-new-list .injected').length")
         all_img_https = page.evaluate("[...document.querySelectorAll('#explore-new-list img')].every((img) => img.src.startsWith('https://'))")
+        signal_row = """(symbol) => { const row = [...document.querySelectorAll('#explore-new-list .review-row')]
+          .find((r) => r.querySelector('strong').textContent.includes('(' + symbol + ')'));
+          return row ? { text: row.textContent, href: row.getAttribute('href') } : null; }"""
+        good_row = page.evaluate(signal_row, "SIGGOOD")
+
+        # The Solana chain filter keeps Signal launches (their API chain is "SOLANA").
+        page.click('.chip[data-filter-chain="solana"]')
+        solana_filtered = page.evaluate("[...document.querySelectorAll('#explore-new-list strong')].map((s) => s.textContent)")
+        page.click('.chip[data-filter-chain="solana"]')
+
+        # A Signal launch found through search also gets its on-chain logo.
+        page.fill('#exploreSearchInput', 'SIGFIND')
+        try:
+            page.wait_for_function(f"() => {{ const img = document.querySelector('#explore-new-list img[src=\"{SEARCH_IMAGE}\"]'); return !!img && img.complete && img.naturalWidth > 0; }}", timeout=15000)
+            search_logo_loaded = True
+        except Exception:
+            search_logo_loaded = False
         page.close()
         browser.close()
     httpd.shutdown()
@@ -194,7 +228,11 @@ def main():
 
     signal_good = by_name.get('<img src=x onerror="window.xss=1"> (SIGGOOD)', {})
     check("Signal launch: the logo comes from its on-chain metadata (metadata account -> JSON -> image)", signal_good.get("tag") == "IMG" and signal_good.get("src") == GOOD_IMAGE and signal_good.get("loaded"))
-    check("Signal launch whose metadata image isn't https: placeholder", by_name.get("Signal Bad Image (SIGBAD)", {}).get("placeholder"))
+    check("Signal launches from the real API shape (chain \"SOLANA\") are labelled Solana and open the Solana workspace",
+          good_row and "Solana ·" in good_row["text"] and "SOLANA" not in good_row["text"] and (good_row["href"] or "").startswith(f"/token/{SIGNAL_GOOD}?"))
+    check("the Solana chain filter keeps Signal launches", any("(SIGGOOD)" in t for t in solana_filtered) and any("(SIGBAD)" in t for t in solana_filtered))
+    check("a Signal launch found through search (chain \"SOLANA\") also shows its on-chain logo", search_logo_loaded)
+    check("Signal launch whose metadata image isn't https: placeholder",by_name.get("Signal Bad Image (SIGBAD)", {}).get("placeholder"))
 
     check("a javascript: logo URL is never used: placeholder", by_name.get("Javascript Logo Coin (EXB)", {}).get("placeholder"))
     check("a logo that fails to load falls back to the placeholder", by_name.get("Broken Logo Coin (EXC)", {}).get("placeholder"))
