@@ -3,6 +3,7 @@ import { onRequestPost as swapQuote } from "./functions/api/solana/swap-quote.js
 import { onRequestPost as swapBuild } from "./functions/api/solana/swap-build.js";
 import { onRequestPost as swapSubmit } from "./functions/api/solana/swap-submit.js";
 import { onRequestPost as solanaRpc } from "./functions/api/solana/rpc.js";
+import { onRequestGet as tokenMarket } from "./functions/api/solana/token-market.js";
 
 export default {
   async fetch(request, env) {
@@ -23,6 +24,13 @@ export default {
         return Response.json({ error: "Method not allowed", code: "METHOD_NOT_ALLOWED" }, { status: 405 });
       }
       return solanaRpc({ request, env });
+    }
+
+    if (url.pathname === "/api/solana/token-market") {
+      if (request.method !== "GET") {
+        return Response.json({ error: "Method not allowed", code: "METHOD_NOT_ALLOWED" }, { status: 405 });
+      }
+      return tokenMarket({ request, env });
     }
 
     if (url.pathname === "/api/solana/swap/quote") {

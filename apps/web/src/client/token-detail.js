@@ -153,4 +153,100 @@
         // "Unavailable" text exactly as it was, never guess.
       });
   })();
+
+  // Market data, holders and logo from /api/solana/token-market: a DEX
+  // pair when one trades, else the pump.fun bonding curve read on-chain.
+  // Fetched once per page view (the server caches it); every value is set
+  // as text, and anything the server couldn't read stays "Unavailable"
+  // with its reason.
+  (function loadMarketData() {
+    const stats = document.getElementById('token-stats');
+    if (!stats || tokenChain !== 'solana' || !solanaMintPattern.test(tokenMint)) return;
+
+    function formatAmount(value) {
+      const abs = Math.abs(value);
+      if (abs === 0) return '0';
+      if (abs >= 1e6) return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 2 }).format(value);
+      if (abs >= 1) return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+      // Small prices: significant digits, never scientific notation.
+      return new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4 }).format(value);
+    }
+    function formatted(point) {
+      if (!point || typeof point.value !== 'number') return null;
+      if (point.unit === 'USD') return `$${formatAmount(point.value)}`;
+      if (point.unit === '%') return `${point.value >= 10 ? point.value.toFixed(1) : point.value.toFixed(2)}%`;
+      return `${formatAmount(point.value)} ${point.unit}`;
+    }
+    function unavailableNode(reason) {
+      const span = document.createElement('span');
+      span.className = 'data-unavailable';
+      span.textContent = 'Unavailable';
+      span.title = reason || 'Not available';
+      return span;
+    }
+    // `primary` and `secondary` are { value, unit } or { unavailable }.
+    function setStat(name, primary, secondary) {
+      const stat = stats.querySelector(`[data-stat="${name}"]`);
+      if (!stat) return;
+      const valueEl = stat.querySelector('.v');
+      const main = formatted(primary);
+      const extra = formatted(secondary);
+      valueEl.replaceChildren(main ? main : unavailableNode(primary?.unavailable));
+      stat.querySelectorAll('[data-stat-detail]').forEach((el) => el.remove());
+      const detailText = main ? extra : primary?.unavailable;
+      if (detailText) {
+        const detail = document.createElement('div');
+        detail.className = 'l';
+        detail.setAttribute('data-stat-detail', '');
+        detail.textContent = detailText;
+        stat.appendChild(detail);
+      }
+    }
+    function showLogo(logo, label) {
+      const slot = document.getElementById('token-logo-slot');
+      if (!slot || !window.signalLogoImage) return;
+      const element = window.signalLogoImage.logoElement({ url: logo?.url, label, size: 48, className: 'token-logo-lg' });
+      element.id = 'token-logo-slot';
+      if (!logo?.url && logo?.unavailable) element.title = `Logo unavailable: ${logo.unavailable}`;
+      slot.replaceWith(element);
+    }
+
+    fetch(`/api/solana/token-market?mint=${encodeURIComponent(tokenMint)}`)
+      .then(async (response) => ({ ok: response.ok, body: await response.json().catch(() => ({})) }))
+      .then(({ ok, body }) => {
+        if (!ok) {
+          const reason = body.error || 'Market data is temporarily unavailable.';
+          ['price', 'marketCap', 'liquidity', 'holders'].forEach((name) => setStat(name, { unavailable: reason }));
+          return;
+        }
+        setStat('price', body.price?.usd?.value !== undefined ? body.price.usd : body.price?.sol, body.price?.usd?.value !== undefined ? body.price?.sol : null);
+        setStat('marketCap', body.marketCap?.usd?.value !== undefined ? body.marketCap.usd : body.marketCap?.sol, body.marketCap?.usd?.value !== undefined ? body.marketCap?.sol : null);
+        setStat('liquidity', body.liquidity?.sol?.value !== undefined ? body.liquidity.sol : body.liquidity?.usd, body.liquidity?.sol?.value !== undefined ? body.liquidity?.usd : null);
+        const holders = body.holders || {};
+        setStat('holders', typeof holders.count === 'number'
+          ? { value: holders.count, unit: holders.capped ? 'holders+' : 'holders' }
+          : { unavailable: holders.unavailable });
+        if (typeof holders.count === 'number') {
+          stats.querySelector('[data-stat="holders"] .v').textContent =
+            `${holders.count.toLocaleString()}${holders.capped ? '+' : ''}`;
+        }
+        const progress = stats.querySelector('[data-stat="curveProgress"]');
+        if (progress && body.source === 'pump.fun bonding curve') {
+          progress.hidden = false;
+          stats.classList.add('stat-grid-5');
+          setStat('curveProgress', body.curveProgress);
+        }
+        const sourceEl = document.getElementById('token-market-source');
+        if (sourceEl && body.source) {
+          sourceEl.textContent = `Market data source: ${body.source}${holders.source ? ` · Holders: ${holders.source}` : ''}`;
+          sourceEl.hidden = false;
+        }
+        const nameEl = document.getElementById('token-name');
+        if (nameEl && !tokenName && body.name) nameEl.textContent = body.symbol ? `${body.name} (${body.symbol})` : body.name;
+        showLogo(body.logo, tokenSymbol || body.symbol || body.name);
+      })
+      .catch(() => {
+        ['price', 'marketCap', 'liquidity', 'holders'].forEach((name) => setStat(name, { unavailable: 'Market data service unreachable.' }));
+      });
+  })();
 })();

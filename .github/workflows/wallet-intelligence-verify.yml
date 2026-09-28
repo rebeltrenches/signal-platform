@@ -110,15 +110,22 @@ jobs:
           node apps/web/tests/turbo-upload.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
+      - name: Token market function tests (bonding curve, holders, logo, quota protection)
+        run: node apps/web/tests/token-market-function.test.mjs
       - name: Cloudflare Worker syntax check
         run: |
           node --input-type=module --check < worker.js
           node --input-type=module --check < functions/api/solana/portfolio.js
+          node --input-type=module --check < functions/api/solana/token-market.js
       - name: Wallet page regression test
         run: |
           python -m pip install playwright
           python -m playwright install --with-deps chromium
           python apps/web/tests/wallet-detail-tokens.test.py
+      - name: Token page market data and Explore logo tests
+        run: |
+          python apps/web/tests/token-market-page.test.py
+          python apps/web/tests/explore-logos.test.py
       - name: Safety boundary
         run: |
           echo "Wallet Intelligence verification completed against isolated CI resources."

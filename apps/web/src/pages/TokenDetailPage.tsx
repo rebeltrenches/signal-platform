@@ -29,7 +29,8 @@ export function TokenDetailPage() {
 
       <div className="page-head">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--line)' }} />
+          {/* Replaced by token-detail.js with the logo from on-chain metadata (logo-image.js rules). */}
+          <div id="token-logo-slot" style={{ width: 48, height: 48, borderRadius: 12, background: 'var(--surface-2)', border: '1px solid var(--line)' }} />
           <div>
             <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span id="token-name"><DataValue point={unavailable} format={() => ''} /></span>
@@ -44,12 +45,16 @@ export function TokenDetailPage() {
         </div>
       </div>
 
-      <div className="stat-grid">
-        <div className="stat"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Price</div></div>
-        <div className="stat"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Market cap</div></div>
-        <div className="stat"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Liquidity</div></div>
-        <div className="stat"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Holders</div></div>
+      {/* token-detail.js fills these from /api/solana/token-market; anything
+          it can't read stays "Unavailable", with the reason. */}
+      <div className="stat-grid" id="token-stats">
+        <div className="stat" data-stat="price"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Price</div></div>
+        <div className="stat" data-stat="marketCap"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Market cap</div></div>
+        <div className="stat" data-stat="liquidity"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Liquidity</div></div>
+        <div className="stat" data-stat="holders"><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Holders</div></div>
+        <div className="stat" data-stat="curveProgress" hidden><div className="v"><DataValue point={unavailable} format={() => ''} /></div><div className="l">Bonding curve progress</div></div>
       </div>
+      <p id="token-market-source" className="hint" style={{ marginTop: 8, textTransform: 'none' }} hidden></p>
 
       <div className="card" style={{ marginTop: 20 }} id="trade-terminal">
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
