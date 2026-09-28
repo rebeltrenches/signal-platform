@@ -1,5 +1,7 @@
+import { refusalFor } from "../../compliance.js";
+
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
-const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const BASE58 ="123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const MAX_U64 = 18446744073709551615n;
 const SIGNAL_FEE_BPS = 100n;
 
@@ -140,6 +142,12 @@ export async function onRequestPost({ request, env }) {
   } catch {
     return json(400, { error: "INVALID_JSON", message: "Request body must be valid JSON." });
   }
+  // Blocked regions and wallets not cleared by sanctions screening get no
+  // trade (config/restrictions.json, functions/compliance.js). An invalid
+  // taker is left to buildSolanaSwap's own validation below.
+  const taker = typeof body?.taker === "string" ? body.taker.trim() : "";
+  const refusal = await refusalFor(request, env, isSolanaAddress(taker) ? taker : undefined, "trade");
+  if (refusal) return refusal;
   const result = await buildSolanaSwap({ body, apiKey: env?.JUPITER_API_KEY });
   return json(result.status, result.body);
 }

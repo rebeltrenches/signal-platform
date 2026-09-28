@@ -186,6 +186,24 @@ function markPendingListing(record) {
   savePendingLaunch({ ...record, stage: "listing" });
 }
 
+// Regional restrictions, terms and wallet sanctions screening
+// (compliance.js, config/restrictions.json). Connecting needs an allowed
+// region and accepted terms; launching or listing also needs the wallet
+// cleared by screening. Fails safe: a check that can't run stops here.
+async function complianceConnect() {
+  const compliance = window.signalCompliance;
+  if (!compliance) throw new Error("Signal's safety checks didn't load; reload the page and try again.");
+  if (!(await compliance.beforeConnect())) {
+    throw new Error("Connecting a wallet needs the terms accepted, and isn't available in some regions.");
+  }
+}
+async function complianceCheck(action, address) {
+  const compliance = window.signalCompliance;
+  if (!compliance) throw new Error("Signal's safety checks didn't load; reload the page and try again.");
+  const result = await compliance.check(action, address);
+  if (!result.ok) throw new Error(result.message);
+}
+
 function short(addr) {
   return addr.slice(0, 4) + "\u2026" + addr.slice(-4);
 }
@@ -287,6 +305,7 @@ class LaunchFlow {
     if (!window.solana || !window.solana.isPhantom) {
       throw new Error("Phantom not found \u2014 install the extension to continue.");
     }
+    await complianceConnect();
     const resp = await window.solana.connect();
     this.wallet = window.solana;
     return resp.publicKey;
@@ -719,7 +738,11 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
   }
   const line = document.createElement("div");
   containerEl.appendChild(line);
-  const register = (sessionToken) => fetch(apiUrl("/api/v1/tokens/register"), {
+  // Mainnet registration goes through Signal's Worker (same origin), which
+  // refuses blocked regions and sanctioned wallets before forwarding it to
+  // the API. Devnet test builds register straight with their test API.
+  const registerUrl = IS_DEVNET ? apiUrl("/api/v1/tokens/register") : "/api/v1/tokens/register";
+  const register = (sessionToken) => fetch(registerUrl, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${sessionToken}` },
     body: JSON.stringify({
@@ -739,7 +762,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       // A cached session can have expired server-side: sign in once more.
       if (res.status === 401) res = await register(await auth.signIn(entry.creatorAddress));
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.message || `Registration failed (${res.status}).`);
+      if (!res.ok) throw new Error(body.message || body.error || `Registration failed (${res.status}).`);
       line.textContent = "Listed on Signal — creator verified on-chain.";
       onListed();
     } catch (err) {
@@ -830,6 +853,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       if (!window.solana || !window.solana.isPhantom) {
         throw new Error("Phantom not found — install the extension to continue.");
       }
+      await complianceConnect();
       const resp = await window.solana.connect();
       const connected = resp.publicKey;
 
@@ -838,6 +862,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
         connectEl.disabled = false;
         return;
       }
+      await complianceCheck("launch", connected.toBase58());
 
       if (listingOnly) {
         // Nothing left on-chain: only the listing, with its own Try again.
@@ -948,6 +973,8 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
     document.getElementById("launch-steps").style.display = "block";
 
     try {
+      // Region, terms and sanctions screening, before anything is signed.
+      await complianceCheck("launch", connectedPubkey.toBase58());
       let mint, name, symbol, supply, decimals, metadataUri;
 
       if (resumeState) {
@@ -1082,6 +1109,9 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       launchBtn.textContent = resumeState ? "Finish minting supply" : "Retry";
     }
   });
+
+  // Every control above is wired (lets tests wait for this module).
+  panel.dataset.ready = "true";
 })();
 
 // ---------------------------------------------------------------------
@@ -1124,7 +1154,9 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       if (!window.solana || !window.solana.isPhantom) {
         throw new Error("Phantom not found — install the extension to continue.");
       }
+      await complianceConnect();
       const { publicKey } = await window.solana.connect();
+      await complianceCheck("launch", publicKey.toBase58());
       resultEl.textContent = "Reading the mint on-chain…";
       const connection = new web3.Connection(SOLANA_RPC_ENDPOINT, "confirmed");
       let info;

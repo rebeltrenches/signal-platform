@@ -199,6 +199,8 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
   document.addEventListener("launchpad:wallet-connected", refreshButton);
   document.addEventListener("launchpad:wallet-disconnected", refreshButton);
   refreshButton();
+  // Listeners are attached (lets tests wait for this module to load).
+  button.dataset.ready = "true";
 
   button.addEventListener("click", async () => {
     const provider = walletProvider();
@@ -215,6 +217,16 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
       if (status) status.textContent = "Enter a valid SOL amount with no more than 9 decimal places.";
       return;
     }
+    // Region, terms and wallet sanctions screening (compliance.js); the
+    // Worker checks again when building the trade. Fails safe.
+    const compliance = window.signalCompliance;
+    const cleared = compliance
+      ? await compliance.check("trade", window.launchpadWallet.address)
+      : { ok: false, message: "Signal's safety checks didn't load; reload the page and try again." };
+    if (!cleared.ok) {
+      if (status) status.textContent = cleared.message;
+      return;
+    }
 
     button.disabled = true;
     button.textContent = "Building atomic transaction…";
@@ -229,7 +241,7 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
         body: JSON.stringify({ tokenMint, amount: grossAmount.toString(), taker: address }),
       });
       const build = await response.json();
-      if (!response.ok) throw new Error(build.message || "A signable route could not be built.");
+      if (!response.ok) throw new Error(build.message || build.error || "A signable route could not be built.");
 
       const impact = Number(build.priceImpactPct);
       if (Number.isFinite(impact) && impact > 0.10) {
@@ -289,7 +301,7 @@ async function waitForConfirmation(connection, signature, lastValidBlockHeight) 
         body: JSON.stringify({ signedTransaction: serializeBase64(signed) }),
       });
       const submitted = await submitResponse.json();
-      if (!submitResponse.ok) throw new Error(submitted.message || "Solana rejected the transaction.");
+      if (!submitResponse.ok) throw new Error(submitted.message || submitted.error || "Solana rejected the transaction.");
       submittedSignature = submitted.signature;
 
       if (status) status.innerHTML = `Submitted. <a href="https://solscan.io/tx/${encodeURIComponent(submitted.signature)}" target="_blank" rel="noopener noreferrer">View on Solscan ↗</a>`;

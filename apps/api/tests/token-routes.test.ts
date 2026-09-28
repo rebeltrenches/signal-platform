@@ -27,8 +27,11 @@ function test(name: string, condition: boolean, detail?: string) {
 
 async function run() {
   __resetForTests();
-  const savedEnv = { AUTH_SECRET: process.env.AUTH_SECRET, SOLANA_RPC_URL: process.env.SOLANA_RPC_URL };
+  const savedEnv = { AUTH_SECRET: process.env.AUTH_SECRET, SOLANA_RPC_URL: process.env.SOLANA_RPC_URL, SIGNAL_EDGE_SECRET: process.env.SIGNAL_EDGE_SECRET };
   process.env.AUTH_SECRET = 'a-real-test-secret-for-token-routes';
+  // Registrations must come through Signal's Worker with this shared secret.
+  const EDGE_SECRET = 'a-real-test-edge-secret';
+  process.env.SIGNAL_EDGE_SECRET = EDGE_SECRET;
 
   const mints = new Map<string, FakeMint>();
   const rpc = await startFakeSolanaRpcServer(mints);
@@ -50,10 +53,18 @@ async function run() {
     mints.set(address, { decimals, initialAuthority: wallet.address, creationSigners: [wallet.address, address] });
     return address;
   }
-  async function register(session: string | null, body: Record<string, unknown>) {
+  const walletBySession = new Map([[creatorSession, creator.address], [strangerSession, stranger.address]]);
+  /** As the Worker forwards it: edge secret + the session's screened wallet
+   *  (`edge` overrides those headers to test refusals). */
+  async function register(session: string | null, body: Record<string, unknown>, edge: Record<string, string> = {}) {
+    const edgeHeaders = {
+      'x-signal-edge-secret': EDGE_SECRET,
+      'x-signal-screened-wallet': (session && walletBySession.get(session)) || '',
+      ...edge,
+    };
     const res = await fetch(`${BASE}/api/v1/tokens/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(session ? { authorization: `Bearer ${session}` } : {}) },
+      headers: { 'content-type': 'application/json', ...(session ? { authorization: `Bearer ${session}` } : {}), ...edgeHeaders },
       body: JSON.stringify(body),
     });
     return { status: res.status, body: (await res.json()) as any };
@@ -68,6 +79,18 @@ async function run() {
     test('registering without a session is rejected with 401', noSession.status === 401, String(noSession.status));
     const forgedSession = await register('not.a.session', tokenBody);
     test('registering with an invalid session is rejected with 401', forgedSession.status === 401, String(forgedSession.status));
+
+    // --- only through Signal's Worker (edge secret + screened wallet) ---
+    const direct = await register(creatorSession, tokenBody, { 'x-signal-edge-secret': '' });
+    test('a registration sent straight to the API (no edge secret) is refused with 403', direct.status === 403 && direct.body.error === 'EDGE_REQUIRED', JSON.stringify(direct));
+    const wrongSecret = await register(creatorSession, tokenBody, { 'x-signal-edge-secret': 'guess-the-secret-xyz' });
+    test('a wrong edge secret is refused with 403', wrongSecret.status === 403 && wrongSecret.body.error === 'EDGE_REQUIRED', JSON.stringify(wrongSecret));
+    const mismatch = await register(creatorSession, tokenBody, { 'x-signal-screened-wallet': stranger.address });
+    test('a screened wallet that is not the session wallet is refused with 403', mismatch.status === 403 && mismatch.body.error === 'SCREENING_MISMATCH', JSON.stringify(mismatch));
+    delete process.env.SIGNAL_EDGE_SECRET;
+    const unconfigured = await register(creatorSession, tokenBody);
+    process.env.SIGNAL_EDGE_SECRET = EDGE_SECRET;
+    test('without SIGNAL_EDGE_SECRET configured, registration fails safe with 503', unconfigured.status === 503 && unconfigured.body.error === 'REGISTRATION_NOT_CONFIGURED', JSON.stringify(unconfigured));
 
     // --- C2: the creator must be the signed-in wallet AND have created the mint ---
     const claimedByStranger = await register(strangerSession, tokenBody);

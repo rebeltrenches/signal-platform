@@ -7,7 +7,8 @@ export function Footer() {
         <span>Signal — discover, launch, verify, and connect on-chain. Live beta.</span>
         <span>
           <a href="/security" style={{ color: 'var(--ink-dim)' }}>Security</a> ·{' '}
-          <a href="/transparency" style={{ color: 'var(--ink-dim)' }}>Transparency</a>
+          <a href="/transparency" style={{ color: 'var(--ink-dim)' }}>Transparency</a> ·{' '}
+          <a href="/terms" style={{ color: 'var(--ink-dim)' }}>Terms and risks</a>
         </span>
       </div>
     </footer>

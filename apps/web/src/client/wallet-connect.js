@@ -58,6 +58,14 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   }
 
   async function connect() {
+    // Blocked regions can't connect, and everyone accepts the terms first
+    // (compliance.js; the terms version is re-asked when it changes).
+    const compliance = window.signalCompliance;
+    if (!compliance) {
+      btn.textContent = 'Reload to connect';
+      return;
+    }
+    if (!(await compliance.beforeConnect())) return;
     const provider = phantomProvider();
     if (!provider?.isPhantom) {
       if (isMobileDevice()) {
@@ -97,10 +105,20 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   // Restore a connection that the user already approved in Phantom. The
   // onlyIfTrusted flag never opens a permission prompt; it simply restores
   // the existing trusted session after a reload or page navigation.
-  async function restoreTrustedConnection() {
+  // Called from several events; concurrent calls share one attempt.
+  let restoring = null;
+  function restoreTrustedConnection() {
+    if (!restoring) restoring = attemptRestore().finally(() => { restoring = null; });
+    return restoring;
+  }
+  async function attemptRestore() {
     const provider = phantomProvider();
     if (!provider?.isPhantom || window.launchpadWallet.address) return;
     installProviderListeners();
+    // Only reconnect silently when there's nothing to show (region allowed,
+    // current terms accepted); otherwise the visitor connects by clicking.
+    if (!(await window.signalCompliance?.canRestore())) return;
+    if (window.launchpadWallet.address) return;
     try {
       const resp = await provider.connect({ onlyIfTrusted: true });
       acceptConnection(resp);

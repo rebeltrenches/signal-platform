@@ -10,6 +10,12 @@
       "/api/*"
     ]
   },
+  // Where the Worker forwards launch registration (functions/api/register-token.js).
+  // Secrets, set in the Cloudflare dashboard (never here): SIGNAL_EDGE_SECRET
+  // (also set on the API), CHAINALYSIS_API_KEY, SOLANA_RPC_URL.
+  "vars": {
+    "SIGNAL_API_ORIGIN": "https://signal-api-eabs.onrender.com"
+  },
   // Per-IP limit for uncached /api/solana/token-market lookups (protects
   // the Helius free tier). functions/api/solana/token-market.js falls back
   // to a per-instance limit when this binding isn't available.

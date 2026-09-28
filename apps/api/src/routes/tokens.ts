@@ -11,6 +11,7 @@
  *    (tokens/verifyMintCreator.ts);
  *  - a token registered to one creator can never be claimed by another.
  */
+import { timingSafeEqual } from 'node:crypto';
 import type { Handler } from '../router.js';
 import { verifySessionToken } from '../auth/AuthSession.js';
 import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError, TokenConflictError } from '../tokens/tokenStore.js';
@@ -42,9 +43,40 @@ function errorToResponse(err: unknown): { status: number; body: unknown } {
   return { status: 500, body: { error: 'INTERNAL_ERROR', message: 'Something went wrong handling this token request.' } };
 }
 
+function headerValue(headers: Record<string, string | string[] | undefined>, name: string): string {
+  const value = headers[name];
+  return (Array.isArray(value) ? value[0] : value) ?? '';
+}
+
+/**
+ * Registrations are accepted only when forwarded by Signal's Cloudflare
+ * Worker (functions/api/register-token.js), which refuses blocked regions
+ * and sanctioned wallets before forwarding: the request must carry the
+ * shared secret SIGNAL_EDGE_SECRET, and the wallet the Worker screened
+ * must be this session's wallet. Without the secret configured here,
+ * registration fails safe (nothing is accepted).
+ */
+function edgeRefusal(headers: Record<string, string | string[] | undefined>, wallet: string): { status: number; body: unknown } | null {
+  const expected = process.env.SIGNAL_EDGE_SECRET ?? '';
+  if (!expected) {
+    return { status: 503, body: { error: 'REGISTRATION_NOT_CONFIGURED', message: 'Listing on Signal is not available right now.' } };
+  }
+  const given = Buffer.from(headerValue(headers, 'x-signal-edge-secret'));
+  const want = Buffer.from(expected);
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    return { status: 403, body: { error: 'EDGE_REQUIRED', message: 'Register tokens through the Signal site.' } };
+  }
+  if (headerValue(headers, 'x-signal-screened-wallet') !== wallet) {
+    return { status: 403, body: { error: 'SCREENING_MISMATCH', message: 'The screened wallet does not match the signed-in wallet.' } };
+  }
+  return null;
+}
+
 export const registerTokenRoute: Handler = async (req) => {
   const wallet = getSessionWallet(req.headers);
   if (!wallet) return { status: 401, body: { error: 'UNAUTHORIZED', message: 'Sign in with the creator wallet to register a token.' } };
+  const refusal = edgeRefusal(req.headers, wallet);
+  if (refusal) return refusal;
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const chain = typeof body.chain === 'string' ? body.chain.toUpperCase() : '';

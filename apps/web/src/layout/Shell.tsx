@@ -11,6 +11,7 @@ export function Shell({
   embeddedJson,
   apiBaseUrl,
   solanaCluster,
+  termsVersion,
 }: {
   currentPath: string;
   title: string;
@@ -34,6 +35,9 @@ export function Shell({
   /** 'devnet' only in a test build made with SIGNAL_SOLANA_CLUSTER=devnet
    *  (see build.tsx); undefined otherwise, which means Mainnet. */
   solanaCluster?: 'devnet';
+  /** config/restrictions.json's termsVersion (see build.tsx): the version
+   *  compliance.js asks visitors to accept. */
+  termsVersion?: string;
 }) {
   return (
     <html lang="en">
@@ -46,12 +50,13 @@ export function Shell({
         <link rel="stylesheet" href="/styles/tokens.css" />
         <link rel="stylesheet" href="/styles/base.css" />
         <link rel="stylesheet" href="/styles/components.css" />
-        {(apiBaseUrl || solanaCluster) && (
+        {(apiBaseUrl || solanaCluster || termsVersion) && (
           <script
             dangerouslySetInnerHTML={{
               __html:
                 (apiBaseUrl ? `window.SIGNAL_API_BASE_URL=${JSON.stringify(apiBaseUrl)};` : '') +
-                (solanaCluster ? `window.SIGNAL_SOLANA_CLUSTER=${JSON.stringify(solanaCluster)};` : ''),
+                (solanaCluster ? `window.SIGNAL_SOLANA_CLUSTER=${JSON.stringify(solanaCluster)};` : '') +
+                (termsVersion ? `window.SIGNAL_TERMS_VERSION=${JSON.stringify(termsVersion)};` : ''),
             }}
           />
         )}
