@@ -190,16 +190,31 @@ function short(addr) {
   return addr.slice(0, 4) + "\u2026" + addr.slice(-4);
 }
 function explorerLink(signature) {
-  return `https://explorer.solana.com/tx/${signature}${EXPLORER_CLUSTER_QUERY}`;
+  return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}${EXPLORER_CLUSTER_QUERY}`;
 }
 function explorerAddressLink(address) {
-  return `https://explorer.solana.com/address/${address}${EXPLORER_CLUSTER_QUERY}`;
+  return `https://explorer.solana.com/address/${encodeURIComponent(address)}${EXPLORER_CLUSTER_QUERY}`;
+}
+/** Builds an element from DOM properties; string children become text
+ *  nodes, never HTML. For anything that shows stored or third-party data. */
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+function explorerAnchor(address, text) {
+  return el("a", { href: explorerAddressLink(String(address)), target: "_blank", rel: "noopener noreferrer", textContent: text });
 }
 function supplyLockMessage(verified, mintAddress) {
   return verified
-    ? `<b>Supply locked.</b> Mint authority revoked and verified on-chain — no more tokens can ever be minted.`
-    : `The mint authority revoke is in the confirmed supply transaction, but the mint couldn't be read back yet. ` +
-      `Check <a href="${explorerAddressLink(mintAddress)}" target="_blank">Explorer</a> shows no Mint Authority.`;
+    ? el("span", {}, el("b", { textContent: "Supply locked." }), " Mint authority revoked and verified on-chain — no more tokens can ever be minted.")
+    : el(
+      "span",
+      {},
+      "The mint authority revoke is in the confirmed supply transaction, but the mint couldn't be read back yet. Check ",
+      explorerAnchor(mintAddress, "Explorer"),
+      " shows no Mint Authority.",
+    );
 }
 
 // Polls instead of web3's confirmTransaction, which needs a websocket
@@ -251,6 +266,12 @@ class LaunchFlow {
   log(html) {
     const el = this.root.querySelector("#launch-result");
     if (el) el.insertAdjacentHTML("beforeend", html + "<br>");
+  }
+
+  /** Appends a DOM node (e.g. built with el()) as a line. */
+  logNode(node) {
+    const el = this.root.querySelector("#launch-result");
+    if (el) el.append(node, document.createElement("br"));
   }
 
   /** Appends `labelHtml` (our own markup) followed by `text` as plain
@@ -636,7 +657,7 @@ class LaunchFlow {
     const resultEl = this.root.querySelector("#launch-result");
     if (resultEl) {
       const link = Object.assign(document.createElement("a"), {
-        href: explorerLink(encodeURIComponent(signature)),
+        href: explorerLink(signature),
         target: "_blank",
         rel: "noopener noreferrer",
         textContent: signature,
@@ -753,28 +774,39 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
   const listingOnly = isListingStage(pending);
   const entry = { name: pending.name, symbol: pending.symbol, mint: pending.mint, decimals: pending.decimals, creatorAddress: pending.creatorAddress };
 
+  // Everything in the record comes from localStorage (mint, name, symbol):
+  // the notice is built from DOM nodes, so all of it is shown as text.
+  const name = String(pending.name ?? "");
+  const symbol = String(pending.symbol ?? "");
+  const mintText = String(pending.mint ?? "");
+  const connectEl = el("button", {
+    id: "pendingResumeConnect",
+    className: "btn btn-ghost",
+    textContent: listingOnly ? "Connect wallet to list on Signal" : "Connect wallet to finish",
+  });
+  const dismissEl = el("button", { id: "pendingDismiss", className: "btn btn-ghost", textContent: "Dismiss" });
+  dismissEl.style.marginLeft = "8px";
+  const statusEl = el("span", { id: "pendingResumeStatus" });
+  statusEl.style.marginLeft = "10px";
+  const actions = el("div", {}, connectEl, dismissEl, statusEl);
+  actions.style.marginTop = "10px";
+  const box = el(
+    "div",
+    { className: "tax-box" },
+    el("b", { textContent: listingOnly ? "Launched, not yet listed on Signal." : "Incomplete launch found." }),
+    listingOnly
+      ? ` "${name}" (${symbol}) was created and its supply minted and locked, but Signal hasn't confirmed the listing yet.`
+      : ` A mint for "${name}" (${symbol}) was created, but its supply was never minted — nothing was lost.`,
+    el("br"),
+    "Mint address: ",
+    el("span", { className: "num", textContent: mintText }),
+    el("br"),
+    explorerAnchor(mintText, "View on Solana Explorer"),
+    actions,
+  );
+  box.style.cssText = "border-color:var(--gold);margin-bottom:20px;";
   noticeEl.hidden = false;
-  noticeEl.innerHTML =
-    `<div class="tax-box" style="border-color:var(--gold);margin-bottom:20px;">` +
-    (listingOnly
-      ? `<b>Launched, not yet listed on Signal.</b> "<span data-pending-name></span>" (<span data-pending-symbol></span>) ` +
-        `was created and its supply minted and locked, but Signal hasn't confirmed the listing yet.<br>`
-      : `<b>Incomplete launch found.</b> A mint for "<span data-pending-name></span>" (<span data-pending-symbol></span>) was created, ` +
-        `but its supply was never minted — nothing was lost.<br>`) +
-    `Mint address: <span class="num">${pending.mint}</span><br>` +
-    `<a href="${explorerAddressLink(pending.mint)}" target="_blank">View on Solana Explorer</a>` +
-    `<div style="margin-top:10px;">` +
-    `<button id="pendingResumeConnect" class="btn btn-ghost">${listingOnly ? "Connect wallet to list on Signal" : "Connect wallet to finish"}</button>` +
-    `<button id="pendingDismiss" class="btn btn-ghost" style="margin-left:8px;">Dismiss</button>` +
-    `<span id="pendingResumeStatus" style="margin-left:10px;"></span>` +
-    `</div></div>`;
-  // Name and symbol come from storage; set as text, never as HTML.
-  noticeEl.querySelector("[data-pending-name]").textContent = pending.name;
-  noticeEl.querySelector("[data-pending-symbol]").textContent = pending.symbol;
-
-  const connectEl = document.getElementById("pendingResumeConnect");
-  const dismissEl = document.getElementById("pendingDismiss");
-  const statusEl = document.getElementById("pendingResumeStatus");
+  noticeEl.replaceChildren(box);
   const onListed = () => {
     clearPendingLaunch(pending.mint);
     dismissEl.style.display = "none";
@@ -789,7 +821,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
     if (!window.confirm(question)) return;
     clearPendingLaunch(pending.mint);
     noticeEl.hidden = true;
-    noticeEl.innerHTML = "";
+    noticeEl.replaceChildren();
   });
 
   connectEl.addEventListener("click", async () => {
@@ -835,13 +867,14 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
         launchedAt: new Date().toISOString(),
       });
       connectEl.style.display = "none";
-      const done = `<b>Done.</b> Supply minted — <a href="${explorerAddressLink(pending.mint)}" target="_blank">view on Explorer</a>.<br>`;
-      statusEl.innerHTML = done + "Checking the supply lock…";
+      const done = () => [el("b", { textContent: "Done." }), " Supply minted — ", explorerAnchor(mintText, "view on Explorer"), ".", el("br")];
+      statusEl.replaceChildren(...done(), "Checking the supply lock…");
       try {
-        statusEl.innerHTML = done + supplyLockMessage(await flow.verifySupplyLocked(mint, amount), pending.mint);
+        statusEl.replaceChildren(...done(), supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mintText));
       } catch (lockErr) {
-        statusEl.innerHTML = done + `<b style="color:var(--down)">Supply lock check failed:</b> `;
-        statusEl.append(lockErr.message);
+        const label = el("b", { textContent: "Supply lock check failed:" });
+        label.style.color = "var(--down)";
+        statusEl.replaceChildren(...done(), label, " ", lockErr.message);
       }
       await listOnSignal(entry, statusEl.parentElement, onListed);
     } catch (err) {
@@ -1026,7 +1059,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       resumeState = null;
       launchBtn.textContent = "Launched";
       try {
-        flow.log(supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mint.toBase58()));
+        flow.logNode(supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mint.toBase58()));
       } catch (lockErr) {
         flow.logText(`<b style="color:var(--down)">Supply lock check failed:</b> `, lockErr.message);
       }

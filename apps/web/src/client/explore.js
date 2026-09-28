@@ -21,6 +21,58 @@
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  // Logos come from third parties (DEX Screener, token metadata): only
+  // https URLs, only ever as an <img> built with DOM properties.
+  const LOGO_SIZE = 32;
+  function safeLogoUrl(value) {
+    try {
+      return typeof value === 'string' && value.length <= 2048 && new URL(value).protocol === 'https:' ? value : null;
+    } catch {
+      return null;
+    }
+  }
+  function logoPlaceholder(item) {
+    const placeholder = document.createElement('span');
+    placeholder.className = 'token-logo token-logo-placeholder';
+    placeholder.setAttribute('aria-hidden', 'true');
+    placeholder.textContent = String(item.symbol || item.name || '?').trim().charAt(0).toUpperCase() || '?';
+    return placeholder;
+  }
+  function logoElement(item) {
+    const url = safeLogoUrl(item.logo);
+    if (!url) return logoPlaceholder(item);
+    const img = document.createElement('img');
+    img.className = 'token-logo';
+    img.alt = '';
+    img.width = LOGO_SIZE;
+    img.height = LOGO_SIZE;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => img.replaceWith(logoPlaceholder(item)), { once: true });
+    img.src = url;
+    return img;
+  }
+  // Signal launches' logos live in their on-chain metadata; the reader
+  // (and the wallet library it needs) is only loaded when there are some.
+  let signalLogoReader = null;
+  function resolveSignalLogos(items) {
+    const solana = items.filter((item) => item.chain === 'solana' && !item.logo && item.address);
+    if (!solana.length) return;
+    signalLogoReader = signalLogoReader || import('/client/token-logo.js').catch(() => null);
+    signalLogoReader.then((reader) => {
+      if (!reader) return;
+      solana.forEach((item) => {
+        reader.signalLogoUrl(item.address).then((logo) => {
+          if (!logo) return;
+          state.signal.forEach((entry) => {
+            if (entry.chain === item.chain && entry.address === item.address) entry.logo = logo;
+          });
+          render();
+        });
+      });
+    });
+  }
   function shortAddress(address) {
     const value = String(address || '');
     return value.length > 12 ? `${value.slice(0, 5)}…${value.slice(-5)}` : value;
@@ -68,7 +120,7 @@
       return (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
     });
   }
-  function card(item) {
+  function card(item, index) {
     const metrics = [];
     const volume = compactUsd(item.volume24h);
     const liquidity = compactUsd(item.liquidityUsd);
@@ -94,9 +146,12 @@
       : safeUrl?.startsWith('http') ? '<br><span style="color:var(--ink-faint);">Opens external market</span>' : '';
     return `
       <${open} class="review-row" style="text-decoration:none;color:inherit;align-items:center;gap:12px;">
-        <span class="k" style="min-width:0;">
-          <strong>${identity}</strong><br>
-          <span style="font-family:monospace;font-size:.72rem;color:var(--ink-faint);">${escapeHtml(shortAddress(item.address))}</span>
+        <span class="k" style="min-width:0;display:flex;align-items:center;gap:10px;">
+          <span data-logo-index="${index}"></span>
+          <span style="min-width:0;">
+            <strong>${identity}</strong><br>
+            <span style="font-family:monospace;font-size:.72rem;color:var(--ink-faint);">${escapeHtml(shortAddress(item.address))}</span>
+          </span>
         </span>
         <span class="v" style="text-align:right;font-size:.76rem;line-height:1.5;">
           ${escapeHtml(chainLabel[item.chain] || item.chain)} · ${escapeHtml(item.market || item.origin)} · ${escapeHtml(relativeTime(item.createdAt))}
@@ -109,8 +164,12 @@
     const list = document.getElementById(`explore-${state.activeTab}-list`);
     const empty = document.getElementById(`explore-${state.activeTab}-empty`);
     if (!list || !empty) return;
-    const items = visibleItems();
-    list.innerHTML = items.slice(0, 60).map(card).join('');
+    const items = visibleItems().slice(0, 60);
+    list.innerHTML = items.map(card).join('');
+    // Logos are added as elements, never through the HTML above.
+    list.querySelectorAll('[data-logo-index]').forEach((slot) => {
+      slot.replaceWith(logoElement(items[Number(slot.getAttribute('data-logo-index'))]));
+    });
     empty.hidden = items.length > 0;
     list.hidden = items.length === 0;
   }
@@ -129,6 +188,7 @@
         url: `/token/${encodeURIComponent(token.address)}`,
       }));
       render();
+      resolveSignalLogos(state.signal);
     } catch { /* External feeds can still populate discovery. */ }
   }
   async function loadDexScreener() {
@@ -151,13 +211,7 @@
             return response.ok ? response.json() : [];
           }));
       const markets = (await Promise.all(requests)).flat();
-      const external = markets.map((pair) => ({
-        name: pair.baseToken?.name, symbol: pair.baseToken?.symbol,
-        address: pair.baseToken?.address, chain: chainMap[pair.chainId],
-        createdAt: pair.pairCreatedAt, origin: 'External', market: pair.dexId || 'DEX',
-        volume24h: pair.volume?.h24, liquidityUsd: pair.liquidity?.usd,
-        marketCapUsd: pair.marketCap || pair.fdv, url: pair.url,
-      })).filter((item) => item.address && item.chain);
+      const external = markets.map(marketFromPair).filter((item) => item.address && item.chain);
       state.external = dedupe([...state.external, ...external]);
       setFeedStatus('Live: Pump.fun · Solana · Base · BNB Chain');
       render();
@@ -179,6 +233,7 @@
       liquidityUsd: pair.liquidity?.usd,
       marketCapUsd: pair.marketCap || pair.fdv,
       url: pair.url,
+      logo: pair.info?.imageUrl,
     };
   }
 
@@ -234,6 +289,7 @@
       ]);
       setFeedStatus(`Search complete · ${dexPairs.length + signalTokens.length} market matches received`);
       render();
+      resolveSignalLogos(state.signal);
     } catch {
       if (requestId === searchRequestId) {
         setFeedStatus('Search service is temporarily unavailable');
