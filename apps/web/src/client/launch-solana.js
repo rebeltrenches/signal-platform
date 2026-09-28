@@ -68,6 +68,9 @@ const COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 50_000;
 // An RPC node can briefly not know a blockhash another node just returned.
 const BLOCKHASH_RETRIES = 4;
 const BLOCKHASH_RETRY_DELAY_MS = 1_500;
+// A transaction's blockhash expires after ~150 blocks (about a minute);
+// one still unseen after this long can never land.
+const STORAGE_PAYMENT_EXPIRY_MS = 3 * 60_000;
 
 // Matches MINIMUM_TOKEN_SUPPLY in packages/types exactly (manually
 // synced — same constraint as the constant above). Deliberately
@@ -241,9 +244,22 @@ class LaunchFlow {
     if (row) row.textContent = state + (extra ? ` \u2014 ${extra}` : "");
   }
 
+  /** Appends a line of our own markup. Never pass it text from outside
+   *  this page (RPC or Turbo responses, error messages, token metadata):
+   *  use logText for those. Appending (not `innerHTML +=`) also keeps
+   *  earlier lines' buttons working. */
   log(html) {
     const el = this.root.querySelector("#launch-result");
-    if (el) el.innerHTML += html + "<br>";
+    if (el) el.insertAdjacentHTML("beforeend", html + "<br>");
+  }
+
+  /** Appends `labelHtml` (our own markup) followed by `text` as plain
+   *  text, never parsed as HTML. */
+  logText(labelHtml, text) {
+    const el = this.root.querySelector("#launch-result");
+    if (!el) return;
+    if (labelHtml) el.insertAdjacentHTML("beforeend", labelHtml);
+    el.append(String(text), document.createElement("br"));
   }
 
   async connectWallet() {
@@ -343,7 +359,8 @@ class LaunchFlow {
         turbo: createTurboClient(),
         store: turboStore,
         approvePayment: (quote) => this.confirmStoragePayment(quote),
-        pay: ({ lamports, depositAddress }) => this.payForStorage(launcherPubkey, lamports, depositAddress),
+        pay: ({ lamports, depositAddress, onSent }) => this.payForStorage(launcherPubkey, lamports, depositAddress, onSent),
+        paymentStatus: (signature, sentAt) => this.storagePaymentStatus(signature, sentAt),
         onStatus: (text) => this.setStepState("upload", text),
       });
       this.setStepState("upload", "stored on Arweave");
@@ -402,7 +419,7 @@ class LaunchFlow {
 
   /** The approved storage payment: a plain SOL transfer to Turbo's
    *  deposit address, checked like every launch transaction. */
-  async payForStorage(launcherPubkey, lamports, depositAddress) {
+  async payForStorage(launcherPubkey, lamports, depositAddress, onSent) {
     const tx = await this.buildBudgetedTx(launcherPubkey, [
       web3.SystemProgram.transfer({
         fromPubkey: launcherPubkey,
@@ -410,7 +427,18 @@ class LaunchFlow {
         lamports: Number(lamports),
       }),
     ]);
-    return this.signSubmitConfirm(tx, "upload");
+    return this.signSubmitConfirm(tx, "upload", [], onSent);
+  }
+
+  /** Whether an earlier storage payment landed: "confirmed", "failed"
+   *  (it failed, or was never seen and its blockhash has long expired, so
+   *  it can never land), or "pending" (can't tell yet). */
+  async storagePaymentStatus(signature, sentAt) {
+    const { value } = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+    if (value?.err) return "failed";
+    if (value?.confirmationStatus === "confirmed" || value?.confirmationStatus === "finalized") return "confirmed";
+    if (value) return "pending";
+    return Date.now() - Date.parse(sentAt) > STORAGE_PAYMENT_EXPIRY_MS ? "failed" : "pending";
   }
 
   /** Reads the token metadata account back after launch. Returns true when
@@ -563,8 +591,11 @@ class LaunchFlow {
    *  the same blockhash. The wallet may only add its known safety and
    *  compute-budget instructions (launch-integrity.js); any change to our
    *  own instructions, accounts or amounts is rejected. `extraSigners` are
-   *  our own co-signers, re-applied if the wallet changed the message. */
-  async signSubmitConfirm(tx, stepName, extraSigners = []) {
+   *  our own co-signers, re-applied if the wallet changed the message.
+   *  `onSubmitted(signature)` runs as soon as the RPC accepts it, before
+   *  confirmation, so a caller can record a transaction that may land
+   *  even if confirming it fails. */
+  async signSubmitConfirm(tx, stepName, extraSigners = [], onSubmitted = () => {}) {
     if (!tx.recentBlockhash || !tx.lastValidBlockHeight) {
       throw new Error("Transaction is missing its confirmation blockhash.");
     }
@@ -591,6 +622,7 @@ class LaunchFlow {
 
     this.setStepState(stepName, "submitted");
     const signature = await this.sendWithBlockhashRetry(signed.serialize());
+    onSubmitted(signature);
     this.setStepState(stepName, "confirming", signature);
 
     try {
@@ -600,7 +632,17 @@ class LaunchFlow {
       throw err;
     }
     this.setStepState(stepName, "confirmed", signature);
-    this.log(`✓ ${stepName}: <a href="${explorerLink(signature)}" target="_blank" rel="noopener noreferrer">${signature}</a>`);
+    // The signature comes back from the RPC: add it as text, not HTML.
+    const resultEl = this.root.querySelector("#launch-result");
+    if (resultEl) {
+      const link = Object.assign(document.createElement("a"), {
+        href: explorerLink(encodeURIComponent(signature)),
+        target: "_blank",
+        rel: "noopener noreferrer",
+        textContent: signature,
+      });
+      resultEl.append(`✓ ${stepName}: `, link, document.createElement("br"));
+    }
     return signature;
   }
 
@@ -986,7 +1028,7 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       try {
         flow.log(supplyLockMessage(await flow.verifySupplyLocked(mint, amount), mint.toBase58()));
       } catch (lockErr) {
-        flow.log(`<b style="color:var(--down)">Supply lock check failed:</b> ${lockErr.message}`);
+        flow.logText(`<b style="color:var(--down)">Supply lock check failed:</b> `, lockErr.message);
       }
       try {
         const verified = await flow.verifyMetadata(mint, { name, symbol, uri: metadataUri });
@@ -994,16 +1036,15 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
           ? `<b>Metadata locked.</b> Name, symbol and logo are on-chain and can never be changed.`
           : `The token metadata couldn't be read back yet. Check <a href="${explorerAddressLink(mint.toBase58())}" target="_blank">Explorer</a> shows the name and symbol.`);
       } catch (metaErr) {
-        // The message can quote on-chain text: add it as text, not HTML.
-        flow.log(`<b style="color:var(--down)">Metadata check failed:</b> <span data-meta-error></span>`);
-        [...resultEl.querySelectorAll("[data-meta-error]")].at(-1).textContent = metaErr.message;
+        // The message can quote on-chain text: logText adds it as text.
+        flow.logText(`<b style="color:var(--down)">Metadata check failed:</b> `, metaErr.message);
       }
       const listedMint = mint.toBase58();
       await listOnSignal({ name, symbol, mint: listedMint, decimals, creatorAddress: connectedPubkey.toBase58() }, resultEl, () => clearPendingLaunch(listedMint));
     } catch (err) {
-      flow.log(err instanceof StoragePaymentDeclined
-        ? err.message
-        : `<b style="color:var(--down)">Failed:</b> ${err.message}`);
+      // Error messages can carry third-party text (Turbo response bodies,
+      // RPC errors): always shown as plain text.
+      flow.logText(err instanceof StoragePaymentDeclined ? "" : `<b style="color:var(--down)">Failed:</b> `, err.message);
       launchBtn.disabled = false;
       launchBtn.textContent = resumeState ? "Finish minting supply" : "Retry";
     }

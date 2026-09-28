@@ -116,7 +116,11 @@ export async function lamportsForWinc(turbo, winc) {
  *  allows and otherwise paid by the creator after approval.
  *   - ownerAddress: the creator's base58 address (the items' signer)
  *   - approvePayment({ lamports, reason, depositAddress }) -> Promise<boolean>
- *   - pay({ lamports, depositAddress }) -> Promise<signature>, confirmed on-chain
+ *   - pay({ lamports, depositAddress, onSent }) -> Promise<signature>,
+ *     confirmed on-chain; it calls onSent(signature) as soon as the
+ *     transfer is submitted, before confirming it
+ *   - paymentStatus(signature, sentAt) -> "confirmed" | "failed" | "pending":
+ *     whether a recorded earlier payment landed on-chain
  *   - store: { get(key), set(key, value), remove(key) } for the
  *     sent-but-not-credited payment record
  *   - onStatus(text): progress for the UI
@@ -127,6 +131,7 @@ export async function uploadDataItems({
   turbo,
   approvePayment,
   pay,
+  paymentStatus = async () => "confirmed",
   store,
   onStatus = () => {},
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -168,9 +173,23 @@ export async function uploadDataItems({
     for (const item of unstored) needed += await turbo.priceForBytes(item.bytes.length);
 
     // A payment sent earlier but not credited yet is applied before any
-    // new one is considered.
+    // new one is considered. If it never landed on-chain, it is dropped
+    // (no SOL left the wallet) and a new payment can be approved.
     const earlier = store.get(paymentKey);
+    let earlierStatus = null;
     if (earlier?.signature) {
+      onStatus("checking your earlier storage payment");
+      earlierStatus = await paymentStatus(earlier.signature, earlier.sentAt);
+    }
+    if (earlierStatus === "pending") {
+      throw new Error(
+        `Your earlier storage payment (${earlier.signature}) hasn't confirmed on Solana yet. ` +
+          "Try again in a minute; it won't charge you again.",
+      );
+    }
+    if (earlierStatus === "failed") {
+      store.remove(paymentKey);
+    } else if (earlierStatus === "confirmed") {
       onStatus("applying your earlier storage payment");
       await submitUntilSeen(earlier.signature);
       if (!(await waitForCredit(BigInt(earlier.balanceBefore ?? 0)))) {
@@ -194,14 +213,31 @@ export async function uploadDataItems({
     onStatus("waiting for your approval");
     if (!(await approvePayment({ lamports, reason, depositAddress }))) throw new StoragePaymentDeclined();
 
-    const signature = await pay({ lamports, depositAddress });
+    // Recorded the moment the transfer is submitted, before confirmation:
+    // if confirming fails, the transfer may still land, and a retry must
+    // find it instead of asking for a second payment.
+    let sentSignature = null;
+    const onSent = (signature) => {
+      sentSignature = signature;
+      store.set(paymentKey, {
+        signature,
+        lamports: lamports.toString(),
+        balanceBefore: balance.toString(),
+        sentAt: new Date().toISOString(),
+      });
+    };
+    let signature;
+    try {
+      signature = await pay({ lamports, depositAddress, onSent });
+    } catch (err) {
+      if (!sentSignature) throw err; // never submitted: nothing was sent
+      throw new Error(
+        `Your storage payment (${sentSignature}) was sent but couldn't be confirmed (${err.message}). ` +
+          "Press Retry; it won't charge you again unless that payment failed.",
+      );
+    }
+    if (!sentSignature) onSent(signature);
     paidThisRun = true;
-    store.set(paymentKey, {
-      signature,
-      lamports: lamports.toString(),
-      balanceBefore: balance.toString(),
-      sentAt: new Date().toISOString(),
-    });
     onStatus("waiting for ArDrive Turbo to credit your payment");
     await submitUntilSeen(signature);
     if (!(await waitForCredit(balance))) {

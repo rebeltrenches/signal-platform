@@ -141,13 +141,15 @@ def data_item_fields(body):
     return {"type": sig_type, "id": item_id, "owner": owner, "tag_count": tag_count, "tags": tags, "data": body[o:]}
 
 
-def fake_turbo(page, free=True, balance=None, deposit=TURBO_DEPOSIT):
+def fake_turbo(page, free=True, balance=None, deposit=TURBO_DEPOSIT, upload_error=None):
     """ArDrive Turbo, answered locally (no network). free=False refuses
     free uploads with 402 until the wallet's paid balance covers them."""
-    turbo = {"uploads": [], "refused": 0, "submitted": [], "balance": balance, "free": free}
+    turbo = {"uploads": [], "refused": 0, "submitted": [], "balance": balance, "free": free, "upload_error": upload_error}
     winc_per_byte, winc_per_lamport = 1000, 10
 
     def upload(route):
+        if turbo["upload_error"]:
+            return route.fulfill(status=500, body=turbo["upload_error"])
         body = route.request.post_data_buffer
         item = data_item_fields(body)
         price = len(body) * winc_per_byte
@@ -188,9 +190,9 @@ def fake_turbo(page, free=True, balance=None, deposit=TURBO_DEPOSIT):
     return turbo
 
 
-def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", turbo_free=True, turbo_balance=None):
+def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", turbo_free=True, turbo_balance=None, turbo_upload_error=None):
     page = browser.new_page()
-    page.turbo = fake_turbo(page, free=turbo_free, balance=turbo_balance)
+    page.turbo = fake_turbo(page, free=turbo_free, balance=turbo_balance, upload_error=turbo_upload_error)
     # The wallet libraries are bundled locally (scripts/build.tsx); swap the
     # bundles for the recording stubs.
     page.route(
@@ -815,6 +817,33 @@ def main():
         check("P: declining cancels the launch before anything is sent", "submittedCount" not in state and "initMintCalls" not in state and not uploads)
         check("P: and the launch can be started again", button_text == "Retry")
 
+        # The payment is sent but confirming it times out. It is recorded
+        # the moment it's sent, so Retry finds it on-chain and applies it
+        # instead of asking for (and sending) a second payment.
+        page = new_page(browser, turbo_free=False, init_t="{ unconfirmedOnCall: 1 }")
+        start_paid_launch(page)
+        page.click('#storagePayApprove')
+        wait_for_result(page)
+        first_text = page.text_content('#launch-result') or ""
+        record = json.loads(page.evaluate(f"localStorage.getItem('signal_turbo_payment_{CREATOR_WALLET}')") or "null")
+        first_state = page.evaluate("window.__t")
+        submitted_before_retry = list(page.turbo["submitted"])
+        page.click('#mainnetLaunchBtn')
+        wait_for_result(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        prompt_on_retry = page.query_selector('#storage-payment') is not None
+        record_after = page.evaluate(f"localStorage.getItem('signal_turbo_payment_{CREATOR_WALLET}')")
+        submitted = list(page.turbo["submitted"])
+        page.close()
+        deposits = [t for t in state.get("transferCalls") or [] if t["to"] == TURBO_DEPOSIT]
+        check("P: an unconfirmed payment fails the attempt, saying Retry won't charge again", "was sent but couldn't be confirmed" in first_text and "won't charge you again" in first_text)
+        check("P: its signature was recorded when it was sent, before confirmation failed", record is not None and record.get("signature") == "sig-1" and "initMintCalls" not in first_state)
+        check("P: it isn't reported to Turbo until it has confirmed on-chain", submitted_before_retry == [])
+        check("P: Retry looks the payment up on-chain and applies it", state.get("historyLookups") == ["sig-1"] and submitted == ["sig-1"])
+        check("P: without a new prompt or a second transfer", not prompt_on_retry and len(deposits) == 1)
+        check("P: and the launch completes, clearing the payment record", "Supply locked." in result_text and record_after is None)
+
         # A Turbo balance that already covers the files is used silently.
         page = new_page(browser, turbo_free=False, turbo_balance=10**9)
         fill_wizard_to_review(page)
@@ -823,6 +852,65 @@ def main():
         prompt_shown = page.query_selector('#storage-payment') is not None
         page.close()
         check("P: an existing Turbo balance is used without a prompt or payment", not prompt_shown and state.get("submittedCount") == 2)
+
+        # =================================================================
+        # X — third-party and user text is shown as text, never run as HTML
+        # =================================================================
+        print()
+
+        def injected(page):
+            """True if any payload ran or created an element."""
+            return page.evaluate("window.xss !== undefined || document.querySelector('img[src=\"x\"], b.injected') !== null")
+
+        # A malicious Turbo error body (the P1 in PR review).
+        payload = '<img src=x onerror="window.xss=1"><b class=injected>bold</b>'
+        page = new_page(browser, turbo_upload_error=payload)
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        ran = injected(page)
+        state = page.evaluate("window.__t")
+        page.close()
+        check("X: a Turbo error body with HTML is shown literally in the failure message", "Failed:" in result_text and payload in result_text)
+        check("X: and never runs or creates elements", not ran)
+        check("X: nothing was sent", "submittedCount" not in state)
+
+        # A malicious token name, symbol and description: through the review,
+        # the launch log, the on-chain read-back, and the recovery notice.
+        name = "<img src=x onerror=xss=2>"
+        symbol = "<B>X</B>"
+        description = '<b class=injected>desc</b><img src=x onerror="window.xss=3">'
+        page = new_page(browser)
+        stub_api(page, [503])
+        fill_wizard_to_review(page, name=name, symbol=symbol, description=description)
+        review = [page.text_content(s) for s in ('#rv-name', '#rv-symbol', '#rv-description')]
+        ran_review = injected(page)
+        launch(page)
+        wait_for_listing(page)
+        result_text = page.text_content('#launch-result') or ""
+        state = page.evaluate("window.__t")
+        ran_launch = injected(page)
+        page.reload(wait_until="networkidle")
+        notice_text = page.text_content('#pending-launch-notice') or ""
+        ran_notice = injected(page)
+        page.close()
+        create_meta = (state.get("createMetadataCalls") or [{}])[0]
+        check("X: a name/symbol/description with HTML is previewed literally", review == [name, symbol, description] and not ran_review)
+        check("X: it goes on-chain exactly as typed", create_meta.get("name") == name and create_meta.get("symbol") == symbol)
+        check("X: the launch completes and verifies without running it", "Metadata locked." in result_text and not ran_launch)
+        check("X: the recovery notice after a reload shows it literally", name in notice_text and symbol in notice_text and not ran_notice)
+
+        # A malicious signature string from the RPC in the ✓ log line.
+        rpc_payload = "<img src=x onerror=xss=4>"
+        page = new_page(browser, init_t=f"{{ rpcSignature: {json.dumps(rpc_payload)} }}")
+        fill_wizard_to_review(page)
+        launch(page)
+        result_text = page.text_content('#launch-result') or ""
+        link = page.get_attribute('#launch-result a[href*="explorer.solana.com/tx/"]', 'href') or ""
+        ran = injected(page)
+        page.close()
+        check("X: a signature returned by the RPC is shown as text in the log", f"mint: {rpc_payload}" in result_text and not ran)
+        check("X: and URL-encoded in its Explorer link", "%3Cimg" in link and "<" not in link)
 
         # =================================================================
         # B1 — same-session recovery: step 2 fails, retry resumes SAME mint

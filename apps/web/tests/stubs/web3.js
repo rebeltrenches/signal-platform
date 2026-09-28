@@ -15,6 +15,9 @@
 //   metadataAccountMissing    - getAccountInfo finds no token metadata account
 //   metadataMutable           - the read-back metadata account says isMutable
 //   metadataNameOnChain       - the read-back metadata account shows this name
+//   unconfirmedOnCall         - the Nth confirmation check times out (blockhash expires)
+//   historyMissing            - a history lookup finds no such transaction
+//   rpcSignature              - sendRawTransaction returns this signature
 
 // Instructions carry programId/keys/data like real ones (what
 // launch-integrity.js compares), plus `type` for the tests to read.
@@ -114,10 +117,22 @@ export class Connection {
     }
     window.__t.submittedCount = (window.__t.submittedCount || 0) + 1;
     if (window.__t.forceSubmitError) throw new Error(window.__t.forceSubmitError);
-    return 'sig-' + window.__t.submittedCount;
+    return window.__t.rpcSignature || 'sig-' + window.__t.submittedCount;
   }
-  async getSignatureStatus(signature) {
+  async getSignatureStatus(signature, config) {
+    // History lookups (checking an earlier payment) don't count as
+    // confirmation checks. historyMissing: the chain never saw it.
+    if (config?.searchTransactionHistory) {
+      (window.__t.historyLookups = window.__t.historyLookups || []).push(signature);
+      return { value: window.__t.historyMissing ? null : { err: null, confirmationStatus: 'finalized' } };
+    }
     window.__t.confirmCallCount = (window.__t.confirmCallCount || 0) + 1;
+    // unconfirmedOnCall: the Nth confirmation check never sees the
+    // transaction and its blockhash expires (a confirmation timeout).
+    if (window.__t.unconfirmedOnCall === window.__t.confirmCallCount) {
+      window.__t.blockhashExpired = true;
+      return { value: null };
+    }
     // Lets a test simulate "step N's transaction lands on-chain but
     // fails" — the create flow's confirmations happen in a fixed order
     // (mint, then supply), so "fail on call 2" means "fail the supply step".
@@ -128,7 +143,13 @@ export class Connection {
     window.__t.confirmedSignatures.push(signature);
     return { value: { err: null, confirmationStatus: 'confirmed' } };
   }
-  async getBlockHeight() { return 1; }
+  async getBlockHeight() {
+    if (window.__t.blockhashExpired) {
+      window.__t.blockhashExpired = false;
+      return 2000; // past lastValidBlockHeight (1000)
+    }
+    return 1;
+  }
 }
 
 const METADATA_PROGRAM = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';

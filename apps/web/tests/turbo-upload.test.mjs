@@ -90,13 +90,17 @@ function fakeTurbo({ free = () => true, balance = null, depositAddress = TURBO_S
   return state;
 }
 
+let paymentCounter = 0;
 function memoryStore() {
   const map = new Map();
   return { map, get: (k) => map.get(k) ?? null, set: (k, v) => map.set(k, v), remove: (k) => map.delete(k) };
 }
 
-function run(fake, items, { approve = true, store = memoryStore() } = {}) {
-  const log = { approvals: [], payments: [], statuses: [] };
+// confirmFails: the transfer is submitted (onSent runs) but confirming it
+// throws, e.g. an RPC timeout. paymentStatus answers for earlier payments.
+function run(fake, items, { approve = true, store = memoryStore(), confirmFails = false, paymentStatus } = {}) {
+  if (store.map.size === 0) paymentCounter = 0;
+  const log = { approvals: [], payments: [], statuses: [], statusChecks: [] };
   const promise = uploadDataItems({
     items,
     ownerAddress: OWNER,
@@ -108,13 +112,21 @@ function run(fake, items, { approve = true, store = memoryStore() } = {}) {
       log.approvals.push(quote);
       return approve;
     },
-    pay: async ({ lamports, depositAddress }) => {
-      const signature = `pay-sig-${log.payments.length + 1}`;
+    pay: async ({ lamports, depositAddress, onSent }) => {
+      const signature = `pay-sig-${++paymentCounter}`;
       log.payments.push({ lamports, depositAddress, signature });
       fake.paidSignatures.add(signature);
       fake.paidLamports.set(signature, lamports);
+      onSent(signature);
+      if (confirmFails) throw new Error("Transaction was not confirmed in time");
       return signature;
     },
+    ...(paymentStatus && {
+      paymentStatus: async (signature, sentAt) => {
+        log.statusChecks.push({ signature, sentAt });
+        return paymentStatus(signature);
+      },
+    }),
   });
   return { promise, log, store };
 }
@@ -208,6 +220,64 @@ await test("payment sent but not credited: fails with the signature, and a retry
   assert.equal(retry.log.payments.length, 0, "no second payment");
   assert.deepEqual(fake.stored, items.map((i) => i.id));
   assert.equal(first.store.map.size, 0);
+});
+
+await test("a payment submitted but not confirmed is recorded before confirmation fails", async () => {
+  const fake = fakeTurbo({ free: () => false });
+  const items = [item("the logo", 5000)];
+  const first = run(fake, items, { confirmFails: true });
+  await assert.rejects(first.promise, /pay-sig-1\) was sent but couldn't be confirmed.*won't charge you again/);
+  const record = first.store.get(`turbo_payment_${OWNER}`);
+  assert.equal(record.signature, "pay-sig-1");
+  assert.ok(record.sentAt && record.balanceBefore === "0");
+  assert.equal(fake.submitted.length, 0, "not reported to Turbo before it confirmed");
+});
+
+await test("retry after an unconfirmed payment that did land: applied, never paid twice", async () => {
+  const fake = fakeTurbo({ free: () => false });
+  const items = [item("the logo", 5000), item("the metadata", 300)];
+  const first = run(fake, items, { confirmFails: true });
+  await assert.rejects(first.promise);
+  const retry = run(fake, items, { store: first.store, paymentStatus: () => "confirmed" });
+  await retry.promise;
+  assert.deepEqual(retry.log.statusChecks.map((c) => c.signature), ["pay-sig-1"]);
+  assert.equal(retry.log.approvals.length, 0);
+  assert.equal(retry.log.payments.length, 0);
+  assert.deepEqual(fake.submitted, ["pay-sig-1"]);
+  assert.deepEqual(fake.stored, items.map((i) => i.id));
+  assert.equal(first.store.map.size, 0);
+});
+
+await test("retry while the earlier payment is still unconfirmed: stops without paying", async () => {
+  const fake = fakeTurbo({ free: () => false });
+  const items = [item("the logo", 5000)];
+  const first = run(fake, items, { confirmFails: true });
+  await assert.rejects(first.promise);
+  const retry = run(fake, items, { store: first.store, paymentStatus: () => "pending" });
+  await assert.rejects(retry.promise, /hasn't confirmed on Solana yet.*won't charge you again/);
+  assert.equal(retry.log.approvals.length, 0);
+  assert.equal(retry.log.payments.length, 0);
+  assert.equal(first.store.get(`turbo_payment_${OWNER}`).signature, "pay-sig-1", "record kept");
+});
+
+await test("retry after an earlier payment that never landed: dropped, and a new payment needs approval", async () => {
+  const fake = fakeTurbo({ free: () => false });
+  const items = [item("the logo", 5000)];
+  const first = run(fake, items, { confirmFails: true });
+  await assert.rejects(first.promise);
+  fake.paidSignatures.delete("pay-sig-1"); // it never reached the chain
+  const retry = run(fake, items, { store: first.store, paymentStatus: () => "failed" });
+  await retry.promise;
+  assert.equal(retry.log.approvals.length, 1, "asked again");
+  assert.equal(retry.log.payments.length, 1);
+  assert.equal(fake.submitted.includes("pay-sig-1"), false, "the failed payment is never reported");
+  assert.equal(fake.stored.length, 1);
+});
+
+await test("a Turbo error body is passed on verbatim in the message (the page shows it as text)", async () => {
+  const body = '<img src=x onerror="alert(1)">';
+  const client = createTurboClient({ fetch: async () => new Response(body, { status: 500 }) });
+  await assert.rejects(client.upload(new Uint8Array(10)), (err) => err.message.includes(body));
 });
 
 await test("if Turbo's deposit address differs from the expected one, no SOL is sent", async () => {
