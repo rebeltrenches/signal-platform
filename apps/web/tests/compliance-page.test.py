@@ -266,11 +266,11 @@ def main():
         version = page.text_content('#terms-version') or ""
         footer_link = page.query_selector('footer a[href="/terms"]') is not None
         page.close()
-        for phrase in ("18 or older", "Not financial advice", "can lose all their value", "non-custodial", "responsible for keeping your wallet", "sanctioned person"):
+        for phrase in ("18 or older", "Not financial advice", "can lose all or substantially all of their value", "non-custodial", "responsible for keeping your wallet", "sanctioned person"):
             check(f"terms page covers: {phrase}", phrase in text)
         check("terms page is marked draft pending legal review, with its version", "Draft pending legal review" in draft and version == TERMS)
-        check("terms page lists the blocked places from the config, and says HK/Macau/Taiwan aren't restricted",
-              all(RESTRICTIONS["levels"]["blocked"]["countries"][c]["name"] in text for c in ("CN", "IR", "KP", "CU")) and "Crimea" in text and "Hong Kong, Macau and Taiwan are not restricted" in text)
+        check("terms page lists the blocked places from the config, and says HK/Macau/Taiwan are not in Signal's blocked list",
+              all(RESTRICTIONS["levels"]["blocked"]["countries"][c]["name"] in text for c in ("CN", "IR", "KP", "CU")) and "Crimea" in text and "Hong Kong, Macau and Taiwan are not in Signal's blocked list" in text)
         check("terms page shows each Level 2 warning from the config", all(e["warning"] in text for e in RESTRICTIONS["levels"]["regulated"]["countries"].values()))
         check("every page links to the terms in its footer", footer_link)
 
