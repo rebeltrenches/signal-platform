@@ -1,0 +1,26 @@
+name: Bonding curve CI
+
+on:
+  push:
+    branches:
+      - pf-style-bonding-curve
+    paths:
+      - 'programs/signal-bonding-curve/**'
+      - '.github/workflows/bonding-curve-ci.yml'
+  pull_request:
+    paths:
+      - 'programs/signal-bonding-curve/**'
+      - 'apps/web/src/client/launch-solana-curve.js'
+      - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/src/pages/CreatePage.tsx'
+      - 'apps/web/scripts/build.tsx'
+      - '.github/workflows/bonding-curve-ci.yml'
+
+jobs:
+  rust-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Signal bonding curve math and state
+        run: cargo test --manifest-path programs/signal-bonding-curve/Cargo.toml --locked=false
