@@ -10,6 +10,7 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
+      - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
       - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
@@ -25,6 +26,7 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
+      - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
       - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
@@ -185,6 +187,11 @@ jobs:
         env:
           SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
         run: node tests/bonding-curve-runtime-smoke.mjs
+      - name: Execute independent-wallet and custody-attack paths
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-multiwallet-runtime.mjs
       - name: Execute exact full-curve completion on Solana runtime
         working-directory: apps/web
         env:
