@@ -119,6 +119,17 @@ def real_png():
             + chunk(b"IDAT", zlib.compress(b"\x00\x7c\x5c\xff\xff")) + chunk(b"IEND", b""))
 
 
+def noise_png(width, height):
+    """A large, incompressible RGB PNG (random pixels), like a photo."""
+    import os as _os, struct, zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + _os.urandom(width * 3) for _ in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
+
+
 def data_item_fields(body):
     """Parses what the page uploaded (an ANS-104 data item, signature
     type 4): its id, tags and data."""
@@ -254,7 +265,7 @@ def fill_wizard_to_review(page, name="Test Token", symbol="TST", description="A 
     page.fill('.wizard-step[data-step="1"] #tk-name', name)
     page.fill('.wizard-step[data-step="1"] #tk-symbol', symbol)
     page.fill('.wizard-step[data-step="1"] #tk-desc', description)
-    page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": logo or png_bytes()}])
+    page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": logo or real_png()}])
     page.wait_for_function("() => !document.querySelector('.wizard-step[data-step=\"1\"] [data-action=\"next\"]').disabled", timeout=5000)
     page.click('.wizard-step[data-step="1"] [data-action="next"]')
     page.fill('.wizard-step[data-step="2"] #tk-supply', "1000000000")
@@ -359,7 +370,7 @@ def main():
         page.click('.wizard-step[data-step="0"] [data-action="next"]')
         page.fill('.wizard-step[data-step="1"] #tk-name', "Wizard Limit")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "WZL")
-        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": png_bytes()}])
+        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": real_png()}])
         page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
         page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
@@ -382,7 +393,7 @@ def main():
         page.click('.wizard-step[data-step="0"] [data-action="next"]')
         page.fill('.wizard-step[data-step="1"] #tk-name', "Empty Decimals")
         page.fill('.wizard-step[data-step="1"] #tk-symbol', "EDC")
-        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": png_bytes()}])
+        page.set_input_files('#tk-logo', files=[{"name": "logo.png", "mimeType": "image/png", "buffer": real_png()}])
         page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
         page.click('.wizard-step[data-step="1"] [data-action="next"]')
         field_value_at_start = page.input_value('.wizard-step[data-step="2"] #tk-decimals')
@@ -655,7 +666,8 @@ def main():
         check("M: launch stays disabled until the metadata preview is confirmed", launch_disabled_without_ack and launch_enabled_with_ack)
         check("M: two files are uploaded, logo first, both signed by the creator (type 4)", len(uploads) == 2 and all(u["type"] == 4 for u in uploads) and uploads[0]["owner"].startswith(CREATOR_WALLET.encode()[:32]))
         logo_item, json_item = (uploads + [{}, {}])[:2]
-        check("M: the logo is stored with its detected content type", logo_item.get("tags", {}).get("Content-Type") == "image/png" and logo_item.get("data") == png_bytes())
+        logo_data = logo_item.get("data") or b""
+        check("M: the logo is stored as the resized image, with its detected content type", logo_item.get("tags", {}).get("Content-Type") == "image/webp" and logo_data[:4] == b"RIFF" and logo_data[8:12] == b"WEBP" and len(logo_data) <= 100 * 1024)
         meta_json = json.loads(json_item.get("data") or b"{}") if json_item else {}
         check(
             "M: the metadata JSON has the name, symbol, description and the logo's Arweave URL",
@@ -725,7 +737,7 @@ def main():
         disabled_without_logo = page.is_disabled(next_btn)
         # is_visible checks what is actually rendered, not just the attribute.
         preview_visible_at_start = page.is_visible('#tk-logo-preview')
-        page.set_input_files('#tk-logo', files=[{"name": "big.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024 + 1)}])
+        page.set_input_files('#tk-logo', files=[{"name": "huge.png", "mimeType": "image/png", "buffer": png_bytes(5 * 1024 * 1024 + 1)}])
         page.wait_for_function("() => document.getElementById('tk-logo-error').textContent.length > 0", timeout=5000)
         big_error = page.text_content('#tk-logo-error') or ""
         disabled_big = page.is_disabled(next_btn)
@@ -744,8 +756,51 @@ def main():
         preview_visible_after_clear = page.is_visible('#tk-logo-preview')
         disabled_after_clear = page.is_disabled(next_btn)
         page.set_input_files('#tk-logo', files=[{"name": "ok.png", "mimeType": "image/png", "buffer": png_bytes(100 * 1024)}])
-        page.wait_for_function("() => !document.getElementById('tk-logo-preview').hidden", timeout=5000)
+        page.wait_for_function("() => /read this image/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
+        disabled_undecodable = page.is_disabled(next_btn) and not page.is_visible('#tk-logo-preview')
+        page.set_input_files('#tk-logo', files=[{"name": "logo.svg", "mimeType": "image/svg+xml", "buffer": b"<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>"}])
+        page.wait_for_function("() => /SVG/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
+        disabled_real_svg = page.is_disabled(next_btn) and not page.is_visible('#tk-logo-preview')
+
+        # A large PNG (~3 MB of noise, 1000x1000) is resized to fit 512x512 and under 100 KB.
+        big_png = noise_png(1000, 1000)
+        page.set_input_files('#tk-logo', files=[{"name": "photo.png", "mimeType": "image/png", "buffer": big_png}])
+        page.wait_for_function("() => { const p = document.getElementById('tk-logo-preview'); return !p.hidden && p.complete && p.naturalWidth > 0; }", timeout=20000)
+        png_result = page.evaluate("""() => { const f = window.launchpadWizard.logoFile; const p = document.getElementById('tk-logo-preview');
+          return { size: f.size, type: f.type, w: p.naturalWidth, h: p.naturalHeight, info: document.getElementById('tk-logo-info').textContent }; }""")
         enabled_ok = not page.is_disabled(next_btn)
+
+        # A large JPEG (made in the browser) gets the same treatment.
+        import base64
+        jpeg_b64 = page.evaluate("""async () => { const c = document.createElement('canvas'); c.width = 1600; c.height = 1200;
+          const ctx = c.getContext('2d'); const img = ctx.createImageData(1600, 1200);
+          for (let i = 0; i < img.data.length; i++) img.data[i] = i % 4 === 3 ? 255 : Math.random() * 256;
+          ctx.putImageData(img, 0, 0);
+          const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.95));
+          const buf = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (const b of buf) s += String.fromCharCode(b); return btoa(s); }""")
+        big_jpeg = base64.b64decode(jpeg_b64)
+        page.set_input_files('#tk-logo', files=[])
+        page.set_input_files('#tk-logo', files=[{"name": "photo.jpg", "mimeType": "image/jpeg", "buffer": big_jpeg}])
+        page.wait_for_function("() => { const p = document.getElementById('tk-logo-preview'); return !p.hidden && p.complete && p.naturalWidth > 0; }", timeout=20000)
+        jpeg_result = page.evaluate("""() => { const f = window.launchpadWizard.logoFile; const p = document.getElementById('tk-logo-preview');
+          return { size: f.size, type: f.type, w: p.naturalWidth, h: p.naturalHeight }; }""")
+
+        # A wide picture keeps its aspect ratio: square canvas, transparent bars above and below.
+        wide = page.evaluate("""async () => { const c = document.createElement('canvas'); c.width = 1200; c.height = 300;
+          const ctx = c.getContext('2d'); ctx.fillStyle = '#e33'; ctx.fillRect(0, 0, 1200, 300);
+          const blob = await new Promise((r) => c.toBlob(r, 'image/png')); const buf = new Uint8Array(await blob.arrayBuffer());
+          let s = ''; for (const b of buf) s += String.fromCharCode(b); return btoa(s); }""")
+        page.set_input_files('#tk-logo', files=[{"name": "wide.png", "mimeType": "image/png", "buffer": base64.b64decode(wide)}])
+        page.wait_for_function("() => { const p = document.getElementById('tk-logo-preview'); return !p.hidden && p.complete && p.naturalWidth > 0; }", timeout=20000)
+        wide_result = page.evaluate("""async () => { const p = document.getElementById('tk-logo-preview'); const c = document.createElement('canvas');
+          c.width = p.naturalWidth; c.height = p.naturalHeight; const ctx = c.getContext('2d'); ctx.drawImage(p, 0, 0);
+          return { w: p.naturalWidth, h: p.naturalHeight, top: ctx.getImageData(256, 5, 1, 1).data[3], middle: ctx.getImageData(256, 256, 1, 1).data[3] }; }""")
+
+        # A GIF becomes a still image, and the page says so.
+        gif = base64.b64decode("R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==")
+        page.set_input_files('#tk-logo', files=[{"name": "anim.gif", "mimeType": "image/gif", "buffer": gif}])
+        page.wait_for_function("() => /first frame/.test(document.getElementById('tk-logo-info').textContent)", timeout=10000)
+        gif_type = page.evaluate("window.launchpadWizard.logoFile.type")
         page.fill('#tk-name', "é" * 17)
         name_error = page.text_content('#tk-name-error') or ""
         disabled_long_name = page.is_disabled(next_btn)
@@ -759,9 +814,15 @@ def main():
         check("M (wizard): a rejected logo shows no preview", not preview_visible_big and not preview_visible_after_reject)
         check("M (wizard): a valid logo is previewed (really drawn)", preview_visible_valid)
         check("M (wizard): clearing the file hides the preview again and disables Continue", not preview_visible_after_clear and disabled_after_clear)
-        check("M (wizard): a logo over 100 KB is refused with its size", disabled_big and "maximum is 100 KB" in big_error)
+        check("M (wizard): a file over 5 MB is refused with its size", disabled_big and "maximum is 5 MB" in big_error)
         check("M (wizard): a non-image renamed .png is refused", disabled_svg)
-        check("M (wizard): a 100 KB PNG is accepted and previewed", enabled_ok)
+        check("M (wizard): a file that isn't a decodable image is refused, with no preview", disabled_undecodable)
+        check("M (wizard): a real SVG file is refused", disabled_real_svg)
+        check("M (wizard): a large PNG is resized to fit 512x512 and under 100 KB", png_result["size"] <= 100 * 1024 and max(png_result["w"], png_result["h"]) <= 512 and png_result["type"] == "image/webp" and enabled_ok)
+        check("M (wizard): the final size is shown to the creator", "KB" in png_result["info"] and "on-chain" in png_result["info"])
+        check("M (wizard): a large JPEG is resized to fit 512x512 and under 100 KB", jpeg_result["size"] <= 100 * 1024 and max(jpeg_result["w"], jpeg_result["h"]) <= 512)
+        check("M (wizard): a wide picture keeps its aspect ratio on a square canvas with transparent padding", wide_result["w"] == 512 and wide_result["h"] == 512 and wide_result["top"] == 0 and wide_result["middle"] == 255)
+        check("M (wizard): a GIF becomes a still image and the UI says so", gif_type in ("image/webp", "image/jpeg"))
         check("M (wizard): a name over 32 bytes (17 × 'é') is refused with the byte limit", disabled_long_name and "32 bytes" in name_error)
         check("M (wizard): a symbol with a space is refused", disabled_symbol and "spaces" in symbol_error)
 

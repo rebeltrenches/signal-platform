@@ -67,11 +67,15 @@
   // Token metadata rules, mirrored from token-metadata.js (which is the
   // real gate, run again before anything is uploaded or signed). Name and
   // symbol limits are Metaplex's, in UTF-8 bytes; 100 KB keeps the logo
-  // inside ArDrive Turbo's free per-file limit.
+  // inside ArDrive Turbo's free per-file limit. Creators may pick any image
+  // up to MAX_LOGO_INPUT_BYTES; it is resized in the browser to fit
+  // LOGO_MAX_DIMENSION and compressed under MAX_LOGO_BYTES before use.
   const MAX_NAME_BYTES = 32;
   const MAX_SYMBOL_BYTES = 10;
   const MAX_DESCRIPTION_CHARS = 500;
   const MAX_LOGO_BYTES = 100 * 1024;
+  const MAX_LOGO_INPUT_BYTES = 5 * 1024 * 1024;
+  const LOGO_MAX_DIMENSION = 512;
   const utf8 = new TextEncoder();
   const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
@@ -103,6 +107,102 @@
     if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
     if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp';
     return null;
+  }
+
+  const formatKb = (bytes) => `${(bytes / 1024).toFixed(1)} KB`;
+  const canvasToBlob = (canvas, type, quality) => new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+
+  // Decodes to something drawable. An animated GIF or WebP yields its first frame.
+  async function decodeImage(file) {
+    if (typeof createImageBitmap === 'function') {
+      try {
+        const bitmap = await createImageBitmap(file);
+        return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close && bitmap.close() };
+      } catch { /* fall through to <img> */ }
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { source: img, width: img.naturalWidth, height: img.naturalHeight, release: () => {} };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  // Fits the image inside LOGO_MAX_DIMENSION (never enlarging, never
+  // stretching), centred on a square canvas with transparent padding, then
+  // encodes it as WebP (JPEG where the browser can't) under MAX_LOGO_BYTES,
+  // lowering the quality and then the size until it fits. Resolves to a
+  // File, or null if the image can't be made small enough.
+  async function resizeLogo(image) {
+    const QUALITIES = [0.92, 0.85, 0.78, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2];
+    let scale = Math.min(1, LOGO_MAX_DIMENSION / Math.max(image.width, image.height));
+    for (let round = 0; round < 6; round++) {
+      const w = Math.max(1, Math.round(image.width * scale));
+      const h = Math.max(1, Math.round(image.height * scale));
+      const side = Math.max(w, h);
+      const canvas = document.createElement('canvas');
+      canvas.width = side;
+      canvas.height = side;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, side, side);
+      ctx.drawImage(image.source, Math.round((side - w) / 2), Math.round((side - h) / 2), w, h);
+      // Try WebP first; if this browser can't encode it, use JPEG.
+      const webpProbe = await canvasToBlob(canvas, 'image/webp', QUALITIES[0]);
+      const type = webpProbe && webpProbe.type === 'image/webp' ? 'image/webp' : 'image/jpeg';
+      let target = canvas;
+      if (type === 'image/jpeg') {
+        // JPEG has no transparency: put the picture on white.
+        target = document.createElement('canvas');
+        target.width = side;
+        target.height = side;
+        const flatCtx = target.getContext('2d');
+        flatCtx.fillStyle = '#ffffff';
+        flatCtx.fillRect(0, 0, side, side);
+        flatCtx.drawImage(canvas, 0, 0);
+      }
+      for (const quality of QUALITIES) {
+        const blob = type === 'image/webp' && quality === QUALITIES[0] ? webpProbe : await canvasToBlob(target, type, quality);
+        if (blob && blob.type === type && blob.size <= MAX_LOGO_BYTES) {
+          return new File([blob], type === 'image/webp' ? 'logo.webp' : 'logo.jpg', { type });
+        }
+      }
+      scale *= 0.75;
+    }
+    return null;
+  }
+
+  // Turns whatever the creator picked into the exact file that will be
+  // stored: returns { file, animated } or { error }.
+  async function prepareLogo(file) {
+    if (file.size > MAX_LOGO_INPUT_BYTES) {
+      return { error: `This image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the maximum is 5 MB.` };
+    }
+    const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+    const type = logoTypeFromBytes(head);
+    if (!type) return { error: 'The logo must be a PNG, JPEG, GIF or WebP image (SVG is not supported).' };
+    const unreadable = { error: "We couldn't read this image. Try another PNG, JPEG, GIF or WebP file." };
+    let image;
+    try {
+      image = await decodeImage(file);
+    } catch {
+      return unreadable;
+    }
+    let resized;
+    try {
+      if (!image.width || !image.height) return unreadable;
+      resized = await resizeLogo(image);
+    } finally {
+      image.release();
+    }
+    if (!resized) return { error: "We couldn't shrink this image under 100 KB. Try a simpler image." };
+    // The same byte-level checks as before, now on the final image.
+    const finalType = logoTypeFromBytes(new Uint8Array(await resized.slice(0, 12).arrayBuffer()));
+    if (!finalType || resized.size > MAX_LOGO_BYTES) return { error: "We couldn't prepare this image. Try another one." };
+    const animated = type === 'image/gif' || (type === 'image/webp' && new TextDecoder('latin1').decode(head).includes('ANIM'));
+    return { file: resized, animated };
   }
 
   let current = 0;
@@ -183,9 +283,12 @@
     showError('tk-desc-error', validateDescription(state.description).error);
     validateStep();
   });
+  let logoRun = 0; // a newer pick makes an older, slower one discard its result
   if (logoInput) logoInput.addEventListener('change', async (e) => {
+    const run = ++logoRun;
     const file = e.target.files && e.target.files[0];
     const preview = document.getElementById('tk-logo-preview');
+    const info = document.getElementById('tk-logo-info');
     state.logoFile = null;
     state.logoValid = false;
     // Hidden (and its old image released) until a new file passes the checks.
@@ -194,19 +297,25 @@
       if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
       preview.removeAttribute('src');
     }
-    let error = '';
-    if (!file) {
-      error = '';
-    } else if (file.size > MAX_LOGO_BYTES) {
-      error = `This image is ${(file.size / 1024).toFixed(1)} KB; the maximum is 100 KB.`;
-    } else if (!logoTypeFromBytes(new Uint8Array(await file.slice(0, 12).arrayBuffer()))) {
-      error = 'The logo must be a PNG, JPEG, GIF or WebP image.';
+    if (info) info.textContent = '';
+    showError('tk-logo-error', '');
+    validateStep();
+    if (!file) return;
+    if (info) info.textContent = 'Preparing your logo…';
+    const result = await prepareLogo(file);
+    if (run !== logoRun) return;
+    if (result.error) {
+      if (info) info.textContent = '';
+      showError('tk-logo-error', result.error);
     } else {
-      state.logoFile = file;
+      state.logoFile = result.file;
       state.logoValid = true;
-      if (preview) { preview.src = URL.createObjectURL(file); preview.hidden = false; }
+      if (preview) { preview.src = URL.createObjectURL(result.file); preview.hidden = false; }
+      if (info) {
+        info.textContent = `Resized to ${formatKb(result.file.size)} ${result.file.type === 'image/webp' ? 'WebP' : 'JPEG'} — this exact image is what gets stored on-chain.` +
+          (result.animated ? ' Animated images become a still picture of the first frame.' : '');
+      }
     }
-    showError('tk-logo-error', error);
     validateStep();
   });
 

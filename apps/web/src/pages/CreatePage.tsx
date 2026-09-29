@@ -110,8 +110,9 @@ export function CreatePage() {
           </div>
           <div className="field">
             <label htmlFor="tk-logo">Logo</label>
-            <input className="input" id="tk-logo" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="tk-logo-hint tk-logo-error" />
-            <div id="tk-logo-hint" className="hint">PNG, JPEG, GIF or WebP, up to 100 KB. Stored permanently on Arweave.</div>
+            <input className="input" id="tk-logo" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="tk-logo-hint tk-logo-info tk-logo-error" />
+            <div id="tk-logo-hint" className="hint">Any PNG, JPEG, GIF or WebP image up to 5 MB — we'll resize it for you (max 512×512, under 100 KB). Animated GIFs become a still image of the first frame. Stored permanently on Arweave.</div>
+            <p id="tk-logo-info" className="hint" aria-live="polite"></p>
             <p id="tk-logo-error" className="hint" style={errorStyle}></p>
             <img id="tk-logo-preview" alt="Logo preview" width={64} height={64} style={{ borderRadius: 12, objectFit: 'cover' }} hidden />
           </div>
