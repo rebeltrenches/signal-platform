@@ -59,16 +59,17 @@ function listFile({ generatedAt = Date.now(), entries = 150, ...overrides } = {}
   };
 }
 
-/** Mocks the list file (GitHub) and the Signal API; records every call.
- *  `list` answers the list file request (an object is sent as JSON). */
-function network({ list = () => listFile(), session = () => Response.json({ address: WALLET }), register = () => Response.json({ ok: true }, { status: 201 }) } = {}) {
+/** Mocks the list file (GitHub, and its CDN mirror) and the Signal API;
+ *  records every call. `list` answers the list file request (an object is
+ *  sent as JSON); the mirror answers the same unless `mirror` is given. */
+function network({ list = () => listFile(), mirror, session = () => Response.json({ address: WALLET }), register = () => Response.json({ ok: true }, { status: 201 }) } = {}) {
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     const headers = Object.fromEntries(new Headers(init.headers || {}).entries());
     calls.push({ url: u, method: init.method || "GET", headers, body: init.body });
-    if (u === compliance.OFAC_LIST_URL) {
-      const answer = list();
+    if (u === compliance.OFAC_LIST_URL || u === compliance.OFAC_LIST_MIRROR_URL) {
+      const answer = (u === compliance.OFAC_LIST_MIRROR_URL && mirror ? mirror : list)();
       return answer instanceof Response ? answer : Response.json(answer);
     }
     if (u === `${API}/api/v1/auth/session`) return session(headers);
@@ -77,7 +78,7 @@ function network({ list = () => listFile(), session = () => Response.json({ addr
   };
   return calls;
 }
-const listReads = (calls) => calls.filter((c) => c.url === compliance.OFAC_LIST_URL).length;
+const listReads = (calls) => calls.filter((c) => c.url === compliance.OFAC_LIST_URL || c.url === compliance.OFAC_LIST_MIRROR_URL).length;
 const HOUR = 60 * 60_000;
 
 console.log("compliance-functions.test.mjs\n");
@@ -207,7 +208,47 @@ await test("if a re-read fails, the held list is used until it's 48 hours old (b
   assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS - 1)).status, "clear");
   assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS + 1)).status, "unavailable", "too old");
   network({ list: () => listFile({ generatedAt: made + compliance.SDN_MAX_AGE_MS }) });
-  assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS + 2)).status, "clear", "a fresh file recovers");
+  const retry = made + compliance.SDN_MAX_AGE_MS + 1 + compliance.LIST_FAILURE_BACKOFF_MS;
+  assert.equal((await compliance.screenWallet(WALLET, env, retry)).status, "clear", "a fresh file recovers");
+});
+
+await test("GitHub unreachable: the CDN mirror of the same file is used; both failing gives both causes", async () => {
+  const now = Date.parse("2026-09-29T12:00:00Z");
+  const calls = network({ list: () => new Response("rate limited", { status: 429 }), mirror: () => listFile({ generatedAt: now }) });
+  assert.equal((await compliance.screenWallet(SANCTIONED, env, now)).status, "sanctioned");
+  assert.deepEqual(calls.map((c) => c.url), [compliance.OFAC_LIST_URL, compliance.OFAC_LIST_MIRROR_URL]);
+  assert.equal(compliance.OFAC_LIST_MIRROR_URL, "https://cdn.jsdelivr.net/gh/rebeltrenches/signal-platform@ofac-data/ofac-sdn-addresses.json");
+  compliance.resetComplianceForTests();
+  network({ list: () => new Response("rate limited", { status: 429 }), mirror: () => { throw Object.assign(new Error("t"), { name: "TimeoutError" }); } });
+  const result = await compliance.screenWallet(WALLET, env, now);
+  assert.equal(result.status, "unavailable");
+  assert.match(result.reason, /GitHub: list file download failed \(HTTP 429\); mirror: download timed out/);
+});
+
+await test("a failed read is reused for at most 30 seconds, then retried; one success clears it", async () => {
+  const now = Date.parse("2026-09-29T12:00:00Z");
+  let down = true;
+  const calls = network({ list: () => (down ? new Response("down", { status: 503 }) : listFile({ generatedAt: now })) });
+  assert.equal((await compliance.screenWallet(WALLET, env, now)).status, "unavailable");
+  const readsAfterFailure = listReads(calls);
+  down = false;
+  const during = await compliance.screenWallet(WALLET, env, now + compliance.LIST_FAILURE_BACKOFF_MS - 1);
+  assert.equal(during.status, "unavailable", "within the backoff, no new download");
+  assert.match(during.reason, /HTTP 503/);
+  assert.equal(listReads(calls), readsAfterFailure);
+  assert.ok(compliance.LIST_FAILURE_BACKOFF_MS <= 30_000, "failures aren't cached for long");
+  assert.equal((await compliance.screenWallet(WALLET, env, now + compliance.LIST_FAILURE_BACKOFF_MS)).status, "clear", "retried and recovered");
+  down = true;
+  assert.equal((await compliance.screenWallet(WALLET, env, now + compliance.LIST_FAILURE_BACKOFF_MS + 1)).status, "clear", "the loaded list isn't dropped");
+});
+
+await test("while a held list is still trusted, a failing refresh doesn't make every check wait on a download", async () => {
+  const made = Date.parse("2026-09-29T00:00:00Z");
+  network({ list: () => listFile({ generatedAt: made }) });
+  await compliance.screenWallet(WALLET, env, made);
+  const calls = network({ list: () => new Response("down", { status: 503 }) });
+  for (let i = 0; i < 5; i += 1) assert.equal((await compliance.screenWallet(SANCTIONED, env, made + 2 * HOUR + i)).status, "sanctioned");
+  assert.equal(listReads(calls), 2, "one refresh attempt (GitHub + mirror), then the held list until the backoff ends");
 });
 
 await test("a list file that stops being updated stops being trusted after 48 hours, even if it can still be read", async () => {
@@ -223,7 +264,9 @@ await test("a list file that stops being updated stops being trusted after 48 ho
 await test("POST /api/wallet-screen: clear / sanctioned / unavailable, EVM too, 451 in blocked regions, 400 bad input, rate limit", async () => {
   network();
   const post = (address, opts = {}) => screenRoute.onRequestPost({ request: req("/api/wallet-screen", { method: "POST", body: { address }, country: "DE", ...opts }), env, now: opts.now });
-  assert.deepEqual(await (await post(WALLET)).json(), { status: "clear" });
+  const clear = await post(WALLET);
+  assert.deepEqual(await clear.json(), { status: "clear" });
+  assert.equal(clear.headers.get("x-signal-screening"), compliance.SCREENING_VERSION, "answers name the screening code version");
   assert.equal((await (await post(SANCTIONED)).json()).status, "sanctioned");
   assert.equal((await (await post(SANCTIONED_EVM)).json()).status, "sanctioned", "Base/BNB wallets are screened too");
   assert.deepEqual(await (await post("0xabc1230000000000000000000000000000de0d00")).json(), { status: "clear" });

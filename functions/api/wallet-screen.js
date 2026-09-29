@@ -2,8 +2,9 @@
 // Base/BNB) wallet against the OFAC SDN list (compliance.js), used by the site right after a
 // wallet connects. The Worker screens again itself before registering a
 // launch or building a trade, so this answer is never the only check.
-// Rate-limited per IP; answers are cached briefly in compliance.js.
-import { screenWallet, isScreenableAddress, geoForRequest, jsonResponse } from "../compliance.js";
+// Rate-limited per IP. The list is held in memory (compliance.js); a failed
+// read is reused for at most 30 seconds.
+import { screenWallet, isScreenableAddress, geoForRequest, jsonResponse, SCREENING_VERSION } from "../compliance.js";
 
 export const SCREEN_RATE_LIMIT = { requests: 30, windowMs: 60_000 };
 const windows = new Map(); // ip -> [timestamps]
@@ -41,11 +42,12 @@ export async function onRequestPost({ request, env, now = Date.now() }) {
     return jsonResponse(429, { code: "RATE_LIMITED", error: "Too many wallet checks; try again in a minute." }, { "retry-after": "60" });
   }
   const result = await screenWallet(address, env, now);
+  const version = { "x-signal-screening": SCREENING_VERSION };
   if (result.status === "sanctioned") {
-    return jsonResponse(200, { status: "sanctioned", message: "This wallet appears on a sanctions list. It can't launch or trade on Signal." });
+    return jsonResponse(200, { status: "sanctioned", message: "This wallet appears on a sanctions list. It can't launch or trade on Signal." }, version);
   }
   if (result.status === "unavailable") {
-    return jsonResponse(200, { status: "unavailable", message: `${result.reason} Launching and trading are paused until the check succeeds; please try again in a minute.` });
+    return jsonResponse(200, { status: "unavailable", message: `${result.reason} Launching and trading are paused until the check succeeds; please try again in a minute.` }, version);
   }
-  return jsonResponse(200, { status: "clear" });
+  return jsonResponse(200, { status: "clear" }, version);
 }

@@ -59,16 +59,30 @@ export function geoForRequest(request, config = RESTRICTIONS) {
 // (.github/workflows/ofac-sdn-list.yml) every 6 hours and published as a
 // small JSON file (~40 KB, ~1,000 addresses) on the repo's `ofac-data`
 // branch; see functions/ofac-sdn.js. The Worker reads that file (no
-// parsing work to speak of), keeps it in memory and re-reads it hourly.
+// parsing work to speak of), keeps it in memory and re-reads it hourly, falling back to a CDN mirror
+// of the same file.
 // A file older than SDN_MAX_AGE_MS (48 hours, by its own creation time),
 // incomplete or malformed is never used: screening is then "unavailable".
 
 export const OFAC_LIST_URL = "https://raw.githubusercontent.com/rebeltrenches/signal-platform/ofac-data/ofac-sdn-addresses.json";
+// The same file through jsDelivr's CDN, tried when GitHub's raw host can't be
+// reached (it can rate-limit shared Cloudflare egress). jsDelivr may lag the
+// branch by up to 12 hours, which the 48-hour limit on the file's own
+// creation time covers.
+export const OFAC_LIST_MIRROR_URL = "https://cdn.jsdelivr.net/gh/rebeltrenches/signal-platform@ofac-data/ofac-sdn-addresses.json";
 export const LIST_REFRESH_MS = 60 * 60_000;
-const LIST_TIMEOUT_MS = 15_000;
+// After a failed read, the failure is reused for at most this long (so a
+// burst of checks doesn't each wait on a download that's failing), then the
+// next check tries again. Never longer: a fixed file is picked up quickly.
+export const LIST_FAILURE_BACKOFF_MS = 30_000;
+// Sent on screening answers so the code version behind an answer is visible
+// from outside (e.g. an old commit's preview URL still running old code).
+export const SCREENING_VERSION = "ofac-json-2";
+const LIST_TIMEOUT_MS = 10_000;
 
 let sdnList = null; // { addresses: Set, publishDate, generatedAt, loadedAt }
 let sdnLoading = null;
+let lastFailure = null; // { at, error }
 
 export function isSolanaAddress(value) {
   return typeof value === "string" && SOLANA_ADDRESS.test(value);
@@ -79,9 +93,13 @@ export function isScreenableAddress(value) {
   return isSolanaAddress(value) || (typeof value === "string" && EVM_ADDRESS.test(value));
 }
 
-async function loadListFile(env, now) {
-  const url = typeof env?.OFAC_LIST_URL === "string" && env.OFAC_LIST_URL.startsWith("https://") ? env.OFAC_LIST_URL : OFAC_LIST_URL;
-  const response = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS), headers: { accept: "application/json" } });
+async function readListFile(url, now) {
+  let response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS), headers: { accept: "application/json" } });
+  } catch (error) {
+    throw new Error(error?.name === "TimeoutError" ? "download timed out" : `download failed: ${String(error?.message || error).slice(0, 60)}`);
+  }
   if (!response.ok) throw new Error(`list file download failed (HTTP ${response.status})`);
   let file;
   try {
@@ -92,16 +110,44 @@ async function loadListFile(env, now) {
   return { ...validateListFile(file, now), loadedAt: now };
 }
 
+/** The GitHub file, then the mirror. Throws with both causes. */
+async function loadListFile(env, now) {
+  const primary = typeof env?.OFAC_LIST_URL === "string" && env.OFAC_LIST_URL.startsWith("https://") ? env.OFAC_LIST_URL : OFAC_LIST_URL;
+  const causes = [];
+  for (const [name, url] of [["GitHub", primary], ["mirror", OFAC_LIST_MIRROR_URL]]) {
+    try {
+      return await readListFile(url, now);
+    } catch (error) {
+      causes.push(`${name}: ${error.message}`);
+    }
+  }
+  throw new Error(causes.join("; "));
+}
+
 const trusted = (list, now) => list && now - list.generatedAt <= SDN_MAX_AGE_MS;
 
 /** The current SDN address list, loading or re-reading it when needed.
- *  Concurrent callers share one read. Throws when no trustworthy list. */
+ *  Concurrent callers share one read; a failure is reused for at most
+ *  LIST_FAILURE_BACKOFF_MS. Throws when there's no trustworthy list. */
 export async function sdnAddressList(env, now = Date.now()) {
   if (trusted(sdnList, now) && now - sdnList.loadedAt < LIST_REFRESH_MS) return sdnList;
+  const backingOff = lastFailure && now >= lastFailure.at && now - lastFailure.at < LIST_FAILURE_BACKOFF_MS;
+  if (backingOff) {
+    if (trusted(sdnList, now)) return sdnList;
+    throw lastFailure.error;
+  }
   if (!sdnLoading) {
-    sdnLoading = loadListFile(env, now).finally(() => {
-      sdnLoading = null;
-    });
+    sdnLoading = loadListFile(env, now)
+      .then((list) => {
+        lastFailure = null;
+        return list;
+      }, (error) => {
+        lastFailure = { at: now, error };
+        throw error;
+      })
+      .finally(() => {
+        sdnLoading = null;
+      });
   }
   try {
     sdnList = await sdnLoading;
@@ -123,7 +169,7 @@ export async function screenWallet(address, env, now = Date.now()) {
   } catch (error) {
     // The cause (an HTTP status, an address count or a date; never anything
     // secret) is included so a failing load can be diagnosed from outside.
-    const cause = error?.name === "TimeoutError" ? "download timed out" : String(error?.message || "unknown error").slice(0, 120);
+    const cause = String(error?.message || "unknown error").slice(0, 200);
     return { status: "unavailable", reason: `The OFAC sanctions list couldn't be loaded (${cause}).` };
   }
   if (list.addresses.has(normalizeAddress(address))) {
@@ -145,7 +191,7 @@ export async function refusalFor(request, env, wallet, action) {
       return jsonResponse(403, { code: "WALLET_SANCTIONED", error: `This wallet appears on a sanctions list, so it can't ${action} on Signal.` });
     }
     if (screening.status !== "clear") {
-      return jsonResponse(503, { code: "SCREENING_UNAVAILABLE", error: `${screening.reason} Please try again in a minute.` });
+      return jsonResponse(503, { code: "SCREENING_UNAVAILABLE", error: `${screening.reason} Please try again in a minute.` }, { "x-signal-screening": SCREENING_VERSION });
     }
   }
   return null;
@@ -162,4 +208,5 @@ export function jsonResponse(status, body, headers = {}) {
 export function resetComplianceForTests() {
   sdnList = null;
   sdnLoading = null;
+  lastFailure = null;
 }
