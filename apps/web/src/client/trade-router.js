@@ -1,6 +1,7 @@
 // Token-page trade router. Signal-launched tokens trade against their
-// program-owned bonding curve until it completes. Tokens without a live
-// Signal curve fall back to the existing Jupiter route.
+// program-owned bonding curve until it completes. Completed Signal curves
+// can be permissionlessly graduated into Raydium CPMM; graduated or external
+// tokens fall back to the existing Jupiter route.
 import * as web3 from "./vendor/solana-web3.js";
 import * as splToken from "./vendor/spl-token.js";
 import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
@@ -10,10 +11,21 @@ import { launchTransactionDifference, finalizeSignedTransaction } from "./launch
 const RPC = new URL("/api/solana/rpc", window.location.origin).toString();
 const FEE_BPS = 100n;
 const BPS = 10_000n;
-const STATE_LEN = 128;
+const STATE_LEN = 160;
+const STATE_VERSION = 2;
 const PLATFORM_WALLET = new web3.PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS);
 const COMPUTE_LIMIT = 250_000;
+const GRADUATION_COMPUTE_LIMIT = 1_400_000;
 const COMPUTE_PRICE = 50_000;
+
+// Raydium CPMM Mainnet accounts. These match the accounts hard-bound by the
+// Signal on-chain program. The program independently validates every address;
+// these browser constants only let the wallet build that instruction.
+const RAYDIUM_CPMM_PROGRAM = new web3.PublicKey("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+const RAYDIUM_AMM_CONFIG = new web3.PublicKey("D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2");
+const RAYDIUM_CREATE_POOL_FEE = new web3.PublicKey("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
+const WSOL_MINT = new web3.PublicKey("So11111111111111111111111111111111111111112");
+const encoder = new TextEncoder();
 
 const params = new URLSearchParams(window.location.search);
 const pathAddress = window.location.pathname.split("/").filter(Boolean).pop() || "";
@@ -24,12 +36,29 @@ function pid() {
   if (!SIGNAL_BONDING_CURVE_PROGRAM_ID) return null;
   try { return new web3.PublicKey(SIGNAL_BONDING_CURVE_PROGRAM_ID); } catch { return null; }
 }
+function pda(seeds, programId) {
+  return web3.PublicKey.findProgramAddressSync(seeds, programId)[0];
+}
 function curvePda(mint, programId) {
-  return web3.PublicKey.findProgramAddressSync([new TextEncoder().encode("bonding-curve"), mint.toBytes()], programId)[0];
+  return pda([encoder.encode("bonding-curve"), mint.toBytes()], programId);
+}
+function migrationPda(mint, programId) {
+  return pda([encoder.encode("migration-authority"), mint.toBytes()], programId);
+}
+function raydiumPoolPda(mint, programId) {
+  return pda([encoder.encode("raydium-pool"), mint.toBytes()], programId);
+}
+function keyLess(left, right) {
+  const a = left.toBytes();
+  const b = right.toBytes();
+  for (let i = 0; i < 32; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i];
+  }
+  return false;
 }
 function decodeState(data) {
   const b = data instanceof Uint8Array ? data : new Uint8Array(data);
-  if (b.length !== STATE_LEN || b[0] !== 1) throw new Error("Invalid Signal curve state.");
+  if (b.length !== STATE_LEN || b[0] !== STATE_VERSION) throw new Error("Invalid Signal curve state.");
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   return {
     complete: b[2] !== 0,
@@ -42,6 +71,7 @@ function decodeState(data) {
     totalSupply: v.getBigUint64(100, true),
     initialRealTokens: v.getBigUint64(108, true),
     decimals: b[116],
+    graduationPool: new web3.PublicKey(b.slice(117, 149)),
   };
 }
 function ceilDiv(n, d) { return (n + d - 1n) / d; }
@@ -138,6 +168,120 @@ async function signAndSend(connection, provider, tx) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw new Error(`Submitted as ${signature}, but confirmation is not visible yet. Check Solana Explorer before retrying.`);
+}
+
+function graduationAccounts(programId, mint, curve, caller) {
+  const migration = migrationPda(mint, programId);
+  const pool = raydiumPoolPda(mint, programId);
+  const migrationToken = splToken.getAssociatedTokenAddressSync(mint, migration, true, splToken.TOKEN_PROGRAM_ID);
+  const migrationWsol = splToken.getAssociatedTokenAddressSync(WSOL_MINT, migration, true, splToken.TOKEN_PROGRAM_ID);
+  const curveVault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
+  const token0 = keyLess(mint, WSOL_MINT) ? mint : WSOL_MINT;
+  const token1 = keyLess(mint, WSOL_MINT) ? WSOL_MINT : mint;
+  const rayAuthority = pda([encoder.encode("vault_and_lp_mint_auth_seed")], RAYDIUM_CPMM_PROGRAM);
+  const lpMint = pda([encoder.encode("pool_lp_mint"), pool.toBytes()], RAYDIUM_CPMM_PROGRAM);
+  const lpAta = splToken.getAssociatedTokenAddressSync(lpMint, migration, true, splToken.TOKEN_PROGRAM_ID);
+  const vault0 = pda([encoder.encode("pool_vault"), pool.toBytes(), token0.toBytes()], RAYDIUM_CPMM_PROGRAM);
+  const vault1 = pda([encoder.encode("pool_vault"), pool.toBytes(), token1.toBytes()], RAYDIUM_CPMM_PROGRAM);
+  const observation = pda([encoder.encode("observation"), pool.toBytes()], RAYDIUM_CPMM_PROGRAM);
+
+  return {
+    pool,
+    instruction: new web3.TransactionInstruction({
+      programId,
+      keys: [
+        { pubkey: curve, isSigner: false, isWritable: true },
+        { pubkey: mint, isSigner: false, isWritable: false },
+        { pubkey: curveVault, isSigner: false, isWritable: true },
+        { pubkey: caller, isSigner: true, isWritable: false },
+        { pubkey: migration, isSigner: false, isWritable: true },
+        { pubkey: migrationToken, isSigner: false, isWritable: true },
+        { pubkey: migrationWsol, isSigner: false, isWritable: true },
+        { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
+        { pubkey: RAYDIUM_CPMM_PROGRAM, isSigner: false, isWritable: false },
+        { pubkey: RAYDIUM_AMM_CONFIG, isSigner: false, isWritable: false },
+        { pubkey: rayAuthority, isSigner: false, isWritable: false },
+        { pubkey: pool, isSigner: false, isWritable: true },
+        { pubkey: lpMint, isSigner: false, isWritable: true },
+        { pubkey: lpAta, isSigner: false, isWritable: true },
+        { pubkey: vault0, isSigner: false, isWritable: true },
+        { pubkey: vault1, isSigner: false, isWritable: true },
+        { pubkey: RAYDIUM_CREATE_POOL_FEE, isSigner: false, isWritable: true },
+        { pubkey: observation, isSigner: false, isWritable: true },
+        { pubkey: splToken.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: splToken.ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
+        { pubkey: web3.SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+      ],
+      data: Uint8Array.of(3),
+    }),
+  };
+}
+
+async function mountGraduation({ connection, programId, mint, curve, state }) {
+  const button = document.getElementById("trade-execute-btn");
+  const preview = document.getElementById("trade-quote-btn");
+  const status = document.getElementById("trade-status");
+  const router = document.getElementById("trade-router");
+  const execution = document.getElementById("trade-execution");
+  const stat = document.querySelector('[data-stat="curveProgress"]');
+  if (stat) {
+    stat.hidden = false;
+    const value = stat.querySelector(".v");
+    if (value) value.textContent = "100.00%";
+  }
+  if (router) router.textContent = "Signal bonding curve — complete";
+  if (execution) execution.textContent = "Graduation to Raydium CPMM pending";
+  if (preview) preview.disabled = true;
+  if (!button) return;
+  button.disabled = false;
+  button.textContent = "Graduate to Raydium";
+  button.dataset.ready = "curve-complete";
+  if (status) status.textContent = "Bonding curve reached 100%. Anyone can trigger the one-time Raydium CPMM graduation. The curve supplies the migration liquidity; your wallet only authorizes the transaction and pays the normal Solana network fee.";
+
+  button.addEventListener("click", async () => {
+    const provider = window.phantom?.solana || window.solana;
+    if (!window.launchpadWallet?.address || !provider?.isPhantom) {
+      document.getElementById("wallet-connect-btn")?.click();
+      return;
+    }
+    const compliance = window.signalCompliance;
+    const cleared = compliance ? await compliance.check("trade", window.launchpadWallet.address) : { ok: false, message: "Signal safety checks did not load." };
+    if (!cleared.ok) { if (status) status.textContent = cleared.message; return; }
+    button.disabled = true;
+    try {
+      const latestInfo = await connection.getAccountInfo(curve, "confirmed");
+      if (!latestInfo || !latestInfo.owner.equals(programId)) throw new Error("Signal curve state is unavailable.");
+      const latest = decodeState(latestInfo.data);
+      if (latest.graduated) {
+        if (status) status.textContent = "This curve has already graduated. Reloading the market route…";
+        window.location.reload();
+        return;
+      }
+      if (!latest.complete || latest.realTokens !== 0n) throw new Error("This curve is not ready to graduate yet.");
+      const caller = new web3.PublicKey(window.launchpadWallet.address);
+      const { instruction, pool } = graduationAccounts(programId, mint, curve, caller);
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+      const tx = new web3.Transaction({ feePayer: caller, recentBlockhash: blockhash, lastValidBlockHeight }).add(
+        web3.ComputeBudgetProgram.setComputeUnitLimit({ units: GRADUATION_COMPUTE_LIMIT }),
+        web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_PRICE }),
+        instruction,
+      );
+      if (status) status.textContent = "Review the Raydium graduation transaction in Phantom. The transaction is simulated before your wallet is asked to sign.";
+      const signature = await signAndSend(connection, provider, tx);
+      const confirmedInfo = await connection.getAccountInfo(curve, "confirmed");
+      const confirmed = confirmedInfo ? decodeState(confirmedInfo.data) : null;
+      if (!confirmed?.graduated || !confirmed.graduationPool.equals(pool)) {
+        throw new Error(`Graduation transaction ${signature} confirmed, but Signal could not verify the graduated pool state yet. Check Explorer before retrying.`);
+      }
+      if (status) status.textContent = `Graduated to Raydium CPMM. Pool ${pool.toBase58()}. Reloading trading route…`;
+      if (execution) execution.textContent = "Graduated to Raydium CPMM";
+      window.setTimeout(() => window.location.reload(), 900);
+    } catch (error) {
+      if (status) status.textContent = error.message;
+      button.disabled = false;
+    }
+  }, { once: true });
 }
 
 async function mountCurveTrading({ connection, programId, mint, curve, state }) {
@@ -301,8 +445,12 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
       const signature = await signAndSend(connection, provider, tx);
       if (status) status.textContent = `Confirmed: ${signature}`;
       if (execution) execution.textContent = "Confirmed on Solana";
-      await refreshState();
+      const after = await refreshState();
       lastQuote = null;
+      if (after.complete && !after.graduated) {
+        if (status) status.textContent = "Final curve fill confirmed. Reloading so the Raydium graduation action is available…";
+        window.setTimeout(() => window.location.reload(), 700);
+      }
     } catch (error) {
       if (status) status.textContent = error.message;
     } finally {
@@ -330,12 +478,7 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
   if (!state.mint.equals(mint)) { await fallback(); return; }
   if (state.graduated) { await fallback(); return; }
   if (state.complete) {
-    const button = document.getElementById("trade-execute-btn");
-    const status = document.getElementById("trade-status");
-    if (button) { button.disabled = true; button.textContent = "Curve complete — graduation pending"; button.dataset.ready = "curve-complete"; }
-    if (status) status.textContent = "Bonding curve reached 100%. Curve trading is closed while graduation liquidity is prepared.";
-    const router = document.getElementById("trade-router");
-    if (router) router.textContent = "Signal bonding curve — complete";
+    await mountGraduation({ connection, programId, mint, curve, state });
     return;
   }
   await mountCurveTrading({ connection, programId, mint, curve, state });
