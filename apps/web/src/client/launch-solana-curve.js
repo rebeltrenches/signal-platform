@@ -212,7 +212,6 @@ class CurveLaunchFlow {
     await compliance("connect");
     const response = await provider.connect();
     this.wallet = provider;
-    await this.ensureProgramReady();
     return response.publicKey;
   }
 
@@ -468,6 +467,7 @@ function mountPendingRecovery() {
     try {
       const flow = new CurveLaunchFlow(host);
       const creator = await flow.connect();
+      await flow.ensureProgramReady();
       if (creator.toBase58() !== pending.creatorAddress) throw new Error(`Switch Phantom to ${short(pending.creatorAddress)} to finish this launch.`);
       await compliance("launch", creator.toBase58());
       const mint = new web3.PublicKey(pending.mint);
@@ -524,13 +524,31 @@ function mountPendingRecovery() {
   if (!programId()) {
     launchButton.disabled = true;
     launchButton.textContent = "Bonding curve deployment required";
-    connectButton.title = "The old full-supply-to-creator launch path is disabled.";
+    connectButton.title = "Connect your wallet. Launching remains disabled until the bonding-curve program is configured.";
   }
 
   const refresh = () => {
     if (!programId()) return;
     launchButton.disabled = !(creator && ack?.checked && metadataAck?.checked);
   };
+
+  const syncWallet = () => {
+    const provider = window.phantom?.solana || window.solana;
+    creator = provider?.isConnected ? provider.publicKey : null;
+    flow.wallet = creator ? provider : null;
+    walletLabel.textContent = creator ? short(creator.toBase58()) : "Not connected";
+    walletLabel.style.color = creator ? "var(--up)" : "";
+    connectButton.textContent = creator ? "Connected" : "Connect Phantom";
+    connectButton.disabled = Boolean(creator);
+    document.getElementById("rv-creator-wallet-live").textContent = creator ? creator.toBase58() : "Not connected";
+    refresh();
+  };
+  document.addEventListener("launchpad:wallet-connected", syncWallet);
+  document.addEventListener("launchpad:wallet-disconnected", syncWallet);
+  const provider = window.phantom?.solana || window.solana;
+  provider?.on?.("accountChanged", syncWallet);
+  provider?.on?.("disconnect", syncWallet);
+  syncWallet();
 
   connectButton?.addEventListener("click", async () => {
     try {
