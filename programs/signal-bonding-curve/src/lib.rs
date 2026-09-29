@@ -28,6 +28,7 @@ const INITIAL_VIRTUAL_TOKEN_BPS: u128 = 10_730;
 const BPS_DENOMINATOR: u128 = 10_000;
 const INITIAL_VIRTUAL_SOL_RESERVES: u64 = 30_000_000_000; // 30 SOL
 const SIGNAL_FEE_BPS: u128 = 100; // 1% of each Signal curve trade
+const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000; // 0.001 SOL, enforced during curve initialization
 const MINIMUM_TOKEN_SUPPLY_WHOLE: u64 = 100_000_000;
 const STATE_LEN: usize = 160;
 const STATE_VERSION: u8 = 2;
@@ -282,10 +283,14 @@ fn initialize(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     let mint = next_account_info(&mut it)?;
     let curve_vault = next_account_info(&mut it)?;
     let creator = next_account_info(&mut it)?;
+    let platform_wallet = next_account_info(&mut it)?;
     let token_program = next_account_info(&mut it)?;
     let system_program_info = next_account_info(&mut it)?;
 
     if !creator.is_signer || !creator.is_writable { return Err(ProgramError::MissingRequiredSignature); }
+    if platform_wallet.key != &PLATFORM_WALLET || !platform_wallet.is_writable {
+        return Err(ProgramError::InvalidAccountData);
+    }
     if token_program.key != &spl_token::id() || mint.owner != token_program.key || system_program_info.key != &system_program::id() {
         return Err(ProgramError::IncorrectProgramId);
     }
@@ -304,6 +309,14 @@ fn initialize(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     if vault.owner != expected_curve || vault.mint != *mint.key || vault.amount != total_supply {
         return Err(ProgramError::InvalidAccountData);
     }
+
+    // Charge only after every launch invariant above is validated. The transfer
+    // and curve-account creation are in the same outer transaction, so any later
+    // failure rolls the fee back atomically. Direct callers cannot bypass it.
+    invoke(
+        &system_instruction::transfer(creator.key, platform_wallet.key, LAUNCH_FEE_LAMPORTS),
+        &[creator.clone(), platform_wallet.clone(), system_program_info.clone()],
+    )?;
 
     let (real_tokens, virtual_tokens) = initial_reserves(total_supply)?;
     let rent = Rent::get()?.minimum_balance(STATE_LEN);
