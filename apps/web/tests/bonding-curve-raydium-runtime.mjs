@@ -17,6 +17,7 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
   getMint,
+  getOrCreateAssociatedTokenAccount,
 } from '@solana/spl-token';
 
 const RPC = process.env.SIGNAL_RUNTIME_RPC || 'http://127.0.0.1:8899';
@@ -31,6 +32,7 @@ const RAYDIUM_CPMM_PROGRAM = new PublicKey('CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKx
 const RAYDIUM_AMM_CONFIG = new PublicKey('D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2');
 const RAYDIUM_CREATE_POOL_FEE = new PublicKey('DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8');
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
+const SWAP_BASE_INPUT_DISCRIMINATOR = Uint8Array.from([143, 190, 90, 218, 196, 30, 51, 222]);
 const encoder = new TextEncoder();
 
 function assert(condition, message) {
@@ -44,6 +46,17 @@ function keyLess(left, right) {
     if (a[i] !== b[i]) return a[i] < b[i];
   }
   return false;
+}
+function u64(value) {
+  const out = new Uint8Array(8);
+  new DataView(out.buffer).setBigUint64(0, BigInt(value), true);
+  return out;
+}
+function concat(...parts) {
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let offset = 0;
+  for (const part of parts) { out.set(part, offset); offset += part.length; }
+  return out;
 }
 function decodeState(data) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -165,7 +178,49 @@ assert(BigInt(lpState.amount.toString()) === 0n, 'all withdrawable LP tokens hel
 const lpMintState = await getMint(connection, lpMint, 'confirmed', TOKEN_PROGRAM_ID);
 assert(BigInt(lpMintState.supply.toString()) === 0n, 'no withdrawable LP token supply remains after burn');
 
+// A created pool is not enough: prove it can actually trade. The completion
+// fixture left the payer holding the curve-sale tokens, so swap a small amount
+// of that token into WSOL through the real cloned Raydium CPMM program.
+const payerToken = getAssociatedTokenAddressSync(mint, payer.publicKey, false, TOKEN_PROGRAM_ID);
+const payerWsol = await getOrCreateAssociatedTokenAccount(connection, payer, WSOL_MINT, payer.publicKey, false, 'confirmed', undefined, TOKEN_PROGRAM_ID);
+const payerTokenBefore = await getAccount(connection, payerToken, 'confirmed', TOKEN_PROGRAM_ID);
+const payerWsolBefore = await getAccount(connection, payerWsol.address, 'confirmed', TOKEN_PROGRAM_ID);
+const swapIn = 100_000n * 1_000_000n; // 100,000 tokens at the test mint's 6 decimals
+assert(BigInt(payerTokenBefore.amount.toString()) > swapIn, 'payer has enough graduated token to prove Raydium trading');
+const inputVault = token0.equals(mint) ? vault0 : vault1;
+const outputVault = token0.equals(mint) ? vault1 : vault0;
+const swapData = concat(SWAP_BASE_INPUT_DISCRIMINATOR, u64(swapIn), u64(1n));
+const swapIx = new TransactionInstruction({
+  programId: RAYDIUM_CPMM_PROGRAM,
+  keys: [
+    { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    { pubkey: rayAuthority, isSigner: false, isWritable: false },
+    { pubkey: RAYDIUM_AMM_CONFIG, isSigner: false, isWritable: false },
+    { pubkey: pool, isSigner: false, isWritable: true },
+    { pubkey: payerToken, isSigner: false, isWritable: true },
+    { pubkey: payerWsol.address, isSigner: false, isWritable: true },
+    { pubkey: inputVault, isSigner: false, isWritable: true },
+    { pubkey: outputVault, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: mint, isSigner: false, isWritable: false },
+    { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
+    { pubkey: observation, isSigner: false, isWritable: true },
+  ],
+  data: Buffer.from(swapData),
+});
+// Raydium normalizes open_time to at least the next timestamp at pool creation.
+await new Promise((resolve) => setTimeout(resolve, 1_500));
+const swapSignature = await sendAndConfirmTransaction(connection, new Transaction().add(swapIx), [payer], { commitment: 'confirmed' });
+const payerTokenAfter = await getAccount(connection, payerToken, 'confirmed', TOKEN_PROGRAM_ID);
+const payerWsolAfter = await getAccount(connection, payerWsol.address, 'confirmed', TOKEN_PROGRAM_ID);
+assert(BigInt(payerTokenBefore.amount.toString()) - BigInt(payerTokenAfter.amount.toString()) === swapIn, 'Raydium took the exact test token input');
+assert(BigInt(payerWsolAfter.amount.toString()) > BigInt(payerWsolBefore.amount.toString()), 'Raydium paid WSOL output to the trader');
+const lpMintAfterSwap = await getMint(connection, lpMint, 'confirmed', TOKEN_PROGRAM_ID);
+assert(BigInt(lpMintAfterSwap.supply.toString()) === 0n, 'trading does not recreate withdrawable migration LP supply');
+
 console.log(`✓ Raydium CPMM pool created at ${pool.toBase58()}`);
 console.log('✓ curve SOL + reserved tokens migrated into Raydium');
 console.log('✓ migration LP tokens burned; liquidity is not withdrawable by creator or Signal');
-console.log('✓ Signal → Raydium graduation runtime test passed');
+console.log(`✓ graduated Raydium pool executed a real token→WSOL swap: ${swapSignature}`);
+console.log('✓ Signal → Raydium graduation + post-graduation trading runtime test passed');
