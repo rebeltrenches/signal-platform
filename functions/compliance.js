@@ -194,6 +194,9 @@ export async function screenWallet(address, env, now = Date.now()) {
  *  cleared, or null when the action may go ahead. */
 export async function refusalFor(request, env, wallet, action) {
   const geo = geoForRequest(request);
+  if (!geo.country) {
+    return jsonResponse(503, { code: "REGION_UNAVAILABLE", error: "Couldn't confirm your region. Launching and trading are paused; please try again." });
+  }
   if (geo.level === "blocked") {
     return jsonResponse(451, { code: "REGION_BLOCKED", error: `${geo.notice} (${geo.name})`, level: "blocked" });
   }

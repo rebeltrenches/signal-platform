@@ -202,7 +202,7 @@
     async check(action, address) {
       if (IS_DEVNET) return { ok: true }; // test builds: nothing touches Mainnet
       const geo = await loadGeo();
-      if (!geo) return { ok: false, message: `Couldn't confirm your region, so ${action}ing is paused. Please reload and try again.` };
+      if (!geo || !geo.country) return { ok: false, message: `Couldn't confirm your region, so ${action}ing is paused. Please reload and try again.` };
       if (geo.level === 'blocked') {
         showBlockedNotice(geo);
         return { ok: false, message: `${geo.notice} (${geo.name || geo.country})` };
