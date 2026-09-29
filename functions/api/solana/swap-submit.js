@@ -1,4 +1,5 @@
 import { refusalFor } from "../../compliance.js";
+import { transactionRefusal } from "../../solana-transaction-screen.js";
 
 const RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
 
@@ -44,8 +45,7 @@ export async function submitSolanaSwap({ body }) {
 }
 
 export async function onRequestPost({ request, env }) {
-  // No trades are submitted from blocked regions (config/restrictions.json);
-  // the wallet itself was screened when the trade was built.
+  // Check location first, then re-screen the actual transaction signers.
   const refusal = await refusalFor(request, env, undefined, "trade");
   if (refusal) return refusal;
   const contentLength = Number(request.headers.get("content-length") || 0);
@@ -56,6 +56,8 @@ export async function onRequestPost({ request, env }) {
   } catch {
     return json(400, { error: "INVALID_JSON", message: "Request body must be valid JSON." });
   }
+  const transactionBlock = await transactionRefusal(request, env, body?.signedTransaction, "trade");
+  if (transactionBlock) return transactionBlock;
   const result = await submitSolanaSwap({ body });
   return json(result.status, result.body);
 }

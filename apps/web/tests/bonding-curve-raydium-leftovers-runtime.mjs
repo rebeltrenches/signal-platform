@@ -30,17 +30,13 @@ function decodeState(data) {
 }
 
 const curves = await connection.getProgramAccounts(programId, { filters: [{ dataSize: 160 }], commitment: 'confirmed' });
-let target = null;
-for (const account of curves) {
-  const state = decodeState(account.account.data);
-  if (state.graduated && !state.graduationPool.equals(PublicKey.default)) {
-    target = { curve: account.pubkey, state };
-    break;
-  }
-}
-assert(target, 'a graduated Signal curve is available for leftover audit');
+const targets = curves.map((account) => ({
+  curve: account.pubkey,
+  state: decodeState(account.account.data),
+})).filter(({ state }) => state.graduated && !state.graduationPool.equals(PublicKey.default));
+assert(targets.length > 0, 'a graduated Signal curve is available for leftover audit');
 
-const { curve, state } = target;
+for (const { curve, state } of targets) {
 const mint = state.mint;
 const migration = pda([encoder.encode('migration-authority'), mint.toBytes()], programId);
 const migrationToken = getAssociatedTokenAddressSync(mint, migration, true, TOKEN_PROGRAM_ID);
@@ -80,3 +76,5 @@ for (const address of tempAddresses) {
 console.log('✓ no token, WSOL, LP-token or loose-lamport value remains in Signal migration custody');
 console.log(`ℹ ${temporaryRent} lamports remain solely as rent in three empty temporary token accounts; cleanup can reclaim this after graduation`);
 console.log(`✓ graduated curve account retains exactly its ${curveRent}-lamport rent floor`);
+}
+console.log(`✓ audited all ${targets.length} graduated Signal curves, including recovery fixtures`);

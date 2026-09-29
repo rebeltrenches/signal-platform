@@ -21,6 +21,11 @@ on:
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
       - 'apps/web/scripts/build.tsx'
+      - 'functions/**'
+      - 'apps/web/src/client/compliance.js'
+      - 'apps/web/tests/compliance-functions.test.mjs'
+      - 'apps/web/tests/ofac-sdn.test.mjs'
+      - 'apps/web/tests/swap-execution.test.mjs'
       - 'config/restrictions.json'
       - 'docs/SECURITY.md'
       - '.github/workflows/bonding-curve-ci.yml'
@@ -42,6 +47,11 @@ on:
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
       - 'apps/web/scripts/build.tsx'
+      - 'functions/**'
+      - 'apps/web/src/client/compliance.js'
+      - 'apps/web/tests/compliance-functions.test.mjs'
+      - 'apps/web/tests/ofac-sdn.test.mjs'
+      - 'apps/web/tests/swap-execution.test.mjs'
       - 'config/restrictions.json'
       - 'docs/SECURITY.md'
       - '.github/workflows/bonding-curve-ci.yml'
@@ -126,6 +136,11 @@ jobs:
           grep -F 'validate_initial_supply(total_supply, decimals)?;' programs/signal-bonding-curve/src/lib.rs
           grep -F 'const MINIMUM_TOKEN_SUPPLY = 100_000_000n;' apps/web/src/client/launch-solana-curve.js
           grep -F 'if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");' apps/web/src/client/trade-router.js
+      - name: Verify combined compliance and swap enforcement
+        run: |
+          node apps/web/tests/compliance-functions.test.mjs
+          node apps/web/tests/ofac-sdn.test.mjs
+          node apps/web/tests/swap-execution.test.mjs
       - name: Guard Pump-style curve economics
         working-directory: apps/web
         run: node tests/bonding-curve-economics.mjs
