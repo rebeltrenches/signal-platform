@@ -123,17 +123,13 @@
     }
   });
 
-  // Real "Launched on Signal" check — replaces the static placeholder
-  // with an actual lookup against the real registration endpoint
-  // (Stage 2). Deliberately does NOT add any RPC/indexer capability:
-  // this only answers "is there a real Token row for this address,"
-  // exactly what packages/types' own TokenIdentity.launchedOnSignal
-  // comment describes as the correct way to answer this ("a fact to
-  // fetch — check the Token table"), nothing more. Chain defaults to
-  // 'solana', matching this page's own existing static "Solana" badge
-  // — real multi-chain detail pages are a separate concern this fix
-  // doesn't attempt to solve.
-  (function checkLaunchedOnSignal() {
+  // Registration and launch provenance are deliberately separate facts.
+  // This lookup only proves that Signal has a verified registration row for
+  // this mint. It does NOT prove the token was created through Signal's
+  // bonding-curve program, because creators can also use "List an existing
+  // token". trade-router.js independently proves a real Signal curve account
+  // on-chain and upgrades this badge to "Launched on Signal curve: Yes".
+  (function checkRegisteredOnSignal() {
     const badge = document.getElementById('signal-launch-badge');
     if (!badge) return;
     const address = tokenMint;
@@ -146,7 +142,10 @@
 
     fetch(apiPath(`/api/v1/tokens/solana/${encodeURIComponent(address)}`))
       .then((res) => {
-        badge.textContent = res.ok ? 'Launched on Signal: Yes' : 'Launched on Signal: No';
+        // A proven curve badge has higher evidentiary value and must never be
+        // overwritten by the weaker registration fact if this fetch resolves later.
+        if (badge.dataset.signalCurve === 'true') return;
+        badge.textContent = res.ok ? 'Registered on Signal: Yes' : 'Registered on Signal: No';
       })
       .catch(() => {
         // Lookup failed (no backend reachable) — leave the honest
