@@ -111,6 +111,7 @@ def start_web_server():
             fixtures = {
                 "/api/geo": {"country": "DE", "level": "allowed", "termsVersion": "chat-test"},
                 "/api/solana/swap/quote": {"quoteEnabled": False},
+                "/api/solana/token-market": {"marketEnabled": False},
             }
             fixture = fixtures.get(self.path.split("?", 1)[0])
             if fixture is not None:
