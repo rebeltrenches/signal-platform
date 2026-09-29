@@ -1,5 +1,5 @@
 // POST /api/wallet-screen { address } — sanctions screening of a Solana (or
-// Base/BNB) wallet (Chainalysis, via compliance.js), used by the site right after a
+// Base/BNB) wallet against the OFAC SDN list (compliance.js), used by the site right after a
 // wallet connects. The Worker screens again itself before registering a
 // launch or building a trade, so this answer is never the only check.
 // Rate-limited per IP; answers are cached briefly in compliance.js.

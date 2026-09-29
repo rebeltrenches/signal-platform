@@ -9,8 +9,8 @@
 //   3. The request is forwarded with the shared secret SIGNAL_EDGE_SECRET,
 //      the screened wallet and the country. The API accepts registrations
 //      only with that secret, so nothing can go around this route.
-// Needs SIGNAL_API_ORIGIN (a wrangler var) and the Worker secrets
-// SIGNAL_EDGE_SECRET and CHAINALYSIS_API_KEY; without them it fails safe.
+// Needs SIGNAL_API_ORIGIN (a wrangler var) and the Worker secret
+// SIGNAL_EDGE_SECRET; without it (or if the OFAC list can't be loaded) it fails safe.
 import { refusalFor, geoForRequest, jsonResponse } from "../compliance.js";
 
 const MAX_BODY_BYTES = 8 * 1024;

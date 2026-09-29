@@ -4,21 +4,19 @@
 //
 //   Level 1 "blocked":   no connect, launch or trade (browsing allowed)
 //   Level 2 "regulated": allowed after an extra region-specific warning
-//   Level 3:             wallets screened with Chainalysis's sanctions API
+//   Level 3:             wallets screened against the US Treasury's OFAC
+//                        SDN list (its digital currency addresses)
 //
 // Location is Cloudflare's: request.cf.country (same as the CF-IPCountry
 // header) and request.cf.regionCode for sanctioned sub-national regions.
-// Screening needs the Worker secret CHAINALYSIS_API_KEY. Any screening
-// failure is reported as "unavailable" so callers fail safe.
+// Screening needs no key: the Worker downloads the official SDN list, keeps
+// only its digital currency addresses, and caches them (see below). If the
+// list can't be loaded, screening reports "unavailable" so callers fail safe.
 import restrictions from "../config/restrictions.json" with { type: "json" };
 
 export const RESTRICTIONS = restrictions;
-export const SCREENING_CACHE_MS = { clear: 10 * 60_000, sanctioned: 10 * 60_000 };
-const SCREENING_TIMEOUT_MS = 6_000;
-const CHAINALYSIS_URL = "https://public.chainalysis.com/api/v1/address/";
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
-const MAX_CACHE_ENTRIES = 5_000;
 
 /** Visitor location from Cloudflare. Unknown locations (none, XX, Tor's T1)
  *  come back as country null. */
@@ -53,10 +51,31 @@ export function geoForRequest(request, config = RESTRICTIONS) {
 }
 
 // ---------------------------------------------------------------------------
-// Chainalysis sanctions screening
+// OFAC SDN list screening
+//
+// Source: the SDN list in its structured XML form from Treasury's Sanctions
+// List Service (the CSV exports miss some addresses). Each sanctioned
+// digital currency address appears as
+//   <idType>Digital Currency Address - ETH</idType><idNumber>0x…</idNumber>
+// The file is ~30 MB, so it's streamed and scanned once, and only the
+// addresses (a few KB) are kept: in memory, and in Cloudflare's edge cache
+// so other Worker instances nearby don't download and parse it again. The
+// list is refreshed after SDN_LIST_TTL_MS (at least twice a day). If a
+// refresh fails, a list up to SDN_MAX_STALE_MS old keeps being used;
+// beyond that, or with no list at all, screening is "unavailable".
 
-const screeningCache = new Map(); // address -> { result, expires }
-const screeningInFlight = new Map(); // address -> Promise
+export const SDN_XML_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML";
+export const SDN_LIST_TTL_MS = 12 * 60 * 60_000;
+export const SDN_MAX_STALE_MS = 48 * 60 * 60_000;
+// The list has ~1,000 digital currency addresses; far fewer means the
+// download wasn't really the SDN list (an error page, a cut-off file).
+export const SDN_MIN_ADDRESSES = 100;
+const SDN_DOWNLOAD_TIMEOUT_MS = 60_000;
+const SDN_EDGE_CACHE_KEY = "https://ofac-sdn.cache/digital-currency-addresses-v1";
+const ID_TYPE_OPEN = "<idType>Digital Currency Address - ";
+
+let sdnList = null; // { addresses: Set, publishDate, fetchedAt }
+let sdnLoading = null;
 
 export function isSolanaAddress(value) {
   return typeof value === "string" && SOLANA_ADDRESS.test(value);
@@ -67,44 +86,131 @@ export function isScreenableAddress(value) {
   return isSolanaAddress(value) || (typeof value === "string" && EVM_ADDRESS.test(value));
 }
 
+/** EVM addresses are case-insensitive (checksum casing varies); others,
+ *  like Solana's base58, are compared exactly. */
+export function normalizeAddress(address) {
+  const value = String(address).trim();
+  return /^0x[0-9a-fA-F]+$/.test(value) ? value.toLowerCase() : value;
+}
+
+/** Streams SDN.XML and returns { addresses: Set, currencies, publishDate },
+ *  keeping only digital currency addresses. Chunks are scanned with a small
+ *  carry-over, so an entry split across chunks is still found. */
+export async function parseSdnXml(body) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const addresses = new Set();
+  const currencies = {};
+  let publishDate = null;
+  let pending = "";
+  const scan = (text, final) => {
+    let from = 0;
+    for (;;) {
+      const start = text.indexOf(ID_TYPE_OPEN, from);
+      if (start < 0) break;
+      const typeEnd = text.indexOf("</idType>", start);
+      const numberOpen = typeEnd < 0 ? -1 : text.indexOf("<idNumber>", typeEnd);
+      const numberEnd = numberOpen < 0 ? -1 : text.indexOf("</idNumber>", numberOpen);
+      if (numberEnd < 0) {
+        // Incomplete at the end of this chunk: keep it for the next one.
+        return final ? "" : text.slice(start);
+      }
+      const currency = text.slice(start + ID_TYPE_OPEN.length, typeEnd).trim();
+      const address = text.slice(numberOpen + "<idNumber>".length, numberEnd).trim();
+      if (address) {
+        addresses.add(normalizeAddress(address));
+        currencies[currency] = (currencies[currency] || 0) + 1;
+      }
+      from = numberEnd;
+    }
+    // Keep a short tail in case the next marker starts across the boundary.
+    return final ? "" : text.slice(Math.max(from, text.length - ID_TYPE_OPEN.length));
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    const text = pending + (done ? decoder.decode() : decoder.decode(value, { stream: true }));
+    if (!publishDate) {
+      const match = /<Publish_Date>([^<]+)<\/Publish_Date>/.exec(text);
+      if (match) publishDate = match[1].trim();
+    }
+    pending = scan(text, done);
+    if (done) break;
+  }
+  return { addresses, currencies, publishDate };
+}
+
+async function downloadSdnList(now) {
+  const response = await fetch(SDN_XML_URL, { signal: AbortSignal.timeout(SDN_DOWNLOAD_TIMEOUT_MS) });
+  if (!response.ok || !response.body) throw new Error(`OFAC list download failed (HTTP ${response.status}).`);
+  const parsed = await parseSdnXml(response.body);
+  if (parsed.addresses.size < SDN_MIN_ADDRESSES) {
+    throw new Error(`The OFAC list download looked incomplete (${parsed.addresses.size} addresses).`);
+  }
+  return { addresses: parsed.addresses, publishDate: parsed.publishDate, fetchedAt: now };
+}
+
+async function readEdgeCache(now) {
+  if (typeof caches === "undefined") return null;
+  try {
+    const hit = await caches.default.match(new Request(SDN_EDGE_CACHE_KEY));
+    if (!hit) return null;
+    const cached = await hit.json();
+    if (!Array.isArray(cached?.addresses) || cached.addresses.length < SDN_MIN_ADDRESSES) return null;
+    if (!(now - cached.fetchedAt < SDN_LIST_TTL_MS)) return null;
+    return { addresses: new Set(cached.addresses), publishDate: cached.publishDate, fetchedAt: cached.fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+async function writeEdgeCache(list) {
+  if (typeof caches === "undefined") return;
+  const body = JSON.stringify({ addresses: [...list.addresses], publishDate: list.publishDate, fetchedAt: list.fetchedAt });
+  const ttlSeconds = Math.floor(SDN_LIST_TTL_MS / 1000);
+  await caches.default
+    .put(new Request(SDN_EDGE_CACHE_KEY), new Response(body, { headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSeconds}` } }))
+    .catch(() => {});
+}
+
+/** The current SDN address list, loading or refreshing it when needed.
+ *  Concurrent callers share one download. Throws when no usable list. */
+export async function sdnAddressList(now = Date.now()) {
+  if (sdnList && now - sdnList.fetchedAt < SDN_LIST_TTL_MS) return sdnList;
+  if (!sdnLoading) {
+    sdnLoading = (async () => {
+      const cached = await readEdgeCache(now);
+      if (cached) return cached;
+      const fresh = await downloadSdnList(now);
+      await writeEdgeCache(fresh);
+      return fresh;
+    })().finally(() => {
+      sdnLoading = null;
+    });
+  }
+  try {
+    sdnList = await sdnLoading;
+    return sdnList;
+  } catch (error) {
+    // A slightly old list is still a real list; beyond that, fail safe.
+    if (sdnList && now - sdnList.fetchedAt < SDN_MAX_STALE_MS) return sdnList;
+    throw error;
+  }
+}
+
 /** { status: "clear" } | { status: "sanctioned", names } |
  *  { status: "unavailable", reason }. Only "clear" may proceed. */
-export async function screenWallet(address, env, now = Date.now()) {
+export async function screenWallet(address, _env, now = Date.now()) {
   if (!isScreenableAddress(address)) return { status: "unavailable", reason: "Not a valid wallet address." };
-  const apiKey = typeof env?.CHAINALYSIS_API_KEY === "string" ? env.CHAINALYSIS_API_KEY.trim() : "";
-  if (!apiKey) return { status: "unavailable", reason: "Wallet screening isn't configured yet." };
-
-  const cached = screeningCache.get(address);
-  if (cached && cached.expires > now) return cached.result;
-
-  let pending = screeningInFlight.get(address);
-  if (!pending) {
-    pending = (async () => {
-      try {
-        const response = await fetch(CHAINALYSIS_URL + encodeURIComponent(address), {
-          headers: { "X-API-Key": apiKey, accept: "application/json" },
-          signal: AbortSignal.timeout(SCREENING_TIMEOUT_MS),
-        });
-        if (!response.ok) return { status: "unavailable", reason: `Wallet screening failed (HTTP ${response.status}).` };
-        const body = await response.json();
-        if (!Array.isArray(body?.identifications)) return { status: "unavailable", reason: "Wallet screening returned an unexpected answer." };
-        const sanctions = body.identifications.filter((item) => String(item?.category || "").toLowerCase() === "sanctions");
-        return sanctions.length
-          ? { status: "sanctioned", names: sanctions.map((item) => String(item.name || "Sanctioned address")).slice(0, 5) }
-          : { status: "clear" };
-      } catch (error) {
-        return { status: "unavailable", reason: error?.name === "TimeoutError" ? "Wallet screening timed out." : "Wallet screening is unreachable." };
-      }
-    })().finally(() => screeningInFlight.delete(address));
-    screeningInFlight.set(address, pending);
+  let list;
+  try {
+    list = await sdnAddressList(now);
+  } catch {
+    return { status: "unavailable", reason: "The OFAC sanctions list couldn't be loaded." };
   }
-  const result = await pending;
-  // Answers are cached briefly; failures aren't, so a retry really retries.
-  if (result.status !== "unavailable") {
-    if (screeningCache.size >= MAX_CACHE_ENTRIES) screeningCache.delete(screeningCache.keys().next().value);
-    screeningCache.set(address, { result, expires: now + SCREENING_CACHE_MS[result.status] });
+  if (list.addresses.has(normalizeAddress(address))) {
+    return { status: "sanctioned", names: [`OFAC SDN list${list.publishDate ? ` (published ${list.publishDate})` : ""}`] };
   }
-  return result;
+  return { status: "clear" };
 }
 
 /** A refusal Response for a blocked location or a wallet that isn't
@@ -135,6 +241,6 @@ export function jsonResponse(status, body, headers = {}) {
 
 /** For tests. */
 export function resetComplianceForTests() {
-  screeningCache.clear();
-  screeningInFlight.clear();
+  sdnList = null;
+  sdnLoading = null;
 }

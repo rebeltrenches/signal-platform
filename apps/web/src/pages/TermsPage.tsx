@@ -100,7 +100,7 @@ export function TermsPage({ restrictions }: { restrictions: Restrictions }) {
         <h2>Sanctions screening</h2>
         <p>
           When you connect a wallet, and again before a token launch is listed or a trade is built, we check the wallet address
-          against sanctions lists (using Chainalysis). A wallet that appears on a sanctions list can't launch or trade on
+          against the US Treasury's OFAC sanctions list (its published digital currency addresses). A wallet that appears on a sanctions list can't launch or trade on
           Signal. If the check can't be completed, launching and trading pause until it can.
         </p>
       </section>

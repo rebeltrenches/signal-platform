@@ -42,6 +42,6 @@
     "Syria is deliberately not blocked. Syria's sanctions changed in 2026, and whether it belongs in a level must follow the current sanctions framework at the time, not an older list. Review before adding it.",
     "Blocking is by IP location, which VPNs and proxies can bypass. The terms also require users to confirm they are not in a blocked jurisdiction and are not a sanctioned person.",
     "Cloudflare reports Tor traffic as T1 and unknown locations as XX. Neither is blocked here; they are treated as location unknown.",
-    "Level 3 (sanctioned wallets) is not a list in this file: wallets are screened at connect, launch registration and trade building with the Chainalysis sanctions screening API (Worker secret CHAINALYSIS_API_KEY)."
+    "Level 3 (sanctioned wallets) is not a list in this file: wallets are screened at connect, launch registration and trade building against the digital currency addresses in the US Treasury's OFAC SDN list, which the Worker downloads from Treasury's Sanctions List Service and refreshes at least twice a day (functions/compliance.js). No key is needed."
   ]
 }
