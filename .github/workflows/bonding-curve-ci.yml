@@ -46,27 +46,14 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
       # The repository-wide tsconfig currently contains unrelated pre-existing
-      # errors outside this branch's JavaScript integration. The web build and
-      # module bundles below exercise the changed files directly instead of
-      # hiding a curve regression behind unrelated workspace failures.
+      # errors outside this branch's JavaScript integration. The production web
+      # build and bundled output checks below exercise the changed browser path.
       - name: Build Signal web app
         run: pnpm --filter @launchpad/web build
-      - name: Parse curve launch client as a browser module
-        run: >-
-          pnpm exec esbuild apps/web/src/client/launch-solana-curve.js
-          --bundle --format=esm --platform=browser
-          '--external:./vendor/*'
-          --external:./platform-wallet.js
-          --external:./bonding-curve-program.js
-          --outfile=/tmp/launch-solana-curve.js
-      - name: Parse curve trade router as a browser module
-        run: >-
-          pnpm exec esbuild apps/web/src/client/trade-router.js
-          --bundle --format=esm --platform=browser
-          '--external:./vendor/*'
-          --external:./platform-wallet.js
-          --external:./bonding-curve-program.js
-          --outfile=/tmp/trade-router.js
+      - name: Bundle built curve launch client
+        run: pnpm exec esbuild apps/web/dist/client/launch-solana-curve.js --bundle --format=esm --platform=browser --outfile=/tmp/launch-solana-curve.js
+      - name: Bundle built curve trade router
+        run: pnpm exec esbuild apps/web/dist/client/trade-router.js --bundle --format=esm --platform=browser --outfile=/tmp/trade-router.js
       - name: Keep Rust and browser curve state layouts identical
         run: |
           grep -F 'const STATE_LEN: usize = 160;' programs/signal-bonding-curve/src/lib.rs
