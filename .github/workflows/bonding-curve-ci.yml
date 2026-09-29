@@ -31,6 +31,29 @@ jobs:
       - name: Compile Signal bonding curve program
         run: cargo check --manifest-path programs/signal-bonding-curve/Cargo.toml
 
+  sbf-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install official Agave / Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Show Solana toolchain version
+        run: solana --version
+      - name: Build deployable Signal bonding curve SBF
+        working-directory: programs/signal-bonding-curve
+        run: cargo build-sbf
+      - name: Verify deployable program artifact
+        run: test -s programs/signal-bonding-curve/target/deploy/signal_bonding_curve.so
+      - name: Upload program binary only
+        uses: actions/upload-artifact@v4
+        with:
+          name: signal-bonding-curve-sbf
+          path: programs/signal-bonding-curve/target/deploy/signal_bonding_curve.so
+          if-no-files-found: error
+          retention-days: 7
+
   web-integration:
     runs-on: ubuntu-latest
     steps:
