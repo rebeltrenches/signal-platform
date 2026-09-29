@@ -23,4 +23,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Signal bonding curve math and state
-        run: cargo test --manifest-path programs/signal-bonding-curve/Cargo.toml --locked=false
+        run: cargo test --manifest-path programs/signal-bonding-curve/Cargo.toml
