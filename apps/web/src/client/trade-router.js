@@ -290,7 +290,7 @@ async function mountGraduation({ connection, programId, mint, curve }) {
       if (status) status.textContent = error.message;
       button.disabled = false;
     }
-  }, { once: true });
+  });
 }
 
 async function mountCurveTrading({ connection, programId, mint, curve, state }) {
