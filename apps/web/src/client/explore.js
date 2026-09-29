@@ -153,6 +153,14 @@
     const list = document.getElementById(`explore-${state.activeTab}-list`);
     const empty = document.getElementById(`explore-${state.activeTab}-empty`);
     if (!list || !empty) return;
+    const title = empty.querySelector('h3');
+    const body = empty.querySelector('p');
+    for (const node of [title, body]) {
+      if (node && node.dataset.defaultCopy === undefined) node.dataset.defaultCopy = node.textContent;
+    }
+    const filtered = Boolean(state.query || state.chains.size || state.origin !== 'all');
+    if (title) title.textContent = filtered ? 'No matches' : title.dataset.defaultCopy;
+    if (body) body.textContent = filtered ? 'No tokens match your search and filters. Try another name, symbol or address, or clear the filters.' : body.dataset.defaultCopy;
     const items = visibleItems().slice(0, 60);
     list.innerHTML = items.map(card).join('');
     // Logos are added as elements, never through the HTML above.
