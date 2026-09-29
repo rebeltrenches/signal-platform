@@ -36,8 +36,9 @@ const COMPUTE_LIMIT_MAX = 1_400_000;
 const COMPUTE_PRICE_MICRO_LAMPORTS = 50_000;
 const INITIAL_REAL_BPS = 7_931n;
 const BPS = 10_000n;
-const CURVE_STATE_LEN = 128;
-const PENDING_KEY = IS_DEVNET ? "signal_curve_pending_devnet_v1" : "signal_curve_pending_v1";
+const CURVE_STATE_LEN = 160;
+const CURVE_STATE_VERSION = 2;
+const PENDING_KEY = IS_DEVNET ? "signal_curve_pending_devnet_v2" : "signal_curve_pending_v2";
 const LAUNCHES_KEY = IS_DEVNET ? "signal_devnet_launches_v2" : "signal_real_launches_v2";
 
 function programId() {
@@ -100,7 +101,7 @@ function validateSupply(rawSupply, decimals) {
 
 function decodeCurve(data) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  if (bytes.length !== CURVE_STATE_LEN || bytes[0] !== 1) throw new Error("Unexpected Signal bonding-curve state.");
+  if (bytes.length !== CURVE_STATE_LEN || bytes[0] !== CURVE_STATE_VERSION) throw new Error("Unexpected Signal bonding-curve state.");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const key = (offset) => new web3.PublicKey(bytes.slice(offset, offset + 32));
   return {
@@ -116,6 +117,7 @@ function decodeCurve(data) {
     totalSupply: view.getBigUint64(100, true),
     initialRealTokenReserves: view.getBigUint64(108, true),
     decimals: bytes[116],
+    graduationPool: key(117),
   };
 }
 
@@ -369,7 +371,7 @@ class CurveLaunchFlow {
     if (!curveInfo || !curveInfo.owner.equals(pid)) throw new Error("Bonding-curve state account was not created by the Signal program.");
     const state = decodeCurve(curveInfo.data);
     const expectedReal = rawSupply * INITIAL_REAL_BPS / BPS;
-    if (!state.mint.equals(mint) || !state.creator.equals(this.wallet.publicKey) || state.totalSupply !== rawSupply || state.realTokenReserves !== expectedReal || state.decimals !== decimals) {
+    if (!state.mint.equals(mint) || !state.creator.equals(this.wallet.publicKey) || state.totalSupply !== rawSupply || state.realTokenReserves !== expectedReal || state.decimals !== decimals || state.complete || state.graduated) {
       throw new Error("Bonding-curve state does not match the launch configuration.");
     }
     if (!vaultInfo.owner.equals(curve) || !vaultInfo.mint.equals(mint) || BigInt(vaultInfo.amount.toString()) !== rawSupply) {
@@ -425,10 +427,11 @@ function mountPendingRecovery() {
           const curve = curveAddress(mint, pid);
           const info = await flow.connection.getAccountInfo(curve, "confirmed");
           if (!info) throw new Error("Mint authority is already revoked but the Signal curve state is missing. Do not retry automatically; inspect this mint first.");
+          decodeCurve(info.data);
           curveAddressText = curve.toBase58();
         } else {
-          const result = await flow.initializeCurve(creator, mint, rawSupply, pending.decimals);
-          curveAddressText = result.curve.toBase58();
+          const initialized = await flow.initializeCurve(creator, mint, rawSupply, pending.decimals);
+          curveAddressText = initialized.curve.toBase58();
         }
         pending.stage = "listing";
         pending.curve = curveAddressText;
