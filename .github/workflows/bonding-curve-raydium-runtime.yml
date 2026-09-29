@@ -10,6 +10,7 @@ on:
       - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
       - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
+      - 'apps/web/tests/raydium-config-audit.mjs'
       - '.github/workflows/bonding-curve-raydium-runtime.yml'
   workflow_dispatch:
 
@@ -64,6 +65,11 @@ jobs:
           done
           solana cluster-version --url http://127.0.0.1:8899
           solana airdrop 20 --keypair /tmp/signal-raydium-payer.json --url http://127.0.0.1:8899
+      - name: Audit cloned Raydium AMM fee configuration
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/raydium-config-audit.mjs
       - name: Complete first Signal bonding curve locally
         working-directory: apps/web
         env:
