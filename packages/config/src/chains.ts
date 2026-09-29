@@ -13,12 +13,10 @@ export interface ChainConfig {
   displayName: string;
   /** Whether a working BlockchainAdapter + DexAdapter exist today. */
   adapterImplemented: boolean;
-  /** Whether Signal can discover/display EXISTING tokens on this chain —
-   *  master spec section 22: kept deliberately separate from
-   *  adapterImplemented (which is about LAUNCHING/deploying), since a
-   *  chain like Robinhood is discovery-only for a long time before (if
-   *  ever) deployment is added. Requires a real indexer/data source —
-   *  Stage 11 — not implemented for any chain yet, including Solana. */
+  /** Legacy adapter-level discovery capability flag. The live Explore
+   *  experience can also use external/indexed discovery feeds, so this
+   *  value must not be presented to users as the overall site discovery
+   *  status for a chain. */
   discoverySupported: boolean;
   /** Whether Signal's trading-fee routing is supported on this chain.
    *  On Solana this is native-SOL settlement in Signal-routed buys; it is
@@ -37,7 +35,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     family: 'svm',
     displayName: 'Solana',
     adapterImplemented: true, // Solana launch/read adapter is implemented
-    discoverySupported: false, // needs Stage 11 (indexer)
+    discoverySupported: false, // legacy adapter-level flag; live site discovery is provided elsewhere
     taxSupported: true,
     defaultTaxConfig: DEFAULT_TAX_CONFIG,
     nativeCurrencySymbol: 'SOL',
@@ -60,7 +58,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     chain: 'base',
     family: 'evm',
     displayName: 'Base',
-    adapterImplemented: false, // becomes true at Stage 7
+    adapterImplemented: false, // becomes true when Signal launching is implemented
     discoverySupported: false,
     taxSupported: false, // Signal-routed trading-fee execution not implemented yet
     defaultTaxConfig: DISABLED_TAX_CONFIG,
@@ -72,7 +70,7 @@ export const CHAIN_CONFIGS: Record<string, ChainConfig> = {
     chain: 'bnb',
     family: 'evm',
     displayName: 'BNB Chain',
-    adapterImplemented: false, // becomes true at Stage 7
+    adapterImplemented: false, // becomes true when Signal launching is implemented
     discoverySupported: false,
     taxSupported: false, // Signal-routed trading-fee execution not implemented yet
     defaultTaxConfig: DISABLED_TAX_CONFIG,
