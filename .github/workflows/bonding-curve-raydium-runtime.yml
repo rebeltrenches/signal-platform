@@ -6,8 +6,10 @@ on:
       - pf-style-bonding-curve
     paths:
       - 'programs/signal-bonding-curve/**'
+      - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
       - '.github/workflows/bonding-curve-raydium-runtime.yml'
   workflow_dispatch:
 
@@ -62,16 +64,26 @@ jobs:
           done
           solana cluster-version --url http://127.0.0.1:8899
           solana airdrop 20 --keypair /tmp/signal-raydium-payer.json --url http://127.0.0.1:8899
-      - name: Complete a Signal bonding curve locally
+      - name: Complete first Signal bonding curve locally
         working-directory: apps/web
         env:
           SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
         run: node tests/bonding-curve-completion-runtime.mjs
-      - name: CPI completed curve into cloned Raydium CPMM
+      - name: CPI first completed curve into cloned Raydium CPMM atomically
         working-directory: apps/web
         env:
           SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
         run: node tests/bonding-curve-raydium-runtime.mjs
+      - name: Complete second Signal bonding curve for recovery test
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-completion-runtime.mjs
+      - name: Interrupt then resume Raydium graduation
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-recovery-runtime.mjs
       - name: Show validator log on failure
         if: failure()
         run: tail -n 500 /tmp/signal-raydium-validator.log || true
