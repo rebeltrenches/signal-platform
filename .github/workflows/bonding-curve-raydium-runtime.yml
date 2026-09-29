@@ -11,6 +11,18 @@ on:
       - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
       - 'apps/web/tests/bonding-curve-raydium-reverse-runtime.mjs'
       - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-leftovers-runtime.mjs'
+      - 'apps/web/tests/raydium-config-audit.mjs'
+      - '.github/workflows/bonding-curve-raydium-runtime.yml'
+  pull_request:
+    paths:
+      - 'programs/signal-bonding-curve/**'
+      - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-reverse-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-leftovers-runtime.mjs'
       - 'apps/web/tests/raydium-config-audit.mjs'
       - '.github/workflows/bonding-curve-raydium-runtime.yml'
   workflow_dispatch:
@@ -96,6 +108,11 @@ jobs:
         env:
           SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
         run: node tests/bonding-curve-raydium-recovery-runtime.mjs
+      - name: Audit every graduated curve for migration leftovers
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-leftovers-runtime.mjs
       - name: Show validator log on failure
         if: failure()
         run: tail -n 500 /tmp/signal-raydium-validator.log || true

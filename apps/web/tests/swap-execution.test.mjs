@@ -10,6 +10,7 @@ const PROGRAM = "11111111111111111111111111111111";
 const instruction = { programId: PROGRAM, accounts: [], data: "AA==" };
 const clientSource = await readFile("apps/web/src/client/swap-execute.js", "utf8");
 const buildSource = await readFile("apps/web/scripts/build.tsx", "utf8");
+const routerSource = await readFile("apps/web/src/client/trade-router.js", "utf8");
 assert.match(clientSource, /new URL\(RPC_PROXY, window\.location\.origin\)\.toString\(\)/);
 assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
 assert.match(clientSource, /transactionIntentDifference\(finalMessage, signed\.message, tables\)/);
@@ -28,7 +29,8 @@ assert.match(clientSource, /Submitted — verify on Solscan/);
 assert.match(clientSource, /Signal could not verify confirmation yet/);
 assert.match(clientSource, /status = await connection\.getSignatureStatus/);
 assert.doesNotMatch(clientSource, /waitForConfirmation\(connection, submitted\.signature, build\.blockhashWithMetadata\.lastValidBlockHeight\)/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-confirmation-retry-8/);
+assert.match(buildSource, /\/client\/trade-router\.js/);
+assert.match(routerSource, /import\("\.\/swap-execute\.js\?v=swap-confirmation-retry-8"\)/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,
