@@ -153,8 +153,9 @@ export function SecurityPage() {
             <div className="review-row"><span className="k">Token transfer tax</span><span className="v">None on new Signal launches</span></div>
           </div>
           <p style={{ color: 'var(--ink-faint)', font: 'var(--text-small)', marginTop: 14, lineHeight: 1.6 }}>
-            Signal-created tokens use the classic SPL Token program. The fixed launch charge is separate from network,
-            metadata and account-creation costs shown by the wallet. Signal does not add a Token-2022 transfer tax.
+            Signal-created tokens use the classic SPL Token program. The bonding-curve program enforces the fixed launch
+            charge during curve initialization and binds its recipient to the Signal platform wallet. Network, metadata and
+            account-creation costs are separate. Signal does not add a Token-2022 transfer tax.
           </p>
 
           <div className="card" style={{ marginTop: 18 }}>
