@@ -8,8 +8,11 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/src/client/curve-provenance.js'
+      - 'apps/web/src/client/token-detail.js'
       - 'apps/web/tests/bonding-curve-economics.mjs'
       - 'apps/web/tests/bonding-curve-recovery-guard.mjs'
+      - 'apps/web/tests/bonding-curve-provenance-guard.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -26,8 +29,11 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/src/client/curve-provenance.js'
+      - 'apps/web/src/client/token-detail.js'
       - 'apps/web/tests/bonding-curve-economics.mjs'
       - 'apps/web/tests/bonding-curve-recovery-guard.mjs'
+      - 'apps/web/tests/bonding-curve-provenance-guard.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -92,12 +98,14 @@ jobs:
         run: |
           node --input-type=module --check < apps/web/src/client/launch-solana-curve.js
           node --input-type=module --check < apps/web/src/client/trade-router.js
+          node --input-type=module --check < apps/web/src/client/curve-provenance.js
       - name: Build Signal web app
         run: pnpm --filter @launchpad/web build
       - name: Verify curve browser dependencies were built
         run: |
           test -f apps/web/dist/client/launch-solana-curve.js
           test -f apps/web/dist/client/trade-router.js
+          test -f apps/web/dist/client/curve-provenance.js
           test -f apps/web/dist/client/platform-wallet.js
           test -f apps/web/dist/client/bonding-curve-program.js
           test -f apps/web/dist/client/vendor/solana-web3.js
@@ -110,6 +118,8 @@ jobs:
           grep -F 'const CURVE_STATE_VERSION = 2;' apps/web/src/client/launch-solana-curve.js
           grep -F 'const STATE_LEN = 160;' apps/web/src/client/trade-router.js
           grep -F 'const STATE_VERSION = 2;' apps/web/src/client/trade-router.js
+          grep -F 'const STATE_LEN = 160;' apps/web/src/client/curve-provenance.js
+          grep -F 'const STATE_VERSION = 2;' apps/web/src/client/curve-provenance.js
       - name: Guard protocol minimum and dust-trade parity
         run: |
           grep -F 'const MINIMUM_TOKEN_SUPPLY_WHOLE: u64 = 100_000_000;' programs/signal-bonding-curve/src/lib.rs
@@ -122,6 +132,9 @@ jobs:
       - name: Guard interrupted launch recovery integrity
         working-directory: apps/web
         run: node tests/bonding-curve-recovery-guard.mjs
+      - name: Guard Signal launch provenance labels
+        working-directory: apps/web
+        run: node tests/bonding-curve-provenance-guard.mjs
       - name: Guard launch fee at protocol layer
         run: |
           grep -F 'const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;' programs/signal-bonding-curve/src/lib.rs
