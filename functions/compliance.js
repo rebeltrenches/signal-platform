@@ -9,11 +9,12 @@
 //
 // Location is Cloudflare's: request.cf.country (same as the CF-IPCountry
 // header) and request.cf.regionCode for sanctioned sub-national regions.
-// Screening needs no key: the Worker downloads the official SDN list, keeps
-// only its digital currency addresses, and caches them (see below). If the
-// list can't be loaded, screening reports "unavailable" so callers fail safe.
+// Screening needs no key. If the sanctions list can't be loaded, screening
+// reports "unavailable" so callers fail safe.
 import restrictions from "../config/restrictions.json" with { type: "json" };
+import { normalizeAddress, validateListFile, SDN_MAX_AGE_MS } from "./ofac-sdn.js";
 
+export { normalizeAddress, SDN_MAX_AGE_MS };
 export const RESTRICTIONS = restrictions;
 const SOLANA_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -53,28 +54,20 @@ export function geoForRequest(request, config = RESTRICTIONS) {
 // ---------------------------------------------------------------------------
 // OFAC SDN list screening
 //
-// Source: the SDN list in its structured XML form from Treasury's Sanctions
-// List Service (the CSV exports miss some addresses). Each sanctioned
-// digital currency address appears as
-//   <idType>Digital Currency Address - ETH</idType><idNumber>0x…</idNumber>
-// The file is ~30 MB, so it's streamed and scanned once, and only the
-// addresses (a few KB) are kept: in memory, and in Cloudflare's edge cache
-// so other Worker instances nearby don't download and parse it again. The
-// list is refreshed after SDN_LIST_TTL_MS (at least twice a day). If a
-// refresh fails, a list up to SDN_MAX_STALE_MS old keeps being used;
-// beyond that, or with no list at all, screening is "unavailable".
+// Cloudflare can't connect to Treasury's list server (TLS handshake fails,
+// HTTP 525), so the list is prepared by a scheduled GitHub Actions job
+// (.github/workflows/ofac-sdn-list.yml) every 6 hours and published as a
+// small JSON file (~40 KB, ~1,000 addresses) on the repo's `ofac-data`
+// branch; see functions/ofac-sdn.js. The Worker reads that file (no
+// parsing work to speak of), keeps it in memory and re-reads it hourly.
+// A file older than SDN_MAX_AGE_MS (48 hours, by its own creation time),
+// incomplete or malformed is never used: screening is then "unavailable".
 
-export const SDN_XML_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML";
-export const SDN_LIST_TTL_MS = 12 * 60 * 60_000;
-export const SDN_MAX_STALE_MS = 48 * 60 * 60_000;
-// The list has ~1,000 digital currency addresses; far fewer means the
-// download wasn't really the SDN list (an error page, a cut-off file).
-export const SDN_MIN_ADDRESSES = 100;
-const SDN_DOWNLOAD_TIMEOUT_MS = 60_000;
-const SDN_EDGE_CACHE_KEY = "https://ofac-sdn.cache/digital-currency-addresses-v1";
-const ID_TYPE_OPEN = "<idType>Digital Currency Address - ";
+export const OFAC_LIST_URL = "https://raw.githubusercontent.com/rebeltrenches/signal-platform/ofac-data/ofac-sdn-addresses.json";
+export const LIST_REFRESH_MS = 60 * 60_000;
+const LIST_TIMEOUT_MS = 15_000;
 
-let sdnList = null; // { addresses: Set, publishDate, fetchedAt }
+let sdnList = null; // { addresses: Set, publishDate, generatedAt, loadedAt }
 let sdnLoading = null;
 
 export function isSolanaAddress(value) {
@@ -86,104 +79,27 @@ export function isScreenableAddress(value) {
   return isSolanaAddress(value) || (typeof value === "string" && EVM_ADDRESS.test(value));
 }
 
-/** EVM addresses are case-insensitive (checksum casing varies); others,
- *  like Solana's base58, are compared exactly. */
-export function normalizeAddress(address) {
-  const value = String(address).trim();
-  return /^0x[0-9a-fA-F]+$/.test(value) ? value.toLowerCase() : value;
-}
-
-/** Streams SDN.XML and returns { addresses: Set, currencies, publishDate },
- *  keeping only digital currency addresses. Chunks are scanned with a small
- *  carry-over, so an entry split across chunks is still found. */
-export async function parseSdnXml(body) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  const addresses = new Set();
-  const currencies = {};
-  let publishDate = null;
-  let pending = "";
-  const scan = (text, final) => {
-    let from = 0;
-    for (;;) {
-      const start = text.indexOf(ID_TYPE_OPEN, from);
-      if (start < 0) break;
-      const typeEnd = text.indexOf("</idType>", start);
-      const numberOpen = typeEnd < 0 ? -1 : text.indexOf("<idNumber>", typeEnd);
-      const numberEnd = numberOpen < 0 ? -1 : text.indexOf("</idNumber>", numberOpen);
-      if (numberEnd < 0) {
-        // Incomplete at the end of this chunk: keep it for the next one.
-        return final ? "" : text.slice(start);
-      }
-      const currency = text.slice(start + ID_TYPE_OPEN.length, typeEnd).trim();
-      const address = text.slice(numberOpen + "<idNumber>".length, numberEnd).trim();
-      if (address) {
-        addresses.add(normalizeAddress(address));
-        currencies[currency] = (currencies[currency] || 0) + 1;
-      }
-      from = numberEnd;
-    }
-    // Keep a short tail in case the next marker starts across the boundary.
-    return final ? "" : text.slice(Math.max(from, text.length - ID_TYPE_OPEN.length));
-  };
-  for (;;) {
-    const { done, value } = await reader.read();
-    const text = pending + (done ? decoder.decode() : decoder.decode(value, { stream: true }));
-    if (!publishDate) {
-      const match = /<Publish_Date>([^<]+)<\/Publish_Date>/.exec(text);
-      if (match) publishDate = match[1].trim();
-    }
-    pending = scan(text, done);
-    if (done) break;
-  }
-  return { addresses, currencies, publishDate };
-}
-
-async function downloadSdnList(now) {
-  const response = await fetch(SDN_XML_URL, { signal: AbortSignal.timeout(SDN_DOWNLOAD_TIMEOUT_MS) });
-  if (!response.ok || !response.body) throw new Error(`OFAC list download failed (HTTP ${response.status}).`);
-  const parsed = await parseSdnXml(response.body);
-  if (parsed.addresses.size < SDN_MIN_ADDRESSES) {
-    throw new Error(`The OFAC list download looked incomplete (${parsed.addresses.size} addresses).`);
-  }
-  return { addresses: parsed.addresses, publishDate: parsed.publishDate, fetchedAt: now };
-}
-
-async function readEdgeCache(now) {
-  if (typeof caches === "undefined") return null;
+async function loadListFile(env, now) {
+  const url = typeof env?.OFAC_LIST_URL === "string" && env.OFAC_LIST_URL.startsWith("https://") ? env.OFAC_LIST_URL : OFAC_LIST_URL;
+  const response = await fetch(url, { signal: AbortSignal.timeout(LIST_TIMEOUT_MS), headers: { accept: "application/json" } });
+  if (!response.ok) throw new Error(`list file download failed (HTTP ${response.status})`);
+  let file;
   try {
-    const hit = await caches.default.match(new Request(SDN_EDGE_CACHE_KEY));
-    if (!hit) return null;
-    const cached = await hit.json();
-    if (!Array.isArray(cached?.addresses) || cached.addresses.length < SDN_MIN_ADDRESSES) return null;
-    if (!(now - cached.fetchedAt < SDN_LIST_TTL_MS)) return null;
-    return { addresses: new Set(cached.addresses), publishDate: cached.publishDate, fetchedAt: cached.fetchedAt };
+    file = await response.json();
   } catch {
-    return null;
+    throw new Error("the list file isn't valid JSON");
   }
+  return { ...validateListFile(file, now), loadedAt: now };
 }
 
-async function writeEdgeCache(list) {
-  if (typeof caches === "undefined") return;
-  const body = JSON.stringify({ addresses: [...list.addresses], publishDate: list.publishDate, fetchedAt: list.fetchedAt });
-  const ttlSeconds = Math.floor(SDN_LIST_TTL_MS / 1000);
-  await caches.default
-    .put(new Request(SDN_EDGE_CACHE_KEY), new Response(body, { headers: { "content-type": "application/json", "cache-control": `public, max-age=${ttlSeconds}` } }))
-    .catch(() => {});
-}
+const trusted = (list, now) => list && now - list.generatedAt <= SDN_MAX_AGE_MS;
 
-/** The current SDN address list, loading or refreshing it when needed.
- *  Concurrent callers share one download. Throws when no usable list. */
-export async function sdnAddressList(now = Date.now()) {
-  if (sdnList && now - sdnList.fetchedAt < SDN_LIST_TTL_MS) return sdnList;
+/** The current SDN address list, loading or re-reading it when needed.
+ *  Concurrent callers share one read. Throws when no trustworthy list. */
+export async function sdnAddressList(env, now = Date.now()) {
+  if (trusted(sdnList, now) && now - sdnList.loadedAt < LIST_REFRESH_MS) return sdnList;
   if (!sdnLoading) {
-    sdnLoading = (async () => {
-      const cached = await readEdgeCache(now);
-      if (cached) return cached;
-      const fresh = await downloadSdnList(now);
-      await writeEdgeCache(fresh);
-      return fresh;
-    })().finally(() => {
+    sdnLoading = loadListFile(env, now).finally(() => {
       sdnLoading = null;
     });
   }
@@ -191,22 +107,22 @@ export async function sdnAddressList(now = Date.now()) {
     sdnList = await sdnLoading;
     return sdnList;
   } catch (error) {
-    // A slightly old list is still a real list; beyond that, fail safe.
-    if (sdnList && now - sdnList.fetchedAt < SDN_MAX_STALE_MS) return sdnList;
+    // The list already held is still fine to use while it's under 48 hours old.
+    if (trusted(sdnList, now)) return sdnList;
     throw error;
   }
 }
 
 /** { status: "clear" } | { status: "sanctioned", names } |
  *  { status: "unavailable", reason }. Only "clear" may proceed. */
-export async function screenWallet(address, _env, now = Date.now()) {
+export async function screenWallet(address, env, now = Date.now()) {
   if (!isScreenableAddress(address)) return { status: "unavailable", reason: "Not a valid wallet address." };
   let list;
   try {
-    list = await sdnAddressList(now);
+    list = await sdnAddressList(env, now);
   } catch (error) {
-    // The cause (an HTTP status or an address count; never anything secret)
-    // is included so a failing download can be diagnosed from outside.
+    // The cause (an HTTP status, an address count or a date; never anything
+    // secret) is included so a failing load can be diagnosed from outside.
     const cause = error?.name === "TimeoutError" ? "download timed out" : String(error?.message || "unknown error").slice(0, 120);
     return { status: "unavailable", reason: `The OFAC sanctions list couldn't be loaded (${cause}).` };
   }

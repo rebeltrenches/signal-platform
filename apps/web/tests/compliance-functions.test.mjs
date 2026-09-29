@@ -41,45 +41,35 @@ const SANCTIONED_EVM = "0x8576aCC5C05D6Ce88f4e49bf65BdF0C62F91353C"; // listed i
 const API = "https://signal-api.test";
 const env = { SIGNAL_EDGE_SECRET: "edge-secret-123", SIGNAL_API_ORIGIN: API };
 
-/** An SDN.XML in the real layout: the sanctioned test addresses, other ID
- *  types that must be ignored, and filler entries so it passes the
- *  "looks like the real list" size check. */
-function sdnXml({ entries = 150, extra = "" } = {}) {
-  const id = (type, number) => `<id><uid>1</uid><idType>${type}</idType><idNumber>${number}</idNumber></id>`;
-  const filler = Array.from({ length: entries }, (_, i) => id("Digital Currency Address - XBT", `1Filler${String(i).padStart(26, "x")}`)).join("\n");
-  return `<?xml version="1.0" standalone="yes"?>
-<sdnList xmlns="https://tempuri.org/sdnList.xsd">
-  <publshInformation><Publish_Date>09/23/2026</Publish_Date><Record_Count>1</Record_Count></publshInformation>
-  <sdnEntry><lastName>TEST ENTITY</lastName><idList>
-    ${id("Passport", "A1234567")}
-    ${id("Digital Currency Address - SOL", SANCTIONED)}
-    ${id("Digital Currency Address - ETH", SANCTIONED_EVM.toLowerCase())}
-    ${id("Digital Currency Address - USDT", "TA3941uFAvmVibSkQ6fMJXxmaSNovX86mz")}
-  </idList></sdnEntry>
-  ${filler}
-  ${extra}
-</sdnList>`;
+/** The list file the GitHub job publishes (functions/ofac-sdn.js), made
+ *  at `generatedAt`: the sanctioned test addresses plus filler entries so it
+ *  passes the "looks like the real list" size check. */
+function listFile({ generatedAt = Date.now(), entries = 150, ...overrides } = {}) {
+  const addresses = [SANCTIONED, SANCTIONED_EVM.toLowerCase(), "TA3941uFAvmVibSkQ6fMJXxmaSNovX86mz",
+    ...Array.from({ length: entries }, (_, i) => `1Filler${String(i).padStart(26, "x")}`)].sort();
+  return {
+    format: "signal-ofac-sdn-addresses/1",
+    source: "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML",
+    publishDate: "09/23/2026",
+    generatedAt: new Date(generatedAt).toISOString(),
+    count: addresses.length,
+    currencies: { SOL: 1, ETH: 1, USDT: 1, XBT: entries },
+    addresses,
+    ...overrides,
+  };
 }
 
-/** Mocks Treasury's SDN download and the Signal API; records every call.
- *  `sdn` answers the list download; `chunk` streams it in small pieces. */
-function network({ sdn = () => sdnXml(), chunk = 0, session = () => Response.json({ address: WALLET }), register = () => Response.json({ ok: true }, { status: 201 }) } = {}) {
+/** Mocks the list file (GitHub) and the Signal API; records every call.
+ *  `list` answers the list file request (an object is sent as JSON). */
+function network({ list = () => listFile(), session = () => Response.json({ address: WALLET }), register = () => Response.json({ ok: true }, { status: 201 }) } = {}) {
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     const headers = Object.fromEntries(new Headers(init.headers || {}).entries());
     calls.push({ url: u, method: init.method || "GET", headers, body: init.body });
-    if (u === compliance.SDN_XML_URL) {
-      const answer = sdn();
-      if (answer instanceof Response) return answer;
-      if (!chunk) return new Response(answer, { headers: { "content-type": "text/xml" } });
-      const bytes = new TextEncoder().encode(answer);
-      return new Response(new ReadableStream({
-        start(controller) {
-          for (let i = 0; i < bytes.length; i += chunk) controller.enqueue(bytes.subarray(i, i + chunk));
-          controller.close();
-        },
-      }));
+    if (u === compliance.OFAC_LIST_URL) {
+      const answer = list();
+      return answer instanceof Response ? answer : Response.json(answer);
     }
     if (u === `${API}/api/v1/auth/session`) return session(headers);
     if (u === `${API}/api/v1/tokens/register`) return register(headers, init.body);
@@ -87,7 +77,8 @@ function network({ sdn = () => sdnXml(), chunk = 0, session = () => Response.jso
   };
   return calls;
 }
-const sdnDownloads = (calls) => calls.filter((c) => c.url === compliance.SDN_XML_URL).length;
+const listReads = (calls) => calls.filter((c) => c.url === compliance.OFAC_LIST_URL).length;
+const HOUR = 60 * 60_000;
 
 console.log("compliance-functions.test.mjs\n");
 
@@ -162,77 +153,72 @@ await test("GET /api/geo: country, level, the region's name/notice or warning, a
 });
 
 // ---- the OFAC SDN list -----------------------------------------------------------------------
-await test("SDN parser: keeps only digital currency addresses, normalizes EVM case, reads the publish date", async () => {
-  const parsed = await compliance.parseSdnXml(new Response(sdnXml()).body);
-  assert.equal(parsed.publishDate, "09/23/2026");
-  assert.ok(parsed.addresses.has(SANCTIONED));
-  assert.ok(parsed.addresses.has(SANCTIONED_EVM.toLowerCase()));
-  assert.ok(!parsed.addresses.has("A1234567"), "passport numbers are not addresses");
-  assert.equal(parsed.currencies.SOL, 1);
-  assert.equal(parsed.addresses.size, 3 + 150);
-});
-
-await test("SDN parser: entries split across tiny stream chunks are all found", async () => {
-  for (const size of [1, 7, 33, 4096]) {
-    const bytes = new TextEncoder().encode(sdnXml());
-    const stream = new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += size) c.enqueue(bytes.subarray(i, i + size)); c.close(); } });
-    const parsed = await compliance.parseSdnXml(stream);
-    assert.equal(parsed.addresses.size, 153, `chunk size ${size}`);
-    assert.ok(parsed.addresses.has(SANCTIONED));
-  }
-});
-
 await test("screening: listed Solana and EVM wallets (any letter case) are sanctioned; others are clear; no key needed", async () => {
-  const calls = network({ chunk: 512 });
+  const calls = network();
   assert.equal((await compliance.screenWallet(SANCTIONED, {})).status, "sanctioned");
   const evm = await compliance.screenWallet(SANCTIONED_EVM, {});
   assert.equal(evm.status, "sanctioned");
   assert.deepEqual(evm.names, ["OFAC SDN list (published 09/23/2026)"]);
   assert.deepEqual(await compliance.screenWallet(WALLET, {}), { status: "clear" });
   assert.deepEqual(await compliance.screenWallet("0x0000000000000000000000000000000000000001", {}), { status: "clear" });
-  assert.equal(sdnDownloads(calls), 1, "one download serves every check");
+  assert.equal(listReads(calls), 1, "one read serves every check");
+  assert.equal(calls[0].url, "https://raw.githubusercontent.com/rebeltrenches/signal-platform/ofac-data/ofac-sdn-addresses.json");
   assert.equal(calls[0].headers["x-api-key"], undefined, "no key is sent anywhere");
 });
 
-await test("the list is cached and refreshed after its TTL (at least twice a day); concurrent checks share one download", async () => {
-  const calls = network();
-  const t0 = 1_000_000;
+await test("the list file is kept in memory and re-read hourly; concurrent checks share one read", async () => {
+  const t0 = Date.parse("2026-09-29T00:00:00Z");
+  const calls = network({ list: () => listFile({ generatedAt: t0 }) });
   await Promise.all(Array.from({ length: 10 }, () => compliance.screenWallet(WALLET, env, t0)));
-  assert.equal(sdnDownloads(calls), 1, "shared");
-  await compliance.screenWallet(WALLET, env, t0 + compliance.SDN_LIST_TTL_MS - 1);
-  assert.equal(sdnDownloads(calls), 1, "cached");
-  await compliance.screenWallet(WALLET, env, t0 + compliance.SDN_LIST_TTL_MS + 1);
-  assert.equal(sdnDownloads(calls), 2, "refreshed");
-  assert.ok(compliance.SDN_LIST_TTL_MS <= 24 * 60 * 60_000);
+  assert.equal(listReads(calls), 1, "shared");
+  await compliance.screenWallet(WALLET, env, t0 + compliance.LIST_REFRESH_MS - 1);
+  assert.equal(listReads(calls), 1, "kept");
+  await compliance.screenWallet(WALLET, env, t0 + compliance.LIST_REFRESH_MS + 1);
+  assert.equal(listReads(calls), 2, "re-read");
 });
 
-await test("fail safe: with no list (download fails, times out, or isn't really the list) screening is 'unavailable'", async () => {
-  for (const sdn of [
-    () => new Response("down", { status: 503 }),
-    () => { throw Object.assign(new Error("timeout"), { name: "TimeoutError" }); },
-    () => "<html>Service temporarily unavailable</html>",
-    () => sdnXml({ entries: 10 }), // far fewer addresses than the real list: not trusted
+await test("fail safe: a missing, unreadable, incomplete, malformed or too-old list means 'unavailable', with the cause", async () => {
+  const now = Date.parse("2026-09-29T12:00:00Z");
+  for (const [list, cause] of [
+    [() => new Response("Not Found", { status: 404 }), /HTTP 404/],
+    [() => { throw Object.assign(new Error("timeout"), { name: "TimeoutError" }); }, /timed out/],
+    [() => new Response("<html>oops</html>", { status: 200 }), /valid JSON/],
+    [() => listFile({ generatedAt: now, entries: 10 }), /incomplete/],
+    [() => listFile({ generatedAt: now, format: "something-else" }), /expected format/],
+    [() => listFile({ generatedAt: now - compliance.SDN_MAX_AGE_MS - 1 }), /too old/],
+    [() => listFile({ generatedAt: now + 5 * HOUR }), /future/],
   ]) {
     compliance.resetComplianceForTests();
-    network({ sdn });
-    const result = await compliance.screenWallet(WALLET, env);
-    assert.equal(result.status, "unavailable");
+    network({ list });
+    const result = await compliance.screenWallet(WALLET, env, now);
+    assert.equal(result.status, "unavailable", String(cause));
     assert.match(result.reason, /OFAC sanctions list couldn't be loaded/);
+    assert.match(result.reason, cause);
   }
-  assert.equal((await compliance.screenWallet("not-an-address", env)).status, "unavailable");
+  assert.equal((await compliance.screenWallet("not-an-address", env, now)).status, "unavailable");
 });
 
-await test("a failed refresh keeps using the list for up to 48 hours, then fails safe; a later refresh recovers", async () => {
-  network();
-  const t0 = 5_000_000;
-  await compliance.screenWallet(WALLET, env, t0);
-  network({ sdn: () => new Response("down", { status: 503 }) });
-  assert.equal((await compliance.screenWallet(SANCTIONED, env, t0 + compliance.SDN_LIST_TTL_MS + 1)).status, "sanctioned", "stale but usable");
-  assert.equal((await compliance.screenWallet(WALLET, env, t0 + compliance.SDN_MAX_STALE_MS - 1)).status, "clear");
-  assert.equal((await compliance.screenWallet(WALLET, env, t0 + compliance.SDN_MAX_STALE_MS + 1)).status, "unavailable", "too old");
-  network();
-  assert.equal((await compliance.screenWallet(WALLET, env, t0 + compliance.SDN_MAX_STALE_MS + 2)).status, "clear", "recovered");
+await test("if a re-read fails, the held list is used until it's 48 hours old (by its own date), then fails safe; recovery works", async () => {
+  const made = Date.parse("2026-09-29T00:00:00Z");
+  network({ list: () => listFile({ generatedAt: made }) });
+  await compliance.screenWallet(WALLET, env, made + HOUR);
+  network({ list: () => new Response("down", { status: 503 }) });
+  assert.equal((await compliance.screenWallet(SANCTIONED, env, made + 3 * HOUR)).status, "sanctioned", "held list, re-read failed");
+  assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS - 1)).status, "clear");
+  assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS + 1)).status, "unavailable", "too old");
+  network({ list: () => listFile({ generatedAt: made + compliance.SDN_MAX_AGE_MS }) });
+  assert.equal((await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS + 2)).status, "clear", "a fresh file recovers");
 });
+
+await test("a list file that stops being updated stops being trusted after 48 hours, even if it can still be read", async () => {
+  const made = Date.parse("2026-09-29T00:00:00Z");
+  network({ list: () => listFile({ generatedAt: made }) });
+  assert.equal((await compliance.screenWallet(WALLET, env, made + HOUR)).status, "clear");
+  const late = await compliance.screenWallet(WALLET, env, made + compliance.SDN_MAX_AGE_MS + HOUR);
+  assert.equal(late.status, "unavailable");
+  assert.match(late.reason, /too old/);
+});
+
 
 await test("POST /api/wallet-screen: clear / sanctioned / unavailable, EVM too, 451 in blocked regions, 400 bad input, rate limit", async () => {
   network();
@@ -245,7 +231,7 @@ await test("POST /api/wallet-screen: clear / sanctioned / unavailable, EVM too, 
   assert.equal((await post(WALLET, { country: "KP" })).status, 451);
   assert.equal((await post("nope")).status, 400);
   compliance.resetComplianceForTests();
-  network({ sdn: () => new Response("down", { status: 500 }) });
+  network({ list: () => new Response("down", { status: 500 }) });
   const unavailable = await (await post(WALLET)).json();
   assert.equal(unavailable.status, "unavailable");
   assert.match(unavailable.message, /paused until the check succeeds/);
@@ -289,7 +275,7 @@ await test("the wallet screened is the session's own wallet, read from the API â
 });
 
 await test("screening unavailable (no OFAC list): registration fails safe (503, try again), nothing forwarded", async () => {
-  const calls = network({ sdn: () => new Response("down", { status: 502 }) });
+  const calls = network({ list: () => new Response("down", { status: 502 }) });
   const response = await registration();
   assert.equal(response.status, 503);
   const body = await response.json();
@@ -334,7 +320,7 @@ await test("swap building: blocked regions 451, sanctioned taker 403, no OFAC li
   assert.equal((await build(WALLET, "CU")).status, 451);
   assert.equal((await build(SANCTIONED)).status, 403);
   compliance.resetComplianceForTests();
-  network({ sdn: () => new Response("down", { status: 500 }) });
+  network({ list: () => new Response("down", { status: 500 }) });
   assert.equal((await build(WALLET)).status, 503);
   compliance.resetComplianceForTests();
   network();

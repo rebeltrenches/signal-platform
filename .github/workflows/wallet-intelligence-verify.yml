@@ -113,13 +113,16 @@ jobs:
       - name: Token market function tests (bonding curve, holders, logo, quota protection)
         run: node apps/web/tests/token-market-function.test.mjs
       - name: Regional restrictions and sanctions screening tests (Worker)
-        run: node apps/web/tests/compliance-functions.test.mjs
+        run: |
+          node apps/web/tests/compliance-functions.test.mjs
+          node apps/web/tests/ofac-sdn.test.mjs
       - name: Cloudflare Worker syntax check
         run: |
           node --input-type=module --check < worker.js
           node --input-type=module --check < functions/api/solana/portfolio.js
           node --input-type=module --check < functions/api/solana/token-market.js
           node --input-type=module --check < functions/compliance.js
+          node --input-type=module --check < functions/ofac-sdn.js
           node --input-type=module --check < functions/api/register-token.js
       - name: Wallet page regression test
         run: |

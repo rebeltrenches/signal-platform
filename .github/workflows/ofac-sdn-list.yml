@@ -1,0 +1,50 @@
+name: OFAC SDN list
+
+# Prepares the sanctions list the Cloudflare Worker screens wallets against
+# (functions/compliance.js). Cloudflare can't connect to Treasury's list
+# server, so this job downloads the official SDN.XML, extracts its digital
+# currency addresses (scripts/ofac-sdn-list.mjs) and publishes the small
+# JSON file to the `ofac-data` branch, which holds nothing else. A failed
+# or implausible download publishes nothing, so a good file is never
+# replaced by a bad one; the Worker stops trusting a file after 48 hours.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ofac-sdn-list
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download SDN.XML and extract digital currency addresses
+        run: node scripts/ofac-sdn-list.mjs "$RUNNER_TEMP/ofac-sdn-addresses.json"
+      - name: Publish to the ofac-data branch
+        # The branch holds one commit with the latest file: each run replaces
+        # it (force-push), so the branch doesn't grow. Only this data branch
+        # is ever written; no other branch is touched.
+        run: |
+          dir="$RUNNER_TEMP/ofac-data"
+          mkdir -p "$dir"
+          cp "$RUNNER_TEMP/ofac-sdn-addresses.json" "$dir/ofac-sdn-addresses.json"
+          cd "$dir"
+          git init -q -b ofac-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ofac-sdn-addresses.json
+          git commit -q -m "OFAC SDN list: $(node -e "const f=require('./ofac-sdn-addresses.json');console.log(f.count+' addresses, published '+f.publishDate+', generated '+f.generatedAt)")"
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ofac-data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
