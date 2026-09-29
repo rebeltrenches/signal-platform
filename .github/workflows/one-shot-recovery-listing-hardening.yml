@@ -1,0 +1,181 @@
+name: One-shot recovery and listing hardening
+
+on:
+  push:
+    branches: [pf-style-bonding-curve]
+    paths: ['.github/workflows/one-shot-recovery-listing-hardening.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'Apply recovery and listing hardening'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pf-style-bonding-curve
+      - name: Apply exact-source hardening patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('apps/web/src/client/launch-solana-curve.js')
+          text = path.read_text()
+
+          old_meta = '''  async verifyMetadata(mint, expected) {
+              const address = metadataAddress(web3, mint);
+              const info = await this.connection.getAccountInfo(address, "confirmed");
+              if (!info || info.owner.toBase58() !== TOKEN_METADATA_PROGRAM_ID) return false;
+              const found = decodeMetadataAccount(info.data);
+              if (found.name !== expected.name || found.symbol !== expected.symbol || found.uri !== expected.uri || found.isMutable) {
+                throw new Error("On-chain metadata does not match the immutable launch metadata.");
+              }
+              return true;
+            }
+          }'''.replace('          ', '')
+          new_meta = '''  async verifyMetadata(mint, expected) {
+            const address = metadataAddress(web3, mint);
+            const info = await this.connection.getAccountInfo(address, "confirmed");
+            if (!info || info.owner.toBase58() !== TOKEN_METADATA_PROGRAM_ID) {
+              throw new Error("Immutable Signal launch metadata is missing or owned by an unexpected program.");
+            }
+            const found = decodeMetadataAccount(info.data);
+            if (found.name !== expected.name || found.symbol !== expected.symbol || found.uri !== expected.uri || found.isMutable) {
+              throw new Error("On-chain metadata does not match the immutable launch metadata.");
+            }
+            return true;
+          }
+
+          async verifyRecoveredLaunch(mint, expected) {
+            const pid = await this.ensureProgramReady();
+            const curve = curveAddress(mint, pid);
+            const vault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
+            const [mintInfo, curveInfo, vaultInfo] = await Promise.all([
+              splToken.getMint(this.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID),
+              this.connection.getAccountInfo(curve, "confirmed"),
+              splToken.getAccount(this.connection, vault, "confirmed", splToken.TOKEN_PROGRAM_ID).catch(() => null),
+            ]);
+            if (mintInfo.mintAuthority !== null || mintInfo.freezeAuthority !== null || BigInt(mintInfo.supply.toString()) !== expected.rawSupply) {
+              throw new Error("Recovered mint supply or authorities do not match this Signal launch.");
+            }
+            if (!curveInfo || !curveInfo.owner.equals(pid)) {
+              throw new Error("Expected Signal bonding-curve state is missing or owned by another program.");
+            }
+            const state = decodeCurve(curveInfo.data);
+            const expectedInitialReal = expected.rawSupply * INITIAL_REAL_BPS / BPS;
+            if (
+              !state.mint.equals(mint)
+              || !state.creator.equals(expected.creator)
+              || state.totalSupply !== expected.rawSupply
+              || state.initialRealTokenReserves !== expectedInitialReal
+              || state.decimals !== expected.decimals
+            ) {
+              throw new Error("Recovered curve state does not match this pending Signal launch.");
+            }
+            if (!vaultInfo || !vaultInfo.owner.equals(curve) || !vaultInfo.mint.equals(mint)) {
+              throw new Error("Recovered curve vault does not match the Signal curve.");
+            }
+            if (!state.graduated) {
+              const graduationReserve = expected.rawSupply - expectedInitialReal;
+              const expectedVaultAmount = state.realTokenReserves + graduationReserve;
+              if (BigInt(vaultInfo.amount.toString()) !== expectedVaultAmount) {
+                throw new Error("Recovered curve vault balance does not match on-chain curve state.");
+              }
+            } else if (state.graduationPool.equals(new web3.PublicKey(new Uint8Array(32)))) {
+              throw new Error("Recovered curve says it graduated but does not record a Raydium pool.");
+            }
+            await this.verifyMetadata(mint, { name: expected.name, symbol: expected.symbol, uri: expected.metadataUri });
+            return { curve, vault, state };
+          }
+        }'''
+          if text.count(old_meta) != 1:
+              raise SystemExit(f'verifyMetadata needle count was {text.count(old_meta)}, expected 1')
+          text = text.replace(old_meta, new_meta)
+
+          start = text.index('function mountPendingRecovery() {')
+          end = text.index('\n\n(function mountCurveLaunch() {', start)
+          new_recovery = '''function mountPendingRecovery() {
+            const host = document.getElementById("pending-launch-notice");
+            const pending = readPending();
+            if (!host || !pending) return;
+            host.hidden = false;
+            const box = document.createElement("div");
+            box.className = "tax-box";
+            box.style.borderColor = "var(--gold)";
+            const title = document.createElement("b");
+            title.textContent = pending.stage === "listing" ? "Curve launch completed; Signal listing pending." : "Incomplete curve launch found.";
+            const text = document.createElement("p");
+            text.textContent = `${pending.name} (${pending.symbol}) — ${pending.mint}`;
+            const button = Object.assign(document.createElement("button"), { type: "button", className: "btn btn-brand", textContent: pending.stage === "listing" ? "Verify and finish listing" : "Finish bonding-curve launch" });
+            const status = document.createElement("div");
+            status.style.marginTop = "8px";
+            box.append(title, text, button, status);
+            host.replaceChildren(box);
+            button.addEventListener("click", async () => {
+              button.disabled = true;
+              try {
+                const flow = new CurveLaunchFlow(host);
+                const creator = await flow.connect();
+                if (creator.toBase58() !== pending.creatorAddress) throw new Error(`Switch Phantom to ${short(pending.creatorAddress)} to finish this launch.`);
+                await compliance("launch", creator.toBase58());
+                const mint = new web3.PublicKey(pending.mint);
+                const rawSupply = BigInt(pending.rawSupply);
+                const decimals = Number(pending.decimals);
+                if (!pending.metadataUri || !pending.name || !pending.symbol || !Number.isInteger(decimals)) {
+                  throw new Error("Saved launch recovery data is incomplete. Nothing was listed; inspect the mint before continuing.");
+                }
+
+                const mintInfo = await splToken.getMint(flow.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID);
+                if (pending.stage !== "listing" && mintInfo.mintAuthority !== null) {
+                  await flow.initializeCurve(creator, mint, rawSupply, decimals);
+                } else if (mintInfo.mintAuthority !== null) {
+                  throw new Error("Saved state says this launch reached listing, but mint authority is still active. Nothing was listed.");
+                }
+
+                const verified = await flow.verifyRecoveredLaunch(mint, {
+                  creator,
+                  rawSupply,
+                  decimals,
+                  name: pending.name,
+                  symbol: pending.symbol,
+                  metadataUri: pending.metadataUri,
+                });
+                pending.stage = "listing";
+                pending.curve = verified.curve.toBase58();
+                pending.curveVault = verified.vault.toBase58();
+                savePending(pending);
+                recordLaunch({ ...pending, launchedAt: pending.launchedAt || new Date().toISOString() });
+
+                status.textContent = "On-chain curve, custody and immutable metadata verified. Finishing Signal listing…";
+                await listOnSignal(pending, status, () => clearPending(pending.mint));
+                button.style.display = "none";
+              } catch (error) {
+                status.textContent = error.message;
+                button.disabled = false;
+              }
+            });
+          }'''
+          text = text[:start] + new_recovery + text[end:]
+          path.write_text(text)
+
+          detail = Path('apps/web/src/client/token-detail.js')
+          d = detail.read_text()
+          old = "badge.textContent = res.ok ? 'Launched on Signal: Yes' : 'Launched on Signal: No';"
+          new = "badge.textContent = res.ok ? 'Listed on Signal: Yes' : 'Listed on Signal: No';"
+          if d.count(old) != 1:
+              raise SystemExit(f'token-detail badge needle count was {d.count(old)}, expected 1')
+          d = d.replace(old, new)
+          d = d.replace('// Real "Launched on Signal" check — replaces the static placeholder', '// Real "Listed on Signal" check — registration proves listing, not necessarily curve origin')
+          detail.write_text(d)
+          PY
+      - name: Remove one-shot workflow and commit
+        run: |
+          rm .github/workflows/one-shot-recovery-listing-hardening.yml
+          git config user.name "Signal CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/web/src/client/launch-solana-curve.js apps/web/src/client/token-detail.js .github/workflows/one-shot-recovery-listing-hardening.yml
+          git diff --cached --check
+          git commit -m "Apply recovery and listing hardening"
+          git push origin HEAD:pf-style-bonding-curve
