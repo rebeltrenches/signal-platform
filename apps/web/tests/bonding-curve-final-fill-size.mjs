@@ -77,7 +77,7 @@ const graduate = new web3.TransactionInstruction({
     { pubkey: curve, isSigner: false, isWritable: true },
     { pubkey: mint, isSigner: false, isWritable: false },
     { pubkey: curveVault, isSigner: false, isWritable: true },
-    { pubkey: trader.publicKey, isSigner: true, isWritable: false },
+    { pubkey: trader.publicKey, isSigner: true, isWritable: true },
     { pubkey: migration, isSigner: false, isWritable: true },
     { pubkey: migrationToken, isSigner: false, isWritable: true },
     { pubkey: migrationWsol, isSigner: false, isWritable: true },
@@ -115,6 +115,7 @@ const tx = new web3.Transaction({
   ),
   buy,
   graduate,
+  graduate,
 );
 
 let serialized;
@@ -124,7 +125,7 @@ try {
   throw new Error(`Final-fill legacy transaction cannot be serialized: ${error.message}`);
 }
 
-console.log(`final-fill legacy transaction size: ${serialized.length}/${MAX_LEGACY_TRANSACTION_BYTES} bytes`);
+console.log(`two-stage final-fill legacy transaction size: ${serialized.length}/${MAX_LEGACY_TRANSACTION_BYTES} bytes`);
 assert.ok(
   serialized.length <= MAX_LEGACY_TRANSACTION_BYTES,
   `final-fill transaction is ${serialized.length} bytes, above Solana's ${MAX_LEGACY_TRANSACTION_BYTES}-byte limit`,
