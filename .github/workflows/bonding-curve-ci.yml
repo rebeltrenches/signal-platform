@@ -115,6 +115,13 @@ jobs:
           grep -F 'validate_initial_supply(total_supply, decimals)?;' programs/signal-bonding-curve/src/lib.rs
           grep -F 'const MINIMUM_TOKEN_SUPPLY = 100_000_000n;' apps/web/src/client/launch-solana-curve.js
           grep -F 'if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");' apps/web/src/client/trade-router.js
+      - name: Guard launch fee at protocol layer
+        run: |
+          grep -F 'const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'platform_wallet.key != &PLATFORM_WALLET' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'system_instruction::transfer(creator.key, platform_wallet.key, LAUNCH_FEE_LAMPORTS)' programs/signal-bonding-curve/src/lib.rs
+          grep -F '{ pubkey: PLATFORM_WALLET, isSigner: false, isWritable: true }' apps/web/src/client/launch-solana-curve.js
+          ! grep -F 'LAUNCH_FEE_LAMPORTS' apps/web/src/client/launch-solana-curve.js
       - name: Guard curve-safe maximum supply
         run: |
           grep -F 'const INITIAL_VIRTUAL_BPS = 10_730n;' apps/web/src/client/launch-solana-curve.js
