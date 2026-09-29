@@ -28,6 +28,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Signal bonding curve math and state
         run: cargo test --manifest-path programs/signal-bonding-curve/Cargo.toml
+      - name: Compile Signal bonding curve program
+        run: cargo check --manifest-path programs/signal-bonding-curve/Cargo.toml
 
   web-integration:
     runs-on: ubuntu-latest
@@ -51,6 +53,19 @@ jobs:
         run: pnpm exec esbuild apps/web/src/client/launch-solana-curve.js --bundle --format=esm --platform=browser '--external:./vendor/*' --outfile=/tmp/launch-solana-curve.js
       - name: Parse curve trade router as a browser module
         run: pnpm exec esbuild apps/web/src/client/trade-router.js --bundle --format=esm --platform=browser '--external:./vendor/*' --outfile=/tmp/trade-router.js
+      - name: Keep Rust and browser curve state layouts identical
+        run: |
+          grep -F 'const STATE_LEN: usize = 160;' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'const STATE_VERSION: u8 = 2;' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'const CURVE_STATE_LEN = 160;' apps/web/src/client/launch-solana-curve.js
+          grep -F 'const CURVE_STATE_VERSION = 2;' apps/web/src/client/launch-solana-curve.js
+          grep -F 'const STATE_LEN = 160;' apps/web/src/client/trade-router.js
+          grep -F 'const STATE_VERSION = 2;' apps/web/src/client/trade-router.js
+      - name: Guard Raydium graduation wiring
+        run: |
+          grep -F 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C' apps/web/src/client/trade-router.js
+          grep -F 'Graduate to Raydium' apps/web/src/client/trade-router.js
+          grep -F 'Some(GRADUATE_TO_RAYDIUM)' programs/signal-bonding-curve/src/lib.rs
       - name: Confirm legacy full-supply launcher is not wired into Create
         run: |
           if grep -F "moduleScripts: ['/client/launch-solana.js'" apps/web/scripts/build.tsx; then
