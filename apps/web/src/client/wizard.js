@@ -1,5 +1,5 @@
 // Create-token wizard: step navigation, per-step validation, and the
-// chain-dependent creator-fee display. Wallet/network execution lives in
+// chain-dependent Signal trading-fee display. Wallet/network execution lives in
 // dedicated client modules; this file only owns wizard state and validation. Reads CHAIN_CONFIGS from the embedded JSON script tag
 // the server rendered, so this never hard-codes chain facts twice.
 (function () {
@@ -357,7 +357,7 @@
     validateStep();
   });
 
-  // ---- Step 2: configuration + chain-dependent tax display ----
+  // ---- Step 2: configuration + chain-dependent fee display ----
   const supplyInput = document.getElementById('tk-supply');
   const supplyError = document.getElementById('tk-supply-error');
   const decimalsInput = document.getElementById('tk-decimals');
@@ -391,11 +391,11 @@
     const cfg = state.chain ? chainConfigs[state.chain] : null;
     if (cfg && cfg.taxSupported === false) {
       el.innerHTML =
-        '<div class="tax-box tax-unavailable">Creator fee routing isn\u2019t available on ' + cfg.displayName +
+        '<div class="tax-box tax-unavailable">Signal-routed trading fees don\u2019t apply on ' + cfg.displayName +
         ' yet \u2014 discovery is live, while creation and in-app trading remain planned (see /security).</div>';
     }
-    // If creator fee routing IS supported, the server-rendered default
-    // markup already shows the current 100%-to-creator SOL breakdown
+    // If Signal trading-fee routing IS supported, the server-rendered default
+    // markup already shows the current 1% fee-to-platform-wallet SOL breakdown
     // (see CreatePage.tsx's tax-box) — nothing to swap in here.
   }
 
