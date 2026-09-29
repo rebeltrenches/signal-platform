@@ -54,7 +54,7 @@ const LAUNCH_VERIFY_POINTS = [
 const AUTHORITIES = [
   {
     title: 'Mint authority',
-    body: 'Controls whether more tokens can be minted. In the current Solana launch flow this remains with the creator, so supply can increase until that authority is revoked. Verify its current state on-chain.',
+    body: 'Controls whether more tokens can be minted. In Signal\u2019s current Solana launch flow, the configured supply is minted to the creator wallet and the mint authority is then revoked. Once that revoke is confirmed and verified on-chain, no additional supply can be minted. Externally indexed tokens may differ, so verify their current state on-chain.',
   },
   {
     title: 'Freeze authority',
@@ -62,7 +62,7 @@ const AUTHORITIES = [
   },
   {
     title: 'Update and metadata control',
-    body: 'Metadata and update authority depend on how a token was created. Signal never treats a creator-provided name, image, description, or social link as independently verified.',
+    body: 'Tokens created through Signal use immutable metadata after launch. Externally indexed tokens may have different update or metadata authorities. Signal never treats a creator-provided name, image, description, or social link as independently verified.',
   },
   {
     title: 'Trading and liquidity permissions',
@@ -297,7 +297,7 @@ export function SecurityPage() {
               <ul>
                 <li><span className="dot" aria-hidden="true" />Signal is a live beta with Solana Mainnet token creation and multi-chain discovery.</li>
                 <li><span className="dot" aria-hidden="true" />Portfolio balances, persistent community chat, and wallet-scoped dashboard data are live.</li>
-                <li><span className="dot" aria-hidden="true" />In-app trading is not live; token pages currently link to external markets.</li>
+                <li><span className="dot" aria-hidden="true" />Non-custodial Solana buy execution is live in beta when a valid route is available. Solana sell execution and in-app Base and BNB trading remain planned; external market links are used where in-app execution is not available.</li>
                 <li><span className="dot" aria-hidden="true" />Features and supported networks may change as the platform develops.</li>
                 <li><span className="dot" aria-hidden="true" />Always verify the current on-chain state before signing.</li>
               </ul>
