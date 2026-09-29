@@ -28,7 +28,6 @@ const IS_DEVNET = window.SIGNAL_SOLANA_CLUSTER === "devnet";
 const RPC_ENDPOINT = IS_DEVNET ? "https://api.devnet.solana.com" : new URL(RPC_PROXY, window.location.origin).toString();
 const EXPLORER_SUFFIX = IS_DEVNET ? "?cluster=devnet" : "";
 const PLATFORM_WALLET = new web3.PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS);
-const LAUNCH_FEE_LAMPORTS = 1_000_000; // current Signal launch charge: 0.001 SOL
 const MINIMUM_TOKEN_SUPPLY = 100_000_000n;
 const U64_MAX = 18_446_744_073_709_551_615n;
 const MAX_DECIMALS = 9;
@@ -325,7 +324,6 @@ class CurveLaunchFlow {
     const mint = this.mintKeypair.publicKey;
     const rent = await this.connection.getMinimumBalanceForRentExemption(splToken.MINT_SIZE);
     const tx = await this.buildTransaction(payer, [
-      web3.SystemProgram.transfer({ fromPubkey: payer, toPubkey: PLATFORM_WALLET, lamports: LAUNCH_FEE_LAMPORTS }),
       web3.SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: mint, space: splToken.MINT_SIZE, lamports: rent, programId: splToken.TOKEN_PROGRAM_ID }),
       splToken.createInitializeMintInstruction(mint, decimals, payer, null, splToken.TOKEN_PROGRAM_ID),
       createMetadataInstruction(web3, { mint, mintAuthority: payer, payer, name: metadata.name, symbol: metadata.symbol, uri: metadata.uri }),
@@ -343,6 +341,7 @@ class CurveLaunchFlow {
         { pubkey: mint, isSigner: false, isWritable: false },
         { pubkey: vault, isSigner: false, isWritable: true },
         { pubkey: creator, isSigner: true, isWritable: true },
+        { pubkey: PLATFORM_WALLET, isSigner: false, isWritable: true },
         { pubkey: splToken.TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: web3.SystemProgram.programId, isSigner: false, isWritable: false },
       ],
