@@ -52,9 +52,21 @@ jobs:
       - name: Build Signal web app
         run: pnpm --filter @launchpad/web build
       - name: Parse curve launch client as a browser module
-        run: pnpm exec esbuild apps/web/src/client/launch-solana-curve.js --bundle --format=esm --platform=browser '--external:./vendor/*' --outfile=/tmp/launch-solana-curve.js
+        run: >-
+          pnpm exec esbuild apps/web/src/client/launch-solana-curve.js
+          --bundle --format=esm --platform=browser
+          '--external:./vendor/*'
+          --external:./platform-wallet.js
+          --external:./bonding-curve-program.js
+          --outfile=/tmp/launch-solana-curve.js
       - name: Parse curve trade router as a browser module
-        run: pnpm exec esbuild apps/web/src/client/trade-router.js --bundle --format=esm --platform=browser '--external:./vendor/*' --outfile=/tmp/trade-router.js
+        run: >-
+          pnpm exec esbuild apps/web/src/client/trade-router.js
+          --bundle --format=esm --platform=browser
+          '--external:./vendor/*'
+          --external:./platform-wallet.js
+          --external:./bonding-curve-program.js
+          --outfile=/tmp/trade-router.js
       - name: Keep Rust and browser curve state layouts identical
         run: |
           grep -F 'const STATE_LEN: usize = 160;' programs/signal-bonding-curve/src/lib.rs
