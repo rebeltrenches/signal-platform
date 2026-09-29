@@ -196,7 +196,7 @@ function graduationAccounts(programId, mint, curve, caller) {
         { pubkey: curve, isSigner: false, isWritable: true },
         { pubkey: mint, isSigner: false, isWritable: false },
         { pubkey: curveVault, isSigner: false, isWritable: true },
-        { pubkey: caller, isSigner: true, isWritable: false },
+        { pubkey: caller, isSigner: true, isWritable: true },
         { pubkey: migration, isSigner: false, isWritable: true },
         { pubkey: migrationToken, isSigner: false, isWritable: true },
         { pubkey: migrationWsol, isSigner: false, isWritable: true },
@@ -269,8 +269,9 @@ async function mountGraduation({ connection, programId, mint, curve }) {
         web3.ComputeBudgetProgram.setComputeUnitLimit({ units: GRADUATION_COMPUTE_LIMIT }),
         web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_PRICE }),
         instruction,
+        instruction,
       );
-      if (status) status.textContent = "Review the Raydium graduation transaction in Phantom. The transaction is simulated before your wallet is asked to sign.";
+      if (status) status.textContent = "Review the Raydium graduation transaction in Phantom. Signal prepares the migration and completes the Raydium CPI as two program instructions inside one atomic transaction.";
       const signature = await signAndSend(connection, provider, tx);
       const confirmedInfo = await connection.getAccountInfo(curve, "confirmed");
       const confirmed = confirmedInfo ? decodeState(confirmedInfo.data) : null;
@@ -432,6 +433,10 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
         if (quote.finalFill) {
           const graduation = graduationAccounts(programId, mint, curve, trader);
           expectedGraduationPool = graduation.pool;
+          // Two invocations of the same state-machine instruction: prepare
+          // first, then finalize Raydium. They remain atomic at transaction
+          // level while respecting Solana's direct-lamport/CPI boundary.
+          instructions.push(graduation.instruction);
           instructions.push(graduation.instruction);
         }
       } else {
