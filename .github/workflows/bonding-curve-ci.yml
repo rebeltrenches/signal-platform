@@ -10,7 +10,11 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
+      - 'apps/web/src/pages/SecurityPage.tsx'
+      - 'apps/web/src/pages/TermsPage.tsx'
       - 'apps/web/scripts/build.tsx'
+      - 'config/restrictions.json'
+      - 'docs/SECURITY.md'
       - '.github/workflows/bonding-curve-ci.yml'
   pull_request:
     paths:
@@ -19,7 +23,11 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
+      - 'apps/web/src/pages/SecurityPage.tsx'
+      - 'apps/web/src/pages/TermsPage.tsx'
       - 'apps/web/scripts/build.tsx'
+      - 'config/restrictions.json'
+      - 'docs/SECURITY.md'
       - '.github/workflows/bonding-curve-ci.yml'
 
 jobs:
