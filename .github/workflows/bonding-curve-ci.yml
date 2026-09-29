@@ -8,6 +8,7 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/scripts/build.tsx'
       - '.github/workflows/bonding-curve-ci.yml'
@@ -16,6 +17,7 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/scripts/build.tsx'
       - '.github/workflows/bonding-curve-ci.yml'
@@ -104,6 +106,9 @@ jobs:
           grep -F 'quote.finalFill ? GRADUATION_COMPUTE_LIMIT : COMPUTE_LIMIT' apps/web/src/client/trade-router.js
           grep -F 'instructions.push(graduation.instruction);' apps/web/src/client/trade-router.js
           grep -F 'one atomic transaction' apps/web/src/client/trade-router.js
+      - name: Verify final-fill transaction fits Solana packet size
+        working-directory: apps/web
+        run: node tests/bonding-curve-final-fill-size.mjs
       - name: Confirm full supply goes to curve vault, never creator wallet
         run: |
           grep -F 'createMintToInstruction(mint, vault, payer, rawSupply' apps/web/src/client/launch-solana-curve.js
