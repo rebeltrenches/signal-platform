@@ -81,6 +81,7 @@ const initIx = new TransactionInstruction({
     { pubkey: mint, isSigner: false, isWritable: false },
     { pubkey: curveVault.address, isSigner: false, isWritable: true },
     { pubkey: creator.publicKey, isSigner: true, isWritable: true },
+    { pubkey: platformWallet, isSigner: false, isWritable: true },
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ],
