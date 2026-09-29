@@ -61,11 +61,10 @@ const routes: RouteDef[] = [
     title: 'Token',
     element: <TokenDetailPage />,
     clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
-    // trade-router.js detects a live Signal bonding curve first. Only tokens
-    // without an active Signal curve fall through to the existing Jupiter
-    // execution module. This prevents a newly launched curve token from being
-    // sent to an external router before graduation.
-    moduleScripts: ['/client/trade-router.js'],
+    // curve-provenance.js independently proves the deterministic Signal
+    // curve account before the page claims a token was launched through
+    // Signal. trade-router.js then selects curve or post-graduation routing.
+    moduleScripts: ['/client/curve-provenance.js', '/client/trade-router.js'],
   },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {
