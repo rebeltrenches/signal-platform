@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/client/launch-solana-curve.js', import.meta.url), 'utf8');
+const tradeRouter = readFileSync(new URL('../src/client/trade-router.js', import.meta.url), 'utf8');
 
 function mustContain(text, label) {
   if (!source.includes(text)) throw new Error(`Recovery guard missing: ${label}`);
@@ -29,7 +30,19 @@ if (!(verifyIndex >= 0 && listingIndex > verifyIndex && listIndex > listingIndex
   throw new Error('Recovery listing must happen only after the on-chain verification call.');
 }
 
+// A failed/cancelled permissionless graduation must be retryable on the same
+// page. A once-only click listener combined with re-enabling the button makes
+// the second click a no-op, which is especially confusing after a wallet
+// cancellation or transient RPC failure.
+if (tradeRouter.includes('}, { once: true });')) {
+  throw new Error('Raydium graduation click handler must remain attached after a failed attempt.');
+}
+if (!tradeRouter.includes('button.disabled = false;')) {
+  throw new Error('Raydium graduation failure path must re-enable the retry button.');
+}
+
 console.log('✓ recovered mint, curve, creator, supply, authorities and vault are re-verified');
 console.log('✓ immutable metadata is re-verified and missing metadata fails closed');
 console.log('✓ listing recovery cannot run before on-chain verification');
+console.log('✓ failed/cancelled Raydium graduation remains retryable without a page reload');
 console.log('✓ Signal bonding-curve recovery integrity guard passed');
