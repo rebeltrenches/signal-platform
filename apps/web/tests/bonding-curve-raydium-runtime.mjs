@@ -108,7 +108,7 @@ const instruction = new TransactionInstruction({
     { pubkey: curve, isSigner: false, isWritable: true },
     { pubkey: mint, isSigner: false, isWritable: false },
     { pubkey: curveVault, isSigner: false, isWritable: true },
-    { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    { pubkey: payer.publicKey, isSigner: true, isWritable: true },
     { pubkey: migration, isSigner: false, isWritable: true },
     { pubkey: migrationToken, isSigner: false, isWritable: true },
     { pubkey: migrationWsol, isSigner: false, isWritable: true },
@@ -131,9 +131,14 @@ const instruction = new TransactionInstruction({
   data: Buffer.from([3]),
 });
 
+// The first Signal instruction prepares the migration and ends immediately
+// after its direct lamport moves. The second performs SyncNative, Raydium CPI,
+// and the LP burn. They are separate outer instructions but one transaction,
+// so the whole graduation remains atomic.
 const tx = new Transaction().add(
   ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
   ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000 }),
+  instruction,
   instruction,
 );
 const signature = await sendAndConfirmTransaction(connection, tx, [payer], { commitment: 'confirmed' });
