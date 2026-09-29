@@ -1,7 +1,9 @@
 // Token-page trade router. Signal-launched tokens trade against their
-// program-owned bonding curve until it completes. Completed Signal curves
-// can be permissionlessly graduated into Raydium CPMM; graduated or external
-// tokens fall back to the existing Jupiter route.
+// program-owned bonding curve until it completes. A normal final curve buy
+// includes Raydium CPMM graduation in the same atomic transaction; the
+// standalone graduation path remains as permissionless recovery for curves
+// completed outside Signal's standard UI. Graduated or external tokens fall
+// back to the existing Jupiter route.
 import * as web3 from "./vendor/solana-web3.js";
 import * as splToken from "./vendor/spl-token.js";
 import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
@@ -218,7 +220,7 @@ function graduationAccounts(programId, mint, curve, caller) {
   };
 }
 
-async function mountGraduation({ connection, programId, mint, curve, state }) {
+async function mountGraduation({ connection, programId, mint, curve }) {
   const button = document.getElementById("trade-execute-btn");
   const preview = document.getElementById("trade-quote-btn");
   const status = document.getElementById("trade-status");
@@ -237,7 +239,7 @@ async function mountGraduation({ connection, programId, mint, curve, state }) {
   button.disabled = false;
   button.textContent = "Graduate to Raydium";
   button.dataset.ready = "curve-complete";
-  if (status) status.textContent = "Bonding curve reached 100%. Anyone can trigger the one-time Raydium CPMM graduation. The curve supplies the migration liquidity; your wallet only authorizes the transaction and pays the normal Solana network fee.";
+  if (status) status.textContent = "Bonding curve reached 100%. Signal normally graduates the final buy atomically; this permissionless recovery action is available if a curve was completed outside that standard path. The curve supplies the migration liquidity; your wallet pays only the normal Solana network fee.";
 
   button.addEventListener("click", async () => {
     const provider = window.phantom?.solana || window.solana;
@@ -356,22 +358,26 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
       const gross = parseUnits(amount.value.trim(), 9);
       if (!gross) throw new Error("Enter a valid SOL amount.");
       const q = quoteBuy(s, gross);
-      lastQuote = { ...q, mode, state: s, impact: priceImpactBuy(s, q) };
+      const finalFill = q.tokens === s.realTokens;
+      lastQuote = { ...q, mode, state: s, impact: priceImpactBuy(s, q), finalFill };
       routed.textContent = formatSol(q.net);
       output.textContent = `${formatUnits(q.tokens, s.decimals)} tokens`;
       impact.textContent = `${(lastQuote.impact * 100).toFixed(2)}%`;
       feeRow.textContent = `${formatSol(q.fee)} (1%)`;
+      if (status) status.textContent = finalFill
+        ? "This is the final curve fill. The buy and Raydium CPMM graduation will execute atomically in one transaction: both succeed or neither does."
+        : "Live quote from the on-chain Signal curve. Execution uses 1% slippage protection.";
     } else {
       const tokenIn = parseUnits(amount.value.trim(), s.decimals);
       if (!tokenIn) throw new Error(`Enter a valid token amount with at most ${s.decimals} decimals.`);
       const q = quoteSell(s, tokenIn);
-      lastQuote = { ...q, mode, state: s, impact: priceImpactSell(s, q) };
+      lastQuote = { ...q, mode, state: s, impact: priceImpactSell(s, q), finalFill: false };
       routed.textContent = `${formatUnits(q.tokens, s.decimals)} tokens`;
       output.textContent = formatSol(q.net);
       impact.textContent = `${(lastQuote.impact * 100).toFixed(2)}%`;
       feeRow.textContent = `${formatSol(q.fee)} (1%)`;
+      if (status) status.textContent = "Live quote from the on-chain Signal curve. Execution uses 1% slippage protection.";
     }
-    if (status) status.textContent = "Live quote from the on-chain Signal curve. Execution uses 1% slippage protection.";
     return lastQuote;
   }
 
@@ -400,9 +406,10 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
       const traderAta = splToken.getAssociatedTokenAddressSync(mint, trader, false, splToken.TOKEN_PROGRAM_ID);
       const curveVault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
       const instructions = [
-        web3.ComputeBudgetProgram.setComputeUnitLimit({ units: COMPUTE_LIMIT }),
+        web3.ComputeBudgetProgram.setComputeUnitLimit({ units: quote.finalFill ? GRADUATION_COMPUTE_LIMIT : COMPUTE_LIMIT }),
         web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_PRICE }),
       ];
+      let expectedGraduationPool = null;
       if (mode === "buy") {
         const createAta = splToken.createAssociatedTokenAccountIdempotentInstruction || splToken.createAssociatedTokenAccountInstruction;
         instructions.push(createAta(trader, traderAta, trader, mint, splToken.TOKEN_PROGRAM_ID));
@@ -421,6 +428,11 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
           ],
           data: data(1, quote.gross, minTokens),
         }));
+        if (quote.finalFill) {
+          const graduation = graduationAccounts(programId, mint, curve, trader);
+          expectedGraduationPool = graduation.pool;
+          instructions.push(graduation.instruction);
+        }
       } else {
         const account = await connection.getAccountInfo(traderAta, "confirmed");
         if (!account) throw new Error("Your connected wallet does not hold this token.");
@@ -441,15 +453,26 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
       }
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       const tx = new web3.Transaction({ feePayer: trader, recentBlockhash: blockhash, lastValidBlockHeight }).add(...instructions);
-      if (status) status.textContent = `Review the ${mode} in Phantom. Signal cannot sign for you.`;
+      if (status) status.textContent = quote.finalFill
+        ? "Review the final curve buy + automatic Raydium graduation in Phantom. It is one atomic transaction."
+        : `Review the ${mode} in Phantom. Signal cannot sign for you.`;
       const signature = await signAndSend(connection, provider, tx);
-      if (status) status.textContent = `Confirmed: ${signature}`;
-      if (execution) execution.textContent = "Confirmed on Solana";
       const after = await refreshState();
       lastQuote = null;
-      if (after.complete && !after.graduated) {
-        if (status) status.textContent = "Final curve fill confirmed. Reloading so the Raydium graduation action is available…";
-        window.setTimeout(() => window.location.reload(), 700);
+      if (quote.finalFill) {
+        if (!after.complete || !after.graduated || !expectedGraduationPool || !after.graduationPool.equals(expectedGraduationPool)) {
+          throw new Error(`Final-fill transaction ${signature} confirmed, but Signal could not verify the graduated Raydium pool state. Check Explorer before retrying.`);
+        }
+        if (status) status.textContent = `Final curve buy confirmed and automatically graduated to Raydium CPMM. Pool ${expectedGraduationPool.toBase58()}.`;
+        if (execution) execution.textContent = "Curve complete — graduated to Raydium CPMM";
+        window.setTimeout(() => window.location.reload(), 900);
+      } else {
+        if (status) status.textContent = `Confirmed: ${signature}`;
+        if (execution) execution.textContent = "Confirmed on Solana";
+        if (after.complete && !after.graduated) {
+          if (status) status.textContent = "Curve completed outside the standard atomic graduation path. Reloading the recovery graduation action…";
+          window.setTimeout(() => window.location.reload(), 700);
+        }
       }
     } catch (error) {
       if (status) status.textContent = error.message;
@@ -478,7 +501,7 @@ async function mountCurveTrading({ connection, programId, mint, curve, state }) 
   if (!state.mint.equals(mint)) { await fallback(); return; }
   if (state.graduated) { await fallback(); return; }
   if (state.complete) {
-    await mountGraduation({ connection, programId, mint, curve, state });
+    await mountGraduation({ connection, programId, mint, curve });
     return;
   }
   await mountCurveTrading({ connection, programId, mint, curve, state });
