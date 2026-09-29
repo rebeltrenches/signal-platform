@@ -98,6 +98,12 @@ jobs:
           grep -F 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C' apps/web/src/client/trade-router.js
           grep -F 'Graduate to Raydium' apps/web/src/client/trade-router.js
           grep -F 'Some(GRADUATE_TO_RAYDIUM)' programs/signal-bonding-curve/src/lib.rs
+      - name: Guard atomic final-fill graduation
+        run: |
+          grep -F 'const finalFill = q.tokens === s.realTokens;' apps/web/src/client/trade-router.js
+          grep -F 'quote.finalFill ? GRADUATION_COMPUTE_LIMIT : COMPUTE_LIMIT' apps/web/src/client/trade-router.js
+          grep -F 'instructions.push(graduation.instruction);' apps/web/src/client/trade-router.js
+          grep -F 'one atomic transaction' apps/web/src/client/trade-router.js
       - name: Confirm full supply goes to curve vault, never creator wallet
         run: |
           grep -F 'createMintToInstruction(mint, vault, payer, rawSupply' apps/web/src/client/launch-solana-curve.js
