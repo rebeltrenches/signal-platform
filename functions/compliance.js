@@ -204,8 +204,11 @@ export async function screenWallet(address, _env, now = Date.now()) {
   let list;
   try {
     list = await sdnAddressList(now);
-  } catch {
-    return { status: "unavailable", reason: "The OFAC sanctions list couldn't be loaded." };
+  } catch (error) {
+    // The cause (an HTTP status or an address count; never anything secret)
+    // is included so a failing download can be diagnosed from outside.
+    const cause = error?.name === "TimeoutError" ? "download timed out" : String(error?.message || "unknown error").slice(0, 120);
+    return { status: "unavailable", reason: `The OFAC sanctions list couldn't be loaded (${cause}).` };
   }
   if (list.addresses.has(normalizeAddress(address))) {
     return { status: "sanctioned", names: [`OFAC SDN list${list.publishDate ? ` (published ${list.publishDate})` : ""}`] };
