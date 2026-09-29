@@ -286,6 +286,22 @@ await test("POST /api/wallet-screen: clear / sanctioned / unavailable, EVM too, 
   assert.equal(limited.status, 429);
 });
 
+await test("GET /api/screening-status: code version, data centre, and the list's state or the reason it isn't loaded", async () => {
+  const now = Date.parse("2026-09-29T12:00:00Z");
+  network({ list: () => listFile({ generatedAt: now }) });
+  const get = () => screenRoute.onRequestGet({ request: req("/api/screening-status", { country: "ZA" }), env, now });
+  const ok = await (await get()).json();
+  assert.equal(ok.version, compliance.SCREENING_VERSION);
+  assert.equal(ok.list.ok, true);
+  assert.equal(ok.list.count, 153);
+  assert.equal(ok.list.publishDate, "09/23/2026");
+  compliance.resetComplianceForTests();
+  network({ list: () => new Response("down", { status: 403 }) });
+  const failing = await (await get()).json();
+  assert.equal(failing.list.ok, false);
+  assert.match(failing.list.error, /GitHub: list file download failed \(HTTP 403\)/);
+});
+
 // ---- launch registration through the Worker ------------------------------------------------
 const registration = (opts = {}) => registerRoute.onRequestPost({
   request: req("/api/v1/tokens/register", {

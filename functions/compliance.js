@@ -159,6 +159,18 @@ export async function sdnAddressList(env, now = Date.now()) {
   }
 }
 
+/** What the screening currently runs on, for GET /api/screening-status:
+ *  the code version and whether a trustworthy list is loaded (or why not).
+ *  Loads the list if needed, under the same backoff as screening. */
+export async function screeningStatus(env, now = Date.now()) {
+  try {
+    const list = await sdnAddressList(env, now);
+    return { version: SCREENING_VERSION, list: { ok: true, count: list.addresses.size, publishDate: list.publishDate, generatedAt: new Date(list.generatedAt).toISOString() } };
+  } catch (error) {
+    return { version: SCREENING_VERSION, list: { ok: false, error: String(error?.message || "unknown error").slice(0, 200) } };
+  }
+}
+
 /** { status: "clear" } | { status: "sanctioned", names } |
  *  { status: "unavailable", reason }. Only "clear" may proceed. */
 export async function screenWallet(address, env, now = Date.now()) {

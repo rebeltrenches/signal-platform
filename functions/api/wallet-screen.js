@@ -4,7 +4,7 @@
 // launch or building a trade, so this answer is never the only check.
 // Rate-limited per IP. The list is held in memory (compliance.js); a failed
 // read is reused for at most 30 seconds.
-import { screenWallet, isScreenableAddress, geoForRequest, jsonResponse, SCREENING_VERSION } from "../compliance.js";
+import { screenWallet, isScreenableAddress, geoForRequest, jsonResponse, SCREENING_VERSION, screeningStatus } from "../compliance.js";
 
 export const SCREEN_RATE_LIMIT = { requests: 30, windowMs: 60_000 };
 const windows = new Map(); // ip -> [timestamps]
@@ -50,4 +50,13 @@ export async function onRequestPost({ request, env, now = Date.now() }) {
     return jsonResponse(200, { status: "unavailable", message: `${result.reason} Launching and trading are paused until the check succeeds; please try again in a minute.` }, version);
   }
   return jsonResponse(200, { status: "clear" }, version);
+}
+
+/** GET /api/screening-status: the screening code version, the Cloudflare
+ *  data centre answering, and whether the OFAC list is loaded there (or the
+ *  reason it isn't). No wallet data; for diagnosing "list couldn't be
+ *  loaded" from a visitor's own browser. */
+export async function onRequestGet({ request, env, now = Date.now() }) {
+  const status = await screeningStatus(env, now);
+  return jsonResponse(200, { ...status, colo: request.cf?.colo || null }, { "x-signal-screening": SCREENING_VERSION });
 }

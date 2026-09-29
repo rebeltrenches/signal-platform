@@ -153,8 +153,18 @@
       })
         .then(async (response) => {
           const body = await response.json().catch(() => ({}));
-          if (response.ok && ['clear', 'sanctioned', 'unavailable'].includes(body.status)) return body;
-          return { status: 'unavailable', message: body.error || 'Wallet screening is unavailable. Please try again in a minute.' };
+          const result = response.ok && ['clear', 'sanctioned', 'unavailable'].includes(body.status)
+            ? body
+            : { status: 'unavailable', message: body.error || 'Wallet screening is unavailable. Please try again in a minute.' };
+          if (result.status === 'unavailable') {
+            // Which server answered, so a failure can be traced: the
+            // screening code version (none = an old deployment) and
+            // Cloudflare's request id.
+            const version = response.headers.get('x-signal-screening') || 'old server';
+            const ray = response.headers.get('cf-ray') || 'no ray';
+            return { ...result, message: `${result.message} [ref: ${version}, ${ray}]` };
+          }
+          return result;
         })
         .catch(() => ({ status: 'unavailable', message: 'Wallet screening is unreachable. Please try again in a minute.' }))
         .then((result) => {
