@@ -1,3 +1,5 @@
+import { refusalFor } from "../../compliance.js";
+
 const RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
 
 function json(status, body) {
@@ -41,7 +43,11 @@ export async function submitSolanaSwap({ body }) {
   return { status: 502, body: { error: "SUBMISSION_UNAVAILABLE", message: "Transaction submission is temporarily unavailable. The transaction was not re-signed." } };
 }
 
-export async function onRequestPost({ request }) {
+export async function onRequestPost({ request, env }) {
+  // No trades are submitted from blocked regions (config/restrictions.json);
+  // the wallet itself was screened when the trade was built.
+  const refusal = await refusalFor(request, env, undefined, "trade");
+  if (refusal) return refusal;
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 24_000) return json(413, { error: "BODY_TOO_LARGE", message: "Request body is too large." });
   let body;

@@ -211,9 +211,32 @@ def fake_turbo(page, free=True, balance=None, deposit=TURBO_DEPOSIT, upload_erro
     return turbo
 
 
-def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", turbo_free=True, turbo_balance=None, turbo_upload_error=None):
+RESTRICTIONS = json.load(open(os.path.join(REPO_ROOT, "config/restrictions.json"), encoding="utf-8"))
+TERMS_VERSION = RESTRICTIONS["termsVersion"]
+ALLOWED_GEO = {"country": "DE", "region": None, "level": "allowed", "termsVersion": TERMS_VERSION}
+
+
+def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", turbo_free=True, turbo_balance=None, turbo_upload_error=None,
+             geo=ALLOWED_GEO, screening="clear", accepted=True):
+    """geo: what /api/geo answers (None = unreachable); screening: what
+    /api/wallet-screen answers; accepted: the current terms are already
+    accepted in this browser (a returning visitor)."""
     page = browser.new_page()
     page.turbo = fake_turbo(page, free=turbo_free, balance=turbo_balance, upload_error=turbo_upload_error)
+    page.screen_requests = []
+    page.screen_status = screening
+    if geo is None:
+        page.route("**/api/geo", lambda r: r.fulfill(status=502, body="{}"))
+    else:
+        page.route("**/api/geo", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(geo)))
+
+    def wallet_screen(route):
+        page.screen_requests.append(json.loads(route.request.post_data))
+        messages = {"sanctioned": "This wallet appears on a sanctions list. It can't launch or trade on Signal.",
+                    "unavailable": "Wallet screening timed out. Launching and trading are paused until the check succeeds; please try again in a minute."}
+        status = page.screen_status
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"status": status, **({"message": messages[status]} if status in messages else {})}))
+    page.route("**/api/wallet-screen", wallet_screen)
     # The wallet libraries are bundled locally (scripts/build.tsx); swap the
     # bundles for the recording stubs.
     page.route(
@@ -232,7 +255,7 @@ def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", tu
       creatorBytes.set(new TextEncoder().encode('{CREATOR_WALLET}').slice(0, 32));
       window.solana = {{
         isPhantom: true,
-        connect: async () => ({{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}', toBytes: () => creatorBytes }} }}),
+        connect: async () => (window.__t.connects = (window.__t.connects || 0) + 1, {{ publicKey: {{ toBase58: () => '{CREATOR_WALLET}', toString: () => '{CREATOR_WALLET}', toJSON: () => '{CREATOR_WALLET}', toBytes: () => creatorBytes }} }}),
         signTransaction: {sign_js},
         signMessage: async (bytes) => {{
           const text = new TextDecoder().decode(bytes);
@@ -252,6 +275,8 @@ def new_page(browser, init_t="{}", sign_js="async (tx) => tx", storage_js="", tu
         sessionStorage.setItem('__seeded', '1');
         localStorage.removeItem('{PENDING_KEY}');
         localStorage.removeItem('{LAUNCHES_KEY}');
+        localStorage.removeItem('signal_terms_acceptance');
+        {"localStorage.setItem('signal_terms_acceptance', JSON.stringify({ version: '" + TERMS_VERSION + "', regulated: [] }));" if accepted else ""}
         {storage_js}
       }}
     """)
@@ -272,6 +297,8 @@ def fill_wizard_to_review(page, name="Test Token", symbol="TST", description="A 
     # The Decimals field starts empty; the creator must type it.
     page.fill('.wizard-step[data-step="2"] #tk-decimals', "6")
     page.click('.wizard-step[data-step="2"] [data-action="next"]')
+    # launch-solana.js (a module) has wired its buttons.
+    page.wait_for_selector('#launch-mainnet-panel[data-ready="true"]', state="attached", timeout=10000)
 
 
 def launch(page, supply=None, decimals=None):
@@ -1010,6 +1037,104 @@ def main():
         page.close()
         check("X: a signature returned by the RPC is shown as text in the log", f"mint: {rpc_payload}" in result_text and not ran)
         check("X: and URL-encoded in its Explorer link", "%3Cimg" in link and "<" not in link)
+
+        # =================================================================
+        # G — regional restrictions, terms and sanctions screening (launch)
+        # =================================================================
+        print()
+        blocked_geo = {"country": "CN", "region": None, "level": "blocked", "name": "Mainland China",
+                       "notice": RESTRICTIONS["levels"]["blocked"]["notice"], "termsVersion": TERMS_VERSION}
+        page = new_page(browser, geo=blocked_geo)
+        fill_wizard_to_review(page)
+        notice = page.text_content('#region-blocked-notice') if page.query_selector('#region-blocked-notice') else ""
+        header_btn = page.text_content('#wallet-connect-btn') or ""
+        page.click('#mainnetConnectBtn')
+        page.wait_for_timeout(500)
+        state = page.evaluate("window.__t")
+        addr_text = page.text_content('#mainnetWalletAddr') or ""
+        page.check('#metadataAck')
+        page.check('#mainnetAck')
+        launch_disabled = page.is_disabled('#mainnetLaunchBtn')
+        page.close()
+        check("G: a blocked region sees the notice while browsing (the page still works)", "Not available in your region" in notice and "Mainland China" in notice)
+        check("G: the header connect button is disabled in a blocked region", header_btn == "Not available in your region")
+        check("G: connecting a wallet is refused in a blocked region (Phantom is never asked)", "connects" not in state and "terms accepted" in addr_text)
+        check("G: so launching can't start", launch_disabled)
+
+        page = new_page(browser, screening="sanctioned")
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        wallet_notice = page.text_content('#wallet-screening-notice') if page.query_selector('#wallet-screening-notice') else ""
+        uploads = page.turbo["uploads"]
+        screened = page.screen_requests
+        page.close()
+        check("G: a sanctioned wallet can't launch: refused with the reason", "Failed:" in result_text and "sanctions list" in result_text)
+        check("G: and nothing is signed, uploaded or sent", "signedMessages" not in state and not uploads and "initMintCalls" not in state and "submittedCount" not in state)
+        check("G: the connected wallet was screened, and a sanctions notice is shown", screened and screened[0]["address"] == CREATOR_WALLET and "sanctions list" in wallet_notice)
+
+        page = new_page(browser, screening="unavailable")
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        first_text = page.text_content('#launch-result') or ""
+        button_after = page.text_content('#mainnetLaunchBtn') or ""
+        page.screen_status = "clear"
+        page.click('#mainnetLaunchBtn')
+        wait_for_result(page)
+        retried = page.text_content('#launch-result') or ""
+        page.close()
+        check("G: if screening can't complete, the launch fails safe with a retry message and nothing signed", "try again" in first_text and "signedMessages" not in state and "initMintCalls" not in state)
+        check("G: Retry works once screening succeeds", button_after == "Retry" and "Supply locked." in retried)
+
+        page = new_page(browser, geo=None)
+        fill_wizard_to_review(page)
+        launch(page)
+        state = page.evaluate("window.__t")
+        result_text = page.text_content('#launch-result') or ""
+        page.close()
+        check("G: if the region can't be confirmed, launching is paused (fail safe)", "Couldn't confirm your region" in result_text and "initMintCalls" not in state)
+
+        # Terms not yet accepted: the acceptance screen appears at connect.
+        page = new_page(browser, accepted=False)
+        fill_wizard_to_review(page)
+        page.click('#mainnetConnectBtn')
+        page.wait_for_selector('#terms-acceptance', timeout=5000)
+        boxes = page.eval_on_selector_all('#terms-acceptance input[type=checkbox]', 'els => els.length')
+        accept_disabled = page.is_disabled('#terms-accept')
+        page.click('#terms-cancel')
+        page.wait_for_timeout(300)
+        state_cancel = page.evaluate("window.__t")
+        page.click('#mainnetConnectBtn')
+        page.wait_for_selector('#terms-acceptance', timeout=5000)
+        for box in page.query_selector_all('#terms-acceptance input[type=checkbox]'):
+            box.check()
+        page.click('#terms-accept')
+        page.wait_for_function("() => document.getElementById('mainnetConnectBtn').textContent === 'Connected'", timeout=5000)
+        stored = json.loads(page.evaluate("localStorage.getItem('signal_terms_acceptance')") or "{}")
+        page.close()
+        check("G: connecting shows the terms screen with each point as its own box (7)", boxes == 7 and accept_disabled)
+        check("G: cancelling it doesn't connect", "connects" not in state_cancel)
+        check("G: accepting connects and stores the current terms version", stored.get("version") == TERMS_VERSION)
+
+        # A Level 2 region adds its own warning to tick.
+        us_geo = {"country": "US", "region": None, "level": "regulated", "name": "United States",
+                  "warning": RESTRICTIONS["levels"]["regulated"]["countries"]["US"]["warning"], "termsVersion": TERMS_VERSION}
+        page = new_page(browser, geo=us_geo, accepted=False)
+        fill_wizard_to_review(page)
+        page.click('#mainnetConnectBtn')
+        page.wait_for_selector('#terms-acceptance', timeout=5000)
+        boxes = page.eval_on_selector_all('#terms-acceptance input[type=checkbox]', 'els => els.length')
+        dialog_text = page.text_content('#terms-acceptance') or ""
+        for box in page.query_selector_all('#terms-acceptance input[type=checkbox]'):
+            box.check()
+        page.click('#terms-accept')
+        page.wait_for_function("() => document.getElementById('mainnetConnectBtn').textContent === 'Connected'", timeout=5000)
+        stored = json.loads(page.evaluate("localStorage.getItem('signal_terms_acceptance')") or "{}")
+        page.close()
+        check("G: in a Level 2 region (US) the terms screen adds the region's warning as an 8th box", boxes == 8 and us_geo["warning"] in dialog_text)
+        check("G: and the acceptance records that region's warning", stored.get("regulated") == ["US"])
 
         # =================================================================
         # B1 — same-session recovery: step 2 fails, retry resumes SAME mint

@@ -1,0 +1,47 @@
+{
+  "$comment": "Signal's regional restrictions and terms version — the ONE place they are set. The Cloudflare Worker (functions/compliance.js) reads it to answer /api/geo and to refuse launch registration and trade building; the site reads the result from /api/geo. To move a country between levels, move its entry from one level's \"countries\" to the other's; no code changes are needed. Country codes are ISO 3166-1 alpha-2 as sent by Cloudflare (CF-IPCountry / request.cf.country). Changing termsVersion re-prompts every visitor to accept the terms. DRAFT pending legal review.",
+  "version": "2026-09-28",
+  "termsVersion": "2026-09-28",
+  "levels": {
+    "blocked": {
+      "$comment": "Level 1. No wallet connect, launch or trade; browsing is allowed with a clear notice.",
+      "notice": "Signal isn't available in your region. You can browse, but connecting a wallet, launching tokens and trading are disabled.",
+      "countries": {
+        "CN": { "name": "Mainland China", "note": "Mainland China only. Hong Kong (HK), Macau (MO) and Taiwan (TW) are separate codes and are not blocked." },
+        "IR": { "name": "Iran" },
+        "KP": { "name": "North Korea" },
+        "CU": { "name": "Cuba" }
+      },
+      "regions": {
+        "$comment": "Comprehensively sanctioned territories, detected from Cloudflare's request.cf.regionCode (ISO 3166-2 subdivision, keyed here as COUNTRY-REGION). LIMITATION: this is IP geolocation of a region, which is less reliable than country detection; many IPs in these territories geolocate to Russia (RU) or to another Ukrainian region, and those are not caught. Treat this as best effort, not a guarantee.",
+        "UA-43": { "name": "Crimea" },
+        "UA-40": { "name": "Sevastopol (Crimea)" },
+        "UA-14": { "name": "Donetsk region" },
+        "UA-09": { "name": "Luhansk region" }
+      }
+    },
+    "regulated": {
+      "$comment": "Level 2. Allowed, but the visitor must tick an extra region-specific warning when accepting the terms. To block one of these instead, move its entry to levels.blocked.countries.",
+      "countries": {
+        "GB": {
+          "name": "United Kingdom",
+          "warning": "UK financial promotion rules restrict how cryptoassets can be promoted to UK consumers. Signal does not target UK consumers, and nothing on Signal is a financial promotion or an invitation to invest. You use Signal on your own initiative and at your own risk."
+        },
+        "US": {
+          "name": "United States",
+          "warning": "In the United States, launching or trading tokens may be subject to federal and state rules on securities, commodities, exchanges and money transmission. Signal is not registered with any US regulator. You are responsible for making sure what you do is lawful where you are."
+        },
+        "ZA": {
+          "name": "South Africa",
+          "warning": "In South Africa, crypto assets are financial products and crypto asset service providers must be licensed by the FSCA. Signal is not an FSCA-licensed provider. You use Signal on your own initiative and at your own risk."
+        }
+      }
+    }
+  },
+  "notes": [
+    "Syria is deliberately not blocked. Syria's sanctions changed in 2026, and whether it belongs in a level must follow the current sanctions framework at the time, not an older list. Review before adding it.",
+    "Blocking is by IP location, which VPNs and proxies can bypass. The terms also require users to confirm they are not in a blocked jurisdiction and are not a sanctioned person.",
+    "Cloudflare reports Tor traffic as T1 and unknown locations as XX. Neither is blocked here; they are treated as location unknown.",
+    "Level 3 (sanctioned wallets) is not a list in this file: wallets are screened at connect, launch registration and trade building against the digital currency addresses in the US Treasury's OFAC SDN list. A scheduled GitHub Actions job (.github/workflows/ofac-sdn-list.yml) downloads the official SDN.XML every 6 hours and publishes the addresses to the ofac-data branch, which the Worker reads (functions/compliance.js), from GitHub or, if that fails, its jsDelivr mirror; Cloudflare itself can't connect to Treasury's server. A list more than 48 hours old is not used, and a failed read is retried after at most 30 seconds. No key is needed."
+  ]
+}

@@ -14,7 +14,7 @@
  */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { mkdirSync, writeFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, readdirSync, rmSync, readFileSync } from 'node:fs';
 import { buildSync } from 'esbuild';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,12 +29,16 @@ import { DashboardPage } from '../src/pages/DashboardPage.js';
 import { SecurityPage } from '../src/pages/SecurityPage.js';
 import { TransparencyPage } from '../src/pages/TransparencyPage.js';
 import { CommunityPage } from '../src/pages/CommunityPage.js';
+import { TermsPage } from '../src/pages/TermsPage.js';
 import { CHAIN_CONFIGS, SIGNAL_PLATFORM_WALLET_ADDRESS } from '@launchpad/config';
 import { DEFAULT_TAX_CONFIG } from '@launchpad/types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const DIST = join(ROOT, 'dist');
+// Regional restrictions and the terms version: one file, shared with the
+// Worker (functions/compliance.js). See config/restrictions.json.
+const RESTRICTIONS = JSON.parse(readFileSync(join(ROOT, '..', '..', 'config', 'restrictions.json'), 'utf8'));
 
 interface RouteDef {
   path: string; // output path under dist/, e.g. '' for home, 'create' for /create
@@ -74,6 +78,7 @@ const routes: RouteDef[] = [
   { path: 'security', title: 'Security', element: <SecurityPage /> },
   { path: 'transparency', title: 'Transparency', element: <TransparencyPage /> },
   { path: 'community', title: 'Community', element: <CommunityPage />, clientScripts: ['/client/auth-client.js', '/client/chat.js'] },
+  { path: 'terms', title: 'Terms and risks', element: <TermsPage restrictions={RESTRICTIONS} /> },
 ];
 
 function currentPathFor(routePath: string): string {
@@ -100,7 +105,8 @@ function build() {
         <Shell
           currentPath={currentPathFor(route.path)}
           title={route.title}
-          clientScripts={['/client/nav.js', '/client/wallet-connect.js', ...(route.clientScripts ?? [])]}
+          clientScripts={['/client/nav.js', '/client/compliance.js', '/client/wallet-connect.js', ...(route.clientScripts ?? [])]}
+          termsVersion={RESTRICTIONS.termsVersion}
           moduleScripts={route.moduleScripts ?? []}
           embeddedJson={route.embeddedJson}
           apiBaseUrl={apiBaseUrl}

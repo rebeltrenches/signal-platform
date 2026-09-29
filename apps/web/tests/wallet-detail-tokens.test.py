@@ -95,6 +95,10 @@ def run():
         with sync_playwright() as p:
             browser = p.chromium.launch()
             page = browser.new_page()
+            # Every page asks the Worker for the visitor's region (compliance.js);
+            # this static server has no Worker, so answer it as an allowed region.
+            page.route("**/api/geo", lambda r: r.fulfill(status=200, content_type="application/json",
+                                                         body='{"country": "DE", "region": null, "level": "allowed", "termsVersion": ""}'))
             page.add_init_script(f"window.SIGNAL_API_BASE_URL = 'http://localhost:{API_PORT}';")
 
             page.goto(f"http://localhost:{STATIC_PORT}/wallet/example/", wait_until="domcontentloaded")

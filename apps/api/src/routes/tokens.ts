@@ -11,6 +11,7 @@
  *    (tokens/verifyMintCreator.ts);
  *  - a token registered to one creator can never be claimed by another.
  */
+import { timingSafeEqual } from 'node:crypto';
 import type { Handler } from '../router.js';
 import { verifySessionToken } from '../auth/AuthSession.js';
 import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError, TokenConflictError } from '../tokens/tokenStore.js';
@@ -42,9 +43,58 @@ function errorToResponse(err: unknown): { status: number; body: unknown } {
   return { status: 500, body: { error: 'INTERNAL_ERROR', message: 'Something went wrong handling this token request.' } };
 }
 
+function headerValue(headers: Record<string, string | string[] | undefined>, name: string): string {
+  const value = headers[name];
+  return (Array.isArray(value) ? value[0] : value) ?? '';
+}
+
+/**
+ * Registrations are accepted only when forwarded by Signal's Cloudflare
+ * Worker (functions/api/register-token.js), which refuses blocked regions
+ * and sanctioned wallets before forwarding: the request must carry the
+ * shared secret SIGNAL_EDGE_SECRET, and the wallet the Worker screened
+ * must be this session's wallet. Without the secret configured here,
+ * registration fails safe (nothing is accepted).
+ */
+/**
+ * Devnet test APIs only: Devnet test builds register straight with their
+ * own test API (there is no Worker in front of it). Allowed only when BOTH
+ * SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION is exactly "devnet" AND this API's
+ * SOLANA_RPC_URL is a Devnet endpoint, so the flag can never open a way
+ * around the Worker on a Mainnet API, even if set there by mistake.
+ */
+export function directRegistrationAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION !== 'devnet') return false;
+  try {
+    const host = new URL(env.SOLANA_RPC_URL ?? '').hostname.toLowerCase();
+    return host.includes('devnet');
+  } catch {
+    return false;
+  }
+}
+
+function edgeRefusal(headers: Record<string, string | string[] | undefined>, wallet: string): { status: number; body: unknown } | null {
+  if (directRegistrationAllowed()) return null;
+  const expected = process.env.SIGNAL_EDGE_SECRET ?? '';
+  if (!expected) {
+    return { status: 503, body: { error: 'REGISTRATION_NOT_CONFIGURED', message: 'Listing on Signal is not available right now.' } };
+  }
+  const given = Buffer.from(headerValue(headers, 'x-signal-edge-secret'));
+  const want = Buffer.from(expected);
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    return { status: 403, body: { error: 'EDGE_REQUIRED', message: 'Register tokens through the Signal site.' } };
+  }
+  if (headerValue(headers, 'x-signal-screened-wallet') !== wallet) {
+    return { status: 403, body: { error: 'SCREENING_MISMATCH', message: 'The screened wallet does not match the signed-in wallet.' } };
+  }
+  return null;
+}
+
 export const registerTokenRoute: Handler = async (req) => {
   const wallet = getSessionWallet(req.headers);
   if (!wallet) return { status: 401, body: { error: 'UNAUTHORIZED', message: 'Sign in with the creator wallet to register a token.' } };
+  const refusal = edgeRefusal(req.headers, wallet);
+  if (refusal) return refusal;
 
   const body = (req.body ?? {}) as Record<string, unknown>;
   const chain = typeof body.chain === 'string' ? body.chain.toUpperCase() : '';

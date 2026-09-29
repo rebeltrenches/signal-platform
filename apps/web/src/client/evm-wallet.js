@@ -111,6 +111,18 @@ export function watchEvmWalletChanges() {
       const expectedChain = btn.getAttribute('data-evm-connect');
       const statusEl = document.querySelector(`[data-evm-status="${expectedChain}"]`);
       const originalText = btn.textContent;
+      // Same rules as Solana wallets (compliance.js): no connecting from a
+      // blocked region, and the terms are accepted first. The connected
+      // address is then screened (compliance.js listens for the event).
+      const compliance = window.signalCompliance;
+      if (!compliance || !(await compliance.beforeConnect())) {
+        if (statusEl) {
+          statusEl.textContent = compliance
+            ? "Connecting a wallet needs the terms accepted, and isn't available in some regions."
+            : "Signal's safety checks didn't load; reload the page and try again.";
+        }
+        return;
+      }
       btn.disabled = true;
       btn.textContent = 'Connecting\u2026';
       try {
