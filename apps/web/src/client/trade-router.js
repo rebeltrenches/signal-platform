@@ -27,6 +27,7 @@ const RAYDIUM_CPMM_PROGRAM = new web3.PublicKey("CPMMoo8L3F4NbTegBCKVNunggL7H1Zp
 const RAYDIUM_AMM_CONFIG = new web3.PublicKey("D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2");
 const RAYDIUM_CREATE_POOL_FEE = new web3.PublicKey("DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8");
 const WSOL_MINT = new web3.PublicKey("So11111111111111111111111111111111111111112");
+const ZERO_PUBKEY = new web3.PublicKey(new Uint8Array(32));
 const encoder = new TextEncoder();
 
 const params = new URLSearchParams(window.location.search);
@@ -264,14 +265,18 @@ async function mountGraduation({ connection, programId, mint, curve }) {
       if (!latest.complete || latest.realTokens !== 0n) throw new Error("This curve is not ready to graduate yet.");
       const caller = new web3.PublicKey(window.launchpadWallet.address);
       const { instruction, pool } = graduationAccounts(programId, mint, curve, caller);
+      const prepared = !latest.graduationPool.equals(ZERO_PUBKEY);
+      if (prepared && !latest.graduationPool.equals(pool)) throw new Error("Prepared graduation pool does not match the expected Raydium pool. Nothing was submitted.");
+      const graduationSteps = prepared ? [instruction] : [instruction, instruction];
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
       const tx = new web3.Transaction({ feePayer: caller, recentBlockhash: blockhash, lastValidBlockHeight }).add(
         web3.ComputeBudgetProgram.setComputeUnitLimit({ units: GRADUATION_COMPUTE_LIMIT }),
         web3.ComputeBudgetProgram.setComputeUnitPrice({ microLamports: COMPUTE_PRICE }),
-        instruction,
-        instruction,
+        ...graduationSteps,
       );
-      if (status) status.textContent = "Review the Raydium graduation transaction in Phantom. Signal prepares the migration and completes the Raydium CPI as two program instructions inside one atomic transaction.";
+      if (status) status.textContent = prepared
+        ? "A prepared Raydium migration was found. Review the finalization transaction in Phantom; no preparation step will be repeated."
+        : "Review the Raydium graduation transaction in Phantom. Signal prepares the migration and completes the Raydium CPI as two program instructions inside one atomic transaction.";
       const signature = await signAndSend(connection, provider, tx);
       const confirmedInfo = await connection.getAccountInfo(curve, "confirmed");
       const confirmed = confirmedInfo ? decodeState(confirmedInfo.data) : null;
