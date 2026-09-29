@@ -55,31 +55,27 @@ export const PROTOCOL_MAX_TAX_BPS: BasisPoints = 1000; // 10% hard ceiling, enfo
 /** Minimum total token supply a launch may mint, enforced independently
  *  on both the wizard's own input validation (immediate feedback) and
  *  the actual transaction-building step (the real gate — nothing
- *  upstream of it can be trusted alone). Below this, a launch is
- *  refused before any wallet ever sees a signing prompt. Base units are
- *  irrelevant here — this is whole tokens, before decimals scaling. */
+ *  upstream of it can be trusted alone), immediately before it
+ *  would cost any real SOL. Base units are irrelevant here — this is
+ *  whole tokens, before decimals scaling. */
 export const MINIMUM_TOKEN_SUPPLY = 100_000_000;
 
-/** SUPERSEDED again (see docs/ROADMAP.md for the full history of this
- *  type's changes) — retained as a generic basis-point config for the 1% creator trading fee. The fee is settled in native SOL by SIGNAL-routed trades, not encoded as a token transfer fee.
- *  The two near-duplicate TaxConfig declarations and layered "SUPERSEDED/
- *  CONFIRMED" comments that used to sit here (one per historical
- *  reversal, never cleaned up) are consolidated into this single
- *  declaration during this change. */
+/** Legacy name retained for compatibility. This is the basis-point config
+ *  for Signal's trading fee on eligible Signal-routed buys. The fee is
+ *  settled in native SOL by the trading layer, not encoded as a token
+ *  transfer fee. */
 export interface TaxConfig {
   enabled: boolean;
   totalBps: BasisPoints;
 }
 
-/** Trading-fee policy: 1% of the SOL side on SIGNAL-routed trades goes to the token creator. This is not a token transfer fee. */
+/** Trading-fee policy: 1% of the gross SOL amount on eligible Signal-routed buys goes to the Signal platform wallet. This is not a token transfer fee. */
 export const DEFAULT_TAX_CONFIG: TaxConfig = {
   enabled: true,
   totalBps: 100,
 };
 
-/** EVM chains (Base, BNB) do not get a transfer-fee mechanism yet — see
- *  ADR-0003 in docs/ARCHITECTURE.md. Trading/discovery only until a
- *  custom tax contract exists and is audited. */
+/** EVM chains (Base, BNB) do not have Signal in-app trading-fee routing yet. */
 export const DISABLED_TAX_CONFIG: TaxConfig = {
   enabled: false,
   totalBps: 0,
@@ -215,4 +211,3 @@ export interface WalletPassport {
   relationships: WalletRelationship[];
   notes: Array<{ note: string; evidenceSource: EvidenceSource; evidenceTxSignature: string | null }>;
 }
-
