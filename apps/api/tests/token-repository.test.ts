@@ -121,6 +121,15 @@ async function runAgainst(repoName: string, repo: TokenRepository) {
     assert.strictEqual(a.id, b.id);
   });
 
+  await test(`[${repoName}] registerToken reports whether it created the row (outcome.created)`, async () => {
+    const first: { created?: boolean } = {};
+    const again: { created?: boolean } = {};
+    await repo.registerToken({ chain: 'SOLANA', address: 'MintOutcome', name: 'O', symbol: 'O', decimals: 6, creatorWalletAddress: 'CreatorO' }, first);
+    await repo.registerToken({ chain: 'SOLANA', address: 'MintOutcome', name: 'O', symbol: 'O', decimals: 6, creatorWalletAddress: 'CreatorO' }, again);
+    assert.strictEqual(first.created, true);
+    assert.strictEqual(again.created, false);
+  });
+
   await test(`[${repoName}] registerToken refuses a different creator for an already-registered token (C2)`, async () => {
     await repo.registerToken({ chain: 'SOLANA', address: 'MintClaimed', name: 'Claimed', symbol: 'CLM', decimals: 6, creatorWalletAddress: 'RealCreator' });
     await assert.rejects(
@@ -185,8 +194,10 @@ async function run() {
     await assert.rejects(() => new PrismaTokenRepository(racedClient('Winner')).registerToken(raceInput), TokenConflictError);
   });
   await test('[Prisma (mock)] losing a registration race to the same creator returns the winning row', async () => {
-    const token = await new PrismaTokenRepository(racedClient('Loser')).registerToken(raceInput);
+    const outcome: { created?: boolean } = {};
+    const token = await new PrismaTokenRepository(racedClient('Loser')).registerToken(raceInput, outcome);
     assert.strictEqual(token.creatorWalletAddress, 'Loser');
+    assert.strictEqual(outcome.created, false, 'the row was created by the other request, so this one is "already listed"');
   });
 
   await test('MemoryTokenRepository rejects invalid input the same way for missing required fields', async () => {

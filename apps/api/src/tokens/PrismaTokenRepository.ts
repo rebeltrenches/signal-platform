@@ -1,4 +1,4 @@
-import type { TokenRepository, TokenRecord, RegisterTokenInput, TokenMetadataRecord, HolderRecord, RecentTokensPage } from './TokenRepository.js';
+import type { TokenRepository, TokenRecord, RegisterTokenInput, RegisterOutcome, TokenMetadataRecord, HolderRecord, RecentTokensPage } from './TokenRepository.js';
 import { TokenValidationError, TokenConflictError } from './TokenRepository.js';
 import { ensureWallet, type WalletCapableClient } from '../db/ensureWallet.js';
 
@@ -74,7 +74,8 @@ function mapMetadata(row: any): TokenMetadataRecord | null {
 export class PrismaTokenRepository implements TokenRepository {
   constructor(private readonly db: TokenPrismaLikeClient) {}
 
-  async registerToken(input: RegisterTokenInput): Promise<TokenRecord> {
+  async registerToken(input: RegisterTokenInput, outcome: RegisterOutcome = {}): Promise<TokenRecord> {
+    outcome.created = false;
     if (!input.chain || !input.address || !input.name || !input.symbol || !input.creatorWalletAddress) {
       throw new TokenValidationError('chain, address, name, symbol, and creatorWalletAddress are required.');
     }
@@ -104,6 +105,7 @@ export class PrismaTokenRepository implements TokenRepository {
       }
       throw err;
     }
+    outcome.created = true;
     return mapToken({ ...created, creator: { address: input.creatorWalletAddress } });
   }
 

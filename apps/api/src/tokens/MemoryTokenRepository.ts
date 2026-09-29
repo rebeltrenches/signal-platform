@@ -3,6 +3,7 @@ import type {
   TokenRepository,
   TokenRecord,
   RegisterTokenInput,
+  RegisterOutcome,
   TokenMetadataRecord,
   HolderRecord,
   RecentTokensPage,
@@ -31,7 +32,8 @@ export class MemoryTokenRepository implements TokenRepository {
     return `${chain}:${address}`;
   }
 
-  async registerToken(input: RegisterTokenInput): Promise<TokenRecord> {
+  async registerToken(input: RegisterTokenInput, outcome: RegisterOutcome = {}): Promise<TokenRecord> {
+    outcome.created = false;
     validateRegisterInput(input);
     const key = this.key(input.chain, input.address);
     const existing = this.tokens.get(key);
@@ -53,6 +55,7 @@ export class MemoryTokenRepository implements TokenRepository {
       createdAt: new Date().toISOString(),
     };
     this.tokens.set(key, record);
+    outcome.created = true;
     return record;
   }
 

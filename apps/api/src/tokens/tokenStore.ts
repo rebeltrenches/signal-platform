@@ -29,8 +29,9 @@ function resolveRepository(): TokenRepository {
 
 export function registerToken(
   input: import('./TokenRepository.js').RegisterTokenInput,
+  outcome?: import('./TokenRepository.js').RegisterOutcome,
 ) {
-  return resolveRepository().registerToken(input);
+  return resolveRepository().registerToken(input, outcome);
 }
 
 export function getTokenByAddress(chain: string, address: string) {

@@ -15,6 +15,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { Handler } from '../router.js';
 import { verifySessionToken } from '../auth/AuthSession.js';
 import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError, TokenConflictError } from '../tokens/tokenStore.js';
+import type { RegisterOutcome } from '../tokens/TokenRepository.js';
 import {
   isSolanaAddress,
   solanaRpcFromEnv,
@@ -132,6 +133,7 @@ export const registerTokenRoute: Handler = async (req) => {
     if (!rpc) throw new MintVerificationUnavailableError('SOLANA_RPC_URL is not configured on this server.');
     await verifySolanaMintCreator(rpc, address, wallet, decimals);
 
+    const outcome: RegisterOutcome = {};
     const token = await registerToken({
       chain,
       address,
@@ -139,7 +141,10 @@ export const registerTokenRoute: Handler = async (req) => {
       symbol,
       decimals,
       creatorWalletAddress: wallet,
-    });
+    }, outcome);
+    // Lost a race to another request from this same wallet: the row it
+    // created is returned, so this one is "already listed", not new.
+    if (!outcome.created) return { status: 200, body: { token, alreadyListed: true } };
     return { status: 201, body: { token } };
   } catch (err) {
     // Lost a race to another wallet registering the same mint: name both.

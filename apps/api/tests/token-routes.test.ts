@@ -156,6 +156,14 @@ async function run() {
     test('the 409 names the real creator and the signed-in wallet', takeover.body.creatorWalletAddress === creator.address && takeover.body.signedInWallet === stranger.address, JSON.stringify(takeover.body));
     test('and says so in the message, with short addresses', takeover.body.message === `This token is already registered to a different creator (${short(creator.address)}); you're signed in as ${short(stranger.address)}.`, takeover.body.message);
     test('the 409 is never marked alreadyListed', takeover.body.alreadyListed === undefined);
+
+    // Two listings of one new mint from the same wallet at once: one is
+    // the new listing (201), the other is told it's already listed (200).
+    // (The second test wallet's own mint, so the creator's list is unchanged.)
+    const doubleClicked = createMint(stranger);
+    const both = await Promise.all([register(strangerSession, { ...tokenBody, address: doubleClicked }), register(strangerSession, { ...tokenBody, address: doubleClicked })]);
+    const statuses = both.map((r) => r.status).sort();
+    test('two simultaneous listings by the creator: one 201, one 200 alreadyListed, same token', statuses.join() === '200,201' && both.find((r) => r.status === 200)?.body.alreadyListed === true && both[0].body.token?.id === both[1].body.token?.id, JSON.stringify(both.map((r) => [r.status, r.body.alreadyListed])));
     const afterTakeover: any = await (await fetch(`${BASE}/api/v1/tokens/solana/${mintABC}`)).json();
     test('the registration still belongs to the original creator', afterTakeover.token?.creatorWalletAddress === creator.address);
 
