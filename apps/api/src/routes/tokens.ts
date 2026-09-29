@@ -15,6 +15,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { Handler } from '../router.js';
 import { verifySessionToken } from '../auth/AuthSession.js';
 import { registerToken, getTokenByAddress, listTokensByCreator, listRecentTokens, searchTokens, TokenValidationError, TokenConflictError } from '../tokens/tokenStore.js';
+import type { RegisterOutcome } from '../tokens/TokenRepository.js';
 import {
   isSolanaAddress,
   solanaRpcFromEnv,
@@ -120,17 +121,19 @@ export const registerTokenRoute: Handler = async (req) => {
 
   try {
     // Cheap check first: never spend RPC calls on a token that is
-    // already registered (to this wallet: idempotent; to another: 409).
+    // already registered (to this wallet: 200 with alreadyListed; to
+    // another: 409 naming both wallets).
     const existing = await getTokenByAddress(chain, address);
     if (existing) {
-      if (existing.creatorWalletAddress !== wallet) throw new TokenConflictError('This token is already registered to a different creator.');
-      return { status: 200, body: { token: existing } };
+      if (existing.creatorWalletAddress !== wallet) return alreadyRegisteredToOther(existing.creatorWalletAddress, wallet);
+      return { status: 200, body: { token: existing, alreadyListed: true } };
     }
 
     const rpc = solanaRpcFromEnv();
     if (!rpc) throw new MintVerificationUnavailableError('SOLANA_RPC_URL is not configured on this server.');
     await verifySolanaMintCreator(rpc, address, wallet, decimals);
 
+    const outcome: RegisterOutcome = {};
     const token = await registerToken({
       chain,
       address,
@@ -138,12 +141,37 @@ export const registerTokenRoute: Handler = async (req) => {
       symbol,
       decimals,
       creatorWalletAddress: wallet,
-    });
+    }, outcome);
+    // Lost a race to another request from this same wallet: the row it
+    // created is returned, so this one is "already listed", not new.
+    if (!outcome.created) return { status: 200, body: { token, alreadyListed: true } };
     return { status: 201, body: { token } };
   } catch (err) {
+    // Lost a race to another wallet registering the same mint: name both.
+    if (err instanceof TokenConflictError) {
+      const winner = await getTokenByAddress(chain, address).catch(() => null);
+      if (winner && winner.creatorWalletAddress !== wallet) return alreadyRegisteredToOther(winner.creatorWalletAddress, wallet);
+    }
     return errorToResponse(err);
   }
 };
+
+const shortAddress = (address: string) => (address.length > 10 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address);
+
+/** 409 for a token another wallet registered. Names both wallets (the
+ *  creator is public; the signed-in wallet is the caller's own) so a
+ *  creator signed in with the wrong account can see which one it was. */
+function alreadyRegisteredToOther(creatorWalletAddress: string, signedInWallet: string): { status: number; body: unknown } {
+  return {
+    status: 409,
+    body: {
+      error: 'TOKEN_ALREADY_REGISTERED',
+      message: `This token is already registered to a different creator (${shortAddress(creatorWalletAddress)}); you're signed in as ${shortAddress(signedInWallet)}.`,
+      creatorWalletAddress,
+      signedInWallet,
+    },
+  };
+}
 
 export const getTokenRoute: Handler = async (req) => {
   const chain = (req.params.chain ?? '').toUpperCase();

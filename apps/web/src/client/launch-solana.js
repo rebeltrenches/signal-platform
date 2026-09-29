@@ -753,8 +753,19 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       decimals: entry.decimals,
     }),
   });
+  // Phantom signs with its active account, which can differ from the
+  // wallet shown in the header (e.g. after switching accounts). Say so
+  // before the signature is asked for; the note stays with the result.
+  const headerWallet = window.launchpadWallet && window.launchpadWallet.address;
+  if (headerWallet && entry.creatorAddress && headerWallet !== entry.creatorAddress) {
+    const note = document.createElement("div");
+    note.className = "account-note";
+    note.textContent = `Note: Phantom's active account is ${short(entry.creatorAddress)}, not ${short(headerWallet)} shown at the top, so it will sign as ${short(entry.creatorAddress)}.`;
+    containerEl.insertBefore(note, line);
+  }
   const attempt = async () => {
     line.textContent = "Listing on Signal — Phantom may ask you to sign a message (no transaction, no SOL)…";
+    let alreadyListed = false;
     try {
       const auth = window.signalAuth;
       if (!auth) throw new Error("Wallet sign-in isn't available on this page.");
@@ -762,12 +773,23 @@ async function listOnSignal(entry, containerEl, onListed = () => {}) {
       // A cached session can have expired server-side: sign in once more.
       if (res.status === 401) res = await register(await auth.signIn(entry.creatorAddress));
       const body = await res.json().catch(() => ({}));
+      if (res.status === 409 && body.error === "TOKEN_ALREADY_REGISTERED") {
+        // Listed, but by another wallet: not a failure to list, so no
+        // "Not listed" prefix. Names both wallets when the server does.
+        alreadyListed = true;
+        const creator = typeof body.creatorWalletAddress === "string" ? short(body.creatorWalletAddress) : "another wallet";
+        const signedIn = typeof body.signedInWallet === "string" ? short(body.signedInWallet) : short(entry.creatorAddress);
+        throw new Error(`Already listed on Signal by another creator (${creator}). You're signed in as ${signedIn}; switch Phantom to the creator's account and try again if this is your token.`);
+      }
       if (!res.ok) throw new Error(body.message || body.error || `Registration failed (${res.status}).`);
-      line.textContent = "Listed on Signal — creator verified on-chain.";
+      line.textContent = body.alreadyListed
+        ? "Already listed on Signal — this wallet is its creator."
+        : "Listed on Signal — creator verified on-chain.";
       onListed();
     } catch (err) {
       // Timestamped so a retry that fails the same way still visibly changes.
-      line.textContent = `Not listed on Signal yet (${new Date().toLocaleTimeString()}): ${err.message} `;
+      const time = new Date().toLocaleTimeString();
+      line.textContent = alreadyListed ? `${err.message} (checked ${time}) ` : `Not listed on Signal yet (${time}): ${err.message} `;
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "btn btn-ghost";
