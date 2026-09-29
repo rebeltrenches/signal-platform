@@ -189,10 +189,22 @@ def main():
     env["PORT"] = str(API_PORT)
     env["AUTH_SECRET"] = "chat-e2e-session-secret-that-is-not-a-placeholder"
     api_proc = subprocess.Popen(
-        [shutil.which("npx") or "npx", "tsx", os.path.join(REPO_ROOT, "apps/api/tests/support/test-server.ts")],
+        [shutil.which("node") or "node", "--import", "tsx", os.path.join(REPO_ROOT, "apps/api/tests/support/test-server.ts")],
         cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    time.sleep(1.5)
+    for attempt in range(100):
+        if api_proc.poll() is not None:
+            raise RuntimeError(api_proc.stdout.read().decode())
+        try:
+            urllib.request.urlopen(f"http://localhost:{API_PORT}/api/v1/chat/main/messages", timeout=1)
+            break
+        except urllib.error.HTTPError:
+            break
+        except urllib.error.URLError:
+            time.sleep(0.1)
+    else:
+        api_proc.terminate()
+        raise RuntimeError("Local chat API did not become ready")
 
     web_httpd = start_web_server()
     time.sleep(0.3)
