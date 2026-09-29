@@ -61,7 +61,11 @@ const routes: RouteDef[] = [
     title: 'Token',
     element: <TokenDetailPage />,
     clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
-    moduleScripts: ['/client/swap-execute.js?v=swap-confirmation-retry-8'],
+    // trade-router.js detects a live Signal bonding curve first. Only tokens
+    // without an active Signal curve fall through to the existing Jupiter
+    // execution module. This prevents a newly launched curve token from being
+    // sent to an external router before graduation.
+    moduleScripts: ['/client/trade-router.js'],
   },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {
