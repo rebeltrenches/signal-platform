@@ -10,6 +10,7 @@ import { mkdtemp, cp, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 // The functions are ES modules in a CommonJS repo root: load them from a
 // copy that keeps their relative layout (functions/ + config/).
@@ -24,6 +25,8 @@ const screenRoute = await load("functions/api/wallet-screen.js");
 const registerRoute = await load("functions/api/register-token.js");
 const swapBuild = await load("functions/api/solana/swap-build.js");
 const swapSubmit = await load("functions/api/solana/swap-submit.js");
+const rpc = await load("functions/api/solana/rpc.js");
+const transactions = await load("functions/solana-transaction-screen.js");
 const config = JSON.parse(await readFile("config/restrictions.json", "utf8"));
 
 let passed = 0;
@@ -102,7 +105,7 @@ await test("config: Syria is not blocked, with a note that its 2026 sanctions ch
 await test("config: Level 2 is GB, US, ZA, each with its own warning; a terms version is set; screening is OFAC, keyless", () => {
   const regulated = config.levels.regulated.countries;
   assert.deepEqual(Object.keys(regulated).sort(), ["GB", "US", "ZA"]);
-  assert.match(regulated.GB.warning, /financial promotion/);
+  assert.match(regulated.GB.warning, /financial[- ]promotion/);
   assert.match(regulated.US.warning, /securities|money transmission/);
   assert.match(regulated.ZA.warning, /FSCA/);
   assert.match(config.termsVersion, /^\d{4}-\d{2}-\d{2}/);
@@ -393,7 +396,134 @@ await test("swap submission from a blocked region is refused (451)", async () =>
   assert.equal(response.status, 451);
 });
 
+await test("unknown countries pause registration, build and both submission routes without upstream calls", async () => {
+  for (const country of [undefined, "XX", "T1"]) {
+    const calls = network();
+    const responses = [
+      await registration({ country }),
+      await swapBuild.onRequestPost({ request: req("/api/solana/swap/build", { method: "POST", country, body: { taker: WALLET } }), env }),
+      await swapSubmit.onRequestPost({ request: req("/api/solana/swap/submit", { method: "POST", country, body: {} }), env }),
+      await rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", country, body: { jsonrpc: "2.0", method: "sendTransaction", params: [signed([WALLET]), { encoding: "base64" }] } }), env }),
+    ];
+    for (const response of responses) {
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).code, "REGION_UNAVAILABLE");
+    }
+    assert.deepEqual(calls, []);
+  }
+});
+
+await test("legacy and v0 transaction signers come from static account keys, including additional signers", () => {
+  for (const versioned of [false, true]) {
+    assert.deepEqual(transactions.transactionSigners(signed([WALLET], versioned)), [WALLET]);
+    assert.deepEqual(transactions.transactionSigners(signed([WALLET, SANCTIONED], versioned)), [WALLET, SANCTIONED]);
+  }
+  for (const value of ["", "AAAA", "%%%=", signed([WALLET]).slice(0, -4), signed([WALLET], true, 129)]) {
+    assert.throws(() => transactions.transactionSigners(value));
+  }
+  const inconsistent = Buffer.from(signed([WALLET]), "base64");
+  inconsistent[65] = 2;
+  assert.throws(() => transactions.transactionSigners(inconsistent.toString("base64")));
+});
+
+await test("RPC and swap submission reject sanctioned actual signers even if the body claims a clear wallet", async () => {
+  for (const versioned of [false, true]) {
+    for (const signers of [[SANCTIONED], [WALLET, SANCTIONED]]) {
+      const calls = network();
+      const encoded = signed(signers, versioned);
+      const responses = [
+        await rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", country: "DE", body: { jsonrpc: "2.0", method: "sendTransaction", params: [encoded, { encoding: "base64" }], taker: WALLET } }), env }),
+        await swapSubmit.onRequestPost({ request: req("/api/solana/swap/submit", { method: "POST", country: "DE", body: { signedTransaction: encoded, taker: WALLET } }), env }),
+      ];
+      for (const response of responses) {
+        assert.equal(response.status, 403);
+        assert.equal((await response.json()).code, "WALLET_SANCTIONED");
+      }
+      assert.ok(calls.every((call) => call.url === compliance.OFAC_LIST_URL || call.url === compliance.OFAC_LIST_MIRROR_URL), "no transaction forwarded");
+    }
+  }
+});
+
+await test("both submission routes fail closed on unavailable lists and reject malformed transactions", async () => {
+  for (const route of ["rpc", "swap"]) {
+    compliance.resetComplianceForTests();
+    const calls = network({ list: () => new Response("down", { status: 500 }) });
+    const submit = (encoded) => route === "rpc"
+      ? rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", country: "DE", body: { jsonrpc: "2.0", method: "sendTransaction", params: [encoded, { encoding: "base64" }] } }), env })
+      : swapSubmit.onRequestPost({ request: req("/api/solana/swap/submit", { method: "POST", country: "DE", body: { signedTransaction: encoded } }), env });
+    assert.equal((await submit(signed([WALLET]))).status, 503);
+    assert.equal((await submit("AAAA")).status, 400);
+    assert.ok(calls.every((call) => call.url === compliance.OFAC_LIST_URL || call.url === compliance.OFAC_LIST_MIRROR_URL));
+  }
+});
+
+await test("blocked countries cannot submit through RPC; read-only RPC remains usable without location", async () => {
+  const calls = network();
+  for (const country of ["CN", "IR", "KP", "CU"]) {
+    const response = await rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", country, body: { jsonrpc: "2.0", method: "sendTransaction", params: [signed([WALLET]), { encoding: "base64" }] } }), env });
+    assert.equal(response.status, 451);
+  }
+  assert.deepEqual(calls, []);
+  globalThis.fetch = async () => Response.json({ jsonrpc: "2.0", result: 123 });
+  const read = await rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", body: { jsonrpc: "2.0", method: "getBlockHeight", params: [] } }), env });
+  assert.equal(read.status, 200);
+});
+
+await test("clear transaction signers still reach RPC and swap submission without changing signed bytes", async () => {
+  for (const versioned of [false, true]) {
+    compliance.resetComplianceForTests();
+    const encoded = signed([WALLET], versioned);
+    const forwarded = [];
+    globalThis.fetch = async (url, init) => {
+      if (String(url) === compliance.OFAC_LIST_URL) return Response.json(listFile());
+      forwarded.push(JSON.parse(init.body));
+      return Response.json({ jsonrpc: "2.0", result: "1".repeat(88) });
+    };
+    const rpcResponse = await rpc.onRequestPost({ request: req("/api/solana/rpc", { method: "POST", country: "ZA", body: { jsonrpc: "2.0", method: "sendTransaction", params: [encoded, { encoding: "base64" }] } }), env });
+    const swapResponse = await swapSubmit.onRequestPost({ request: req("/api/solana/swap/submit", { method: "POST", country: "ZA", body: { signedTransaction: encoded } }), env });
+    assert.equal(rpcResponse.status, 200);
+    assert.equal(swapResponse.status, 200);
+    assert.deepEqual(forwarded.map((body) => body.params[0]), [encoded, encoded]);
+  }
+});
+
+await test("browser transaction checks stop unknown locations before wallet screening and allow cleared known locations", async () => {
+  const source = await readFile("apps/web/src/client/compliance.js", "utf8");
+  for (const country of [null, "DE"]) {
+    const calls = [];
+    const window = { SIGNAL_TERMS_VERSION: config.termsVersion };
+    runInNewContext(source, {
+      window,
+      document: { addEventListener() {} },
+      localStorage: { getItem: () => JSON.stringify({ version: config.termsVersion }) },
+      fetch: async (url) => {
+        calls.push(url);
+        return Response.json(url === "/api/geo" ? { level: "allowed", country } : { status: "clear" });
+      },
+    });
+    const result = await window.signalCompliance.check("trade", WALLET);
+    assert.equal(result.ok, Boolean(country));
+    assert.deepEqual(calls, country ? ["/api/geo", "/api/wallet-screen"] : ["/api/geo"]);
+  }
+});
+
 console.log(`\n${passed} passed.`);
+
+function signed(addresses, versioned = false, prefix = 128) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const key = (address) => {
+    let value = 0n;
+    for (const char of address) value = value * 58n + BigInt(alphabet.indexOf(char));
+    const bytes = Buffer.alloc(32);
+    for (let i = 31; i >= 0; i--) { bytes[i] = Number(value & 255n); value >>= 8n; }
+    return bytes;
+  };
+  return Buffer.concat([
+    Buffer.from([addresses.length]), Buffer.alloc(addresses.length * 64, 1),
+    Buffer.from([...(versioned ? [prefix] : []), addresses.length, 0, 0, addresses.length]),
+    ...addresses.map(key), Buffer.alloc(32), Buffer.from(versioned ? [0, 0] : [0]),
+  ]).toString("base64");
+}
 
 /** A request as the Worker sees it: request.cf carries Cloudflare's location. */
 function req(url, { country, region, method = "GET", body, headers = {} } = {}) {
