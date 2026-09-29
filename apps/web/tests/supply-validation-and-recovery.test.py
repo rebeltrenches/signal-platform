@@ -47,6 +47,7 @@ STUBS_DIR = os.path.join(REPO_ROOT, "apps/web/tests/stubs")
 PORT = 8097
 FEE_WALLET = "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg"
 CREATOR_WALLET = "SupplyTestWallet111111111111111111111111"
+OTHER_CREATOR = "OtherCreatorWa11et1111111111111111111111"
 PENDING_KEY = "signal_pending_launch_v1"
 LAUNCHES_KEY = "signal_real_launches_v1"
 U64_MAX = 2**64 - 1
@@ -604,14 +605,21 @@ def main():
                 request = route.request
                 calls.append({"authorization": request.headers.get("authorization"), "body": json.loads(request.post_data)})
                 status = register_statuses[min(len(calls), len(register_statuses)) - 1]
-                message = "This token is already registered to a different creator." if status == 409 else ""
-                route.fulfill(status=status, content_type="application/json", body=json.dumps({"message": message}))
+                if status == 409:
+                    # The API's answer for a mint another wallet registered.
+                    body = {"error": "TOKEN_ALREADY_REGISTERED", "message": "This token is already registered to a different creator.",
+                            "creatorWalletAddress": OTHER_CREATOR, "signedInWallet": CREATOR_WALLET}
+                elif status == "already":
+                    status, body = 200, {"token": {"creatorWalletAddress": CREATOR_WALLET}, "alreadyListed": True}
+                else:
+                    body = {"message": ""}
+                route.fulfill(status=status, content_type="application/json", body=json.dumps(body))
             page.route("**/api/v1/tokens/register", register)
             return calls
 
         def wait_for_listing(page):
             page.wait_for_function(
-                "() => /Listed on Signal|Not listed on Signal yet/.test(document.querySelector('#launch-result').textContent)",
+                "() => /Listed on Signal|Already listed on Signal|Not listed on Signal yet/.test(document.querySelector('#launch-result').textContent)",
                 timeout=10000,
             )
 
@@ -648,7 +656,8 @@ def main():
         page.wait_for_function("() => document.querySelectorAll('#launch-result button').length === 1 && !/Listing on Signal/.test(document.querySelector('#launch-result').textContent)", timeout=10000)
         retried_text = page.text_content('#launch-result') or ""
         page.close()
-        check("C2: a refused registration (409) is shown with the server's reason", "Not listed on Signal yet" in result_text and "already registered" in result_text)
+        check("C2: a mint registered by another wallet (409) says it's already listed, naming both wallets", "Already listed on Signal by another creator (Othe…1111)" in result_text and "signed in as Supp…1111" in result_text)
+        check("C2: and never says 'Not listed on Signal yet'", "Not listed" not in result_text)
         check("C2: with a Try again button", has_retry)
         check("C2: and the launch itself stays final", button_text == "Launched")
         check("C2: Try again really retries the registration", len(calls) == 2)
@@ -1370,7 +1379,7 @@ def main():
         page = new_page(browser)
         calls = stub_api(page, [201])
         list_existing(page)
-        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
         result_text = page.text_content('#le-result') or ""
         state = page.evaluate("window.__t")
         page.close()
@@ -1383,7 +1392,7 @@ def main():
         page = new_page(browser, init_t="{ mintAuthorityAfter: 'StillTheCreator1111111111111111111111111' }")
         calls = stub_api(page, [201])
         list_existing(page)
-        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
         result_text = page.text_content('#le-result') or ""
         page.close()
         check("E: a mint whose authority is still active is refused before registering", "authority is still active" in result_text and len(calls) == 0)
@@ -1399,18 +1408,44 @@ def main():
         page = new_page(browser)
         calls = stub_api(page, [409])
         list_existing(page)
-        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
         result_text = page.text_content('#le-result') or ""
         has_retry = page.is_visible('#le-result button:has-text("Try again")')
         page.close()
-        check("E: a refusal from the server (e.g. already registered) is shown with Try again", "already registered" in result_text and has_retry)
+        check("E: a mint another wallet registered is shown as already listed by that creator, with Try again", "Already listed on Signal by another creator (Othe…1111)" in result_text and has_retry)
+        check("E: it names the wallet that signed, and has no 'Not listed' prefix", "You're signed in as Supp…1111" in result_text and "Not listed" not in result_text)
+
+        # The real creator listing a mint that's already theirs.
+        page = new_page(browser)
+        calls = stub_api(page, ["already"])
+        list_existing(page)
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
+        result_text = page.text_content('#le-result') or ""
+        page.close()
+        check("E: the creator re-listing their own token sees 'Already listed on Signal'", "Already listed on Signal — this wallet is its creator." in result_text)
+        check("E: and no 'Not listed' or 'different creator' wording", "Not listed" not in result_text and "another creator" not in result_text)
+
+        # Phantom's active account differs from the wallet shown in the header.
+        page = new_page(browser)
+        calls = stub_api(page, [201])
+        page.goto(f"http://localhost:{PORT}/create/", wait_until="networkidle")
+        page.evaluate(f"window.launchpadWallet.address = '{OTHER_CREATOR}'")
+        page.click('#list-existing summary')
+        page.fill('#le-mint', EXISTING_MINT)
+        page.fill('#le-name', "Sig Test")
+        page.fill('#le-symbol', "sigtest")
+        page.click('#le-submit')
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
+        result_text = page.text_content('#le-result') or ""
+        page.close()
+        check("E: a header wallet different from Phantom's active account is pointed out", "Phantom's active account is Supp…1111, not Othe…1111" in result_text)
 
         # Listing via this form also clears a matching pending-listing record.
         seed_existing = seed_listing.replace("ListingPendingMint1111111111111111111111", EXISTING_MINT)
         page = new_page(browser, storage_js=seed_existing)
         calls = stub_api(page, [201])
         list_existing(page)
-        wait_for_text(page, '#le-result', "Listed on Signal|Not listed")
+        wait_for_text(page, '#le-result', "Listed on Signal|Already listed|Not listed")
         cleared = page.evaluate(f"localStorage.getItem('{PENDING_KEY}')")
         page.close()
         check("E: listing a mint here also clears its pending-listing record", cleared is None)
