@@ -44,6 +44,7 @@ const CURVE_STATE_LEN = 160;
 const CURVE_STATE_VERSION = 2;
 const PENDING_KEY = IS_DEVNET ? "signal_curve_pending_devnet_v2" : "signal_curve_pending_v2";
 const LAUNCHES_KEY = IS_DEVNET ? "signal_devnet_launches_v2" : "signal_real_launches_v2";
+const ZERO_PUBKEY = new web3.PublicKey(new Uint8Array(32));
 
 function programId() {
   if (!SIGNAL_BONDING_CURVE_PROGRAM_ID) return null;
@@ -392,12 +393,56 @@ class CurveLaunchFlow {
   async verifyMetadata(mint, expected) {
     const address = metadataAddress(web3, mint);
     const info = await this.connection.getAccountInfo(address, "confirmed");
-    if (!info || info.owner.toBase58() !== TOKEN_METADATA_PROGRAM_ID) return false;
+    if (!info || info.owner.toBase58() !== TOKEN_METADATA_PROGRAM_ID) {
+      throw new Error("Immutable Signal launch metadata is missing or owned by an unexpected program.");
+    }
     const found = decodeMetadataAccount(info.data);
     if (found.name !== expected.name || found.symbol !== expected.symbol || found.uri !== expected.uri || found.isMutable) {
       throw new Error("On-chain metadata does not match the immutable launch metadata.");
     }
     return true;
+  }
+
+  async verifyRecoveredLaunch(mint, expected) {
+    const pid = await this.ensureProgramReady();
+    const curve = curveAddress(mint, pid);
+    const vault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
+    const [mintInfo, curveInfo, vaultInfo] = await Promise.all([
+      splToken.getMint(this.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID),
+      this.connection.getAccountInfo(curve, "confirmed"),
+      splToken.getAccount(this.connection, vault, "confirmed", splToken.TOKEN_PROGRAM_ID).catch(() => null),
+    ]);
+    if (mintInfo.mintAuthority !== null || mintInfo.freezeAuthority !== null || BigInt(mintInfo.supply.toString()) !== expected.rawSupply) {
+      throw new Error("Recovered mint supply or authorities do not match this Signal launch.");
+    }
+    if (!curveInfo || !curveInfo.owner.equals(pid)) {
+      throw new Error("Expected Signal bonding-curve state is missing or owned by another program.");
+    }
+    const state = decodeCurve(curveInfo.data);
+    const expectedInitialReal = expected.rawSupply * INITIAL_REAL_BPS / BPS;
+    if (
+      !state.mint.equals(mint)
+      || !state.creator.equals(expected.creator)
+      || state.totalSupply !== expected.rawSupply
+      || state.initialRealTokenReserves !== expectedInitialReal
+      || state.decimals !== expected.decimals
+    ) {
+      throw new Error("Recovered curve state does not match this pending Signal launch.");
+    }
+    if (!vaultInfo || !vaultInfo.owner.equals(curve) || !vaultInfo.mint.equals(mint)) {
+      throw new Error("Recovered curve vault does not match the Signal curve.");
+    }
+    if (!state.graduated) {
+      const graduationReserve = expected.rawSupply - expectedInitialReal;
+      const expectedVaultAmount = state.realTokenReserves + graduationReserve;
+      if (BigInt(vaultInfo.amount.toString()) !== expectedVaultAmount) {
+        throw new Error("Recovered curve vault balance does not match on-chain curve state.");
+      }
+    } else if (state.graduationPool.equals(ZERO_PUBKEY)) {
+      throw new Error("Recovered curve says it graduated but does not record a Raydium pool.");
+    }
+    await this.verifyMetadata(mint, { name: expected.name, symbol: expected.symbol, uri: expected.metadataUri });
+    return { curve, vault, state };
   }
 }
 
@@ -413,7 +458,7 @@ function mountPendingRecovery() {
   title.textContent = pending.stage === "listing" ? "Curve launch completed; Signal listing pending." : "Incomplete curve launch found.";
   const text = document.createElement("p");
   text.textContent = `${pending.name} (${pending.symbol}) — ${pending.mint}`;
-  const button = Object.assign(document.createElement("button"), { type: "button", className: "btn btn-brand", textContent: pending.stage === "listing" ? "Finish listing" : "Finish bonding-curve launch" });
+  const button = Object.assign(document.createElement("button"), { type: "button", className: "btn btn-brand", textContent: pending.stage === "listing" ? "Verify and finish listing" : "Finish bonding-curve launch" });
   const status = document.createElement("div");
   status.style.marginTop = "8px";
   box.append(title, text, button, status);
@@ -427,46 +472,33 @@ function mountPendingRecovery() {
       await compliance("launch", creator.toBase58());
       const mint = new web3.PublicKey(pending.mint);
       const rawSupply = BigInt(pending.rawSupply);
-      let curveAddressText = pending.curve;
-      if (pending.stage !== "listing") {
-        const mintInfo = await splToken.getMint(flow.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID);
-        if (mintInfo.mintAuthority === null) {
-          const pid = await flow.ensureProgramReady();
-          const curve = curveAddress(mint, pid);
-          const vault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
-          const [info, vaultInfo] = await Promise.all([
-            flow.connection.getAccountInfo(curve, "confirmed"),
-            splToken.getAccount(flow.connection, vault, "confirmed", splToken.TOKEN_PROGRAM_ID).catch(() => null),
-          ]);
-          if (!info || !info.owner.equals(pid)) throw new Error("Mint authority is already revoked but the expected Signal curve state is missing. Do not retry automatically; inspect this mint first.");
-          const state = decodeCurve(info.data);
-          const expectedInitialReal = rawSupply * INITIAL_REAL_BPS / BPS;
-          if (
-            !state.mint.equals(mint)
-            || !state.creator.equals(creator)
-            || state.totalSupply !== rawSupply
-            || state.initialRealTokenReserves !== expectedInitialReal
-            || state.decimals !== pending.decimals
-            || BigInt(mintInfo.supply.toString()) !== rawSupply
-            || mintInfo.freezeAuthority !== null
-            || !vaultInfo
-            || !vaultInfo.owner.equals(curve)
-            || !vaultInfo.mint.equals(mint)
-          ) {
-            throw new Error("Recovered curve state does not match this pending launch. Nothing was listed; inspect the mint and curve first.");
-          }
-          pending.curveVault = vault.toBase58();
-          curveAddressText = curve.toBase58();
-        } else {
-          const initialized = await flow.initializeCurve(creator, mint, rawSupply, pending.decimals);
-          curveAddressText = initialized.curve.toBase58();
-        }
-        pending.stage = "listing";
-        pending.curve = curveAddressText;
-        savePending(pending);
-        recordLaunch({ ...pending, launchedAt: new Date().toISOString() });
+      const decimals = Number(pending.decimals);
+      if (!pending.metadataUri || !pending.name || !pending.symbol || !Number.isInteger(decimals)) {
+        throw new Error("Saved launch recovery data is incomplete. Nothing was listed; inspect the mint before continuing.");
       }
-      status.textContent = "Curve is live. Finishing Signal listing…";
+
+      const mintInfo = await splToken.getMint(flow.connection, mint, "confirmed", splToken.TOKEN_PROGRAM_ID);
+      if (pending.stage !== "listing" && mintInfo.mintAuthority !== null) {
+        await flow.initializeCurve(creator, mint, rawSupply, decimals);
+      } else if (mintInfo.mintAuthority !== null) {
+        throw new Error("Saved state says this launch reached listing, but mint authority is still active. Nothing was listed.");
+      }
+
+      const verified = await flow.verifyRecoveredLaunch(mint, {
+        creator,
+        rawSupply,
+        decimals,
+        name: pending.name,
+        symbol: pending.symbol,
+        metadataUri: pending.metadataUri,
+      });
+      pending.stage = "listing";
+      pending.curve = verified.curve.toBase58();
+      pending.curveVault = verified.vault.toBase58();
+      savePending(pending);
+      recordLaunch({ ...pending, launchedAt: pending.launchedAt || new Date().toISOString() });
+
+      status.textContent = "On-chain curve, custody and immutable metadata verified. Finishing Signal listing…";
       await listOnSignal(pending, status, () => clearPending(pending.mint));
       button.style.display = "none";
     } catch (error) {
