@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/client/launch-solana-curve.js', import.meta.url), 'utf8');
 const tradeRouter = readFileSync(new URL('../src/client/trade-router.js', import.meta.url), 'utf8');
@@ -41,8 +41,20 @@ if (!tradeRouter.includes('button.disabled = false;')) {
   throw new Error('Raydium graduation failure path must re-enable the retry button.');
 }
 
+// The pre-curve launcher used to mint the complete supply directly to the
+// creator wallet. It must not exist in source or in the built public client
+// directory: even an unreferenced browser module could otherwise be manually
+// imported and revive the old launch path.
+if (existsSync(new URL('../src/client/launch-solana.js', import.meta.url))) {
+  throw new Error('Legacy full-supply-to-creator launcher exists in source.');
+}
+if (existsSync(new URL('../dist/client/launch-solana.js', import.meta.url))) {
+  throw new Error('Legacy full-supply-to-creator launcher was shipped in the public build.');
+}
+
 console.log('✓ recovered mint, curve, creator, supply, authorities and vault are re-verified');
 console.log('✓ immutable metadata is re-verified and missing metadata fails closed');
 console.log('✓ listing recovery cannot run before on-chain verification');
 console.log('✓ failed/cancelled Raydium graduation remains retryable without a page reload');
+console.log('✓ legacy full-supply creator launcher is absent from source and public build');
 console.log('✓ Signal bonding-curve recovery integrity guard passed');
