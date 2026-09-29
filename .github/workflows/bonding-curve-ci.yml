@@ -8,6 +8,7 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-economics.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -24,6 +25,7 @@ on:
       - 'programs/signal-bonding-curve/**'
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-economics.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -115,6 +117,9 @@ jobs:
           grep -F 'validate_initial_supply(total_supply, decimals)?;' programs/signal-bonding-curve/src/lib.rs
           grep -F 'const MINIMUM_TOKEN_SUPPLY = 100_000_000n;' apps/web/src/client/launch-solana-curve.js
           grep -F 'if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");' apps/web/src/client/trade-router.js
+      - name: Guard Pump-style curve economics
+        working-directory: apps/web
+        run: node tests/bonding-curve-economics.mjs
       - name: Guard launch fee at protocol layer
         run: |
           grep -F 'const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;' programs/signal-bonding-curve/src/lib.rs
