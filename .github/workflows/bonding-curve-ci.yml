@@ -9,6 +9,7 @@ on:
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
+      - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
@@ -22,6 +23,7 @@ on:
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
+      - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
@@ -103,6 +105,12 @@ jobs:
           grep -F 'const CURVE_STATE_VERSION = 2;' apps/web/src/client/launch-solana-curve.js
           grep -F 'const STATE_LEN = 160;' apps/web/src/client/trade-router.js
           grep -F 'const STATE_VERSION = 2;' apps/web/src/client/trade-router.js
+      - name: Guard protocol minimum and dust-trade parity
+        run: |
+          grep -F 'const MINIMUM_TOKEN_SUPPLY_WHOLE: u64 = 100_000_000;' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'validate_initial_supply(total_supply, decimals)?;' programs/signal-bonding-curve/src/lib.rs
+          grep -F 'const MINIMUM_TOKEN_SUPPLY = 100_000_000n;' apps/web/src/client/launch-solana-curve.js
+          grep -F 'if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");' apps/web/src/client/trade-router.js
       - name: Guard Raydium graduation wiring
         run: |
           grep -F 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C' apps/web/src/client/trade-router.js
@@ -124,3 +132,57 @@ jobs:
           ! grep -F "moduleScripts: ['/client/launch-solana.js'" apps/web/scripts/build.tsx
           grep -F "/client/launch-solana-curve.js" apps/web/scripts/build.tsx
           grep -F "/client/trade-router.js" apps/web/scripts/build.tsx
+
+  runtime-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install official Agave / Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Build runtime program
+        working-directory: programs/signal-bonding-curve
+        run: cargo build-sbf
+      - name: Start isolated Solana validator with Signal program
+        run: |
+          solana-keygen new --no-bip39-passphrase --silent --force -o /tmp/signal-runtime-payer.json
+          solana-keygen new --no-bip39-passphrase --silent --force -o /tmp/signal-runtime-program.json
+          PROGRAM_ID="$(solana-keygen pubkey /tmp/signal-runtime-program.json)"
+          echo "SIGNAL_RUNTIME_PROGRAM_ID=$PROGRAM_ID" >> "$GITHUB_ENV"
+          echo "SIGNAL_RUNTIME_PAYER=/tmp/signal-runtime-payer.json" >> "$GITHUB_ENV"
+          solana-test-validator \
+            --reset \
+            --quiet \
+            --bpf-program "$PROGRAM_ID" programs/signal-bonding-curve/target/deploy/signal_bonding_curve.so \
+            >/tmp/signal-validator.log 2>&1 &
+          echo $! >/tmp/signal-validator.pid
+          for attempt in $(seq 1 30); do
+            if solana cluster-version --url http://127.0.0.1:8899 >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          solana cluster-version --url http://127.0.0.1:8899
+          solana airdrop 20 --keypair /tmp/signal-runtime-payer.json --url http://127.0.0.1:8899
+          solana balance --keypair /tmp/signal-runtime-payer.json --url http://127.0.0.1:8899
+      - name: Execute initialize, buy, rejection and sell paths on Solana runtime
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-runtime-smoke.mjs
+      - name: Show validator log on failure
+        if: failure()
+        run: tail -n 300 /tmp/signal-validator.log || true
+      - name: Stop local validator
+        if: always()
+        run: |
+          if [ -f /tmp/signal-validator.pid ]; then kill "$(cat /tmp/signal-validator.pid)" 2>/dev/null || true; fi
