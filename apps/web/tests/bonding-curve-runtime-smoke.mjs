@@ -35,6 +35,7 @@ const platformWallet = new PublicKey('HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6r
 const DECIMALS = 6;
 const MIN_WHOLE_SUPPLY = 100_000_000n;
 const RAW_SUPPLY = MIN_WHOLE_SUPPLY * 10n ** BigInt(DECIMALS);
+const U64_MAX = 18_446_744_073_709_551_615n;
 const STATE_LEN = 160;
 const STATE_VERSION = 2;
 
@@ -182,14 +183,36 @@ await expectFailure('supply below 100M', async () => {
   });
 }
 
+// Force an initialize failure AFTER the program reaches its fee transfer. The
+// max-u64 supply passes the minimum/mint/vault checks but cannot produce the
+// 107.30% virtual token reserve. Solana transaction atomicity must roll the
+// launch fee back and must not leave a curve state account behind.
+{
+  const prepared = await prepareMint({ rawSupply: U64_MAX, decimals: 0 });
+  const platformBeforeFailedInitialize = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
+  await expectFailure('post-fee initialize failure', async () => {
+    await sendAndConfirmTransaction(
+      connection,
+      new Transaction().add(initializeInstruction({ ...prepared, rawSupply: U64_MAX, decimals: 0 })),
+      [payer],
+      { commitment: 'confirmed' },
+    );
+  });
+  const platformAfterFailedInitialize = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
+  assert(platformAfterFailedInitialize === platformBeforeFailedInitialize, 'failed initialize rolls back the 0.001 SOL launch fee');
+  assert(!(await connection.getAccountInfo(prepared.curve, 'confirmed')), 'failed initialize leaves no curve state account');
+  console.log('✓ failed initialize rolls back launch fee atomically');
+}
+
 // Happy-path launch at exactly the protocol minimum.
 const { mint, curve, vault } = await prepareMint();
 const creatorAta = await getAssociatedTokenAddress(mint, payer.publicKey, false, TOKEN_PROGRAM_ID);
 assert(!(await connection.getAccountInfo(creatorAta, 'confirmed')), 'creator has no automatic token account/allocation before trading');
 const platformBeforeLaunch = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
+const initializeIx = initializeInstruction({ mint, curve, vault, rawSupply: RAW_SUPPLY, decimals: DECIMALS });
 await sendAndConfirmTransaction(
   connection,
-  new Transaction().add(initializeInstruction({ mint, curve, vault, rawSupply: RAW_SUPPLY, decimals: DECIMALS })),
+  new Transaction().add(initializeIx),
   [payer],
   { commitment: 'confirmed' },
 );
@@ -212,6 +235,16 @@ assert(initial.realSol === 0n, 'curve begins with zero real SOL');
 assert(!initial.complete && !initial.graduated, 'new curve begins active');
 assert(platformAfterLaunch - platformBeforeLaunch === 1_000_000n, 'initialize pays exact 0.001 SOL launch fee to bound Signal wallet');
 console.log('✓ initialize verified: full supply under curve custody, creator automatic allocation = 0, 0.001 SOL launch fee enforced');
+
+// A retry after successful initialization must fail before any second fee can
+// be charged. This protects refresh/retry behavior as well as direct callers.
+const platformBeforeDuplicateInitialize = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
+await expectFailure('duplicate initialize fee retry', async () => {
+  await sendAndConfirmTransaction(connection, new Transaction().add(initializeIx), [payer], { commitment: 'confirmed' });
+});
+const platformAfterDuplicateInitialize = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
+assert(platformAfterDuplicateInitialize === platformBeforeDuplicateInitialize, 'duplicate initialize does not charge launch fee twice');
+console.log('✓ duplicate initialize cannot double-charge launch fee');
 
 const traderAta = await getOrCreateAssociatedTokenAccount(connection, payer, mint, payer.publicKey, false, 'confirmed', undefined, TOKEN_PROGRAM_ID);
 const platformBeforeBuy = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
