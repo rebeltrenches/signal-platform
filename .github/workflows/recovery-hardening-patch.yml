@@ -1,0 +1,78 @@
+name: Recovery hardening patch
+
+on:
+  push:
+    branches: [pf-style-bonding-curve]
+    paths: ['.github/workflows/recovery-hardening-patch.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pf-style-bonding-curve
+          fetch-depth: 0
+      - name: Harden pending launch recovery verification
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('apps/web/src/client/launch-solana-curve.js')
+          text = p.read_text()
+          old = '''        if (mintInfo.mintAuthority === null) {
+          const pid = await flow.ensureProgramReady();
+          const curve = curveAddress(mint, pid);
+          const info = await flow.connection.getAccountInfo(curve, "confirmed");
+          if (!info) throw new Error("Mint authority is already revoked but the Signal curve state is missing. Do not retry automatically; inspect this mint first.");
+          decodeCurve(info.data);
+          curveAddressText = curve.toBase58();
+        } else {'''
+          new = '''        if (mintInfo.mintAuthority === null) {
+          const pid = await flow.ensureProgramReady();
+          const curve = curveAddress(mint, pid);
+          const vault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
+          const [info, vaultInfo] = await Promise.all([
+            flow.connection.getAccountInfo(curve, "confirmed"),
+            splToken.getAccount(flow.connection, vault, "confirmed", splToken.TOKEN_PROGRAM_ID).catch(() => null),
+          ]);
+          if (!info || !info.owner.equals(pid)) throw new Error("Mint authority is already revoked but the expected Signal curve state is missing. Do not retry automatically; inspect this mint first.");
+          const state = decodeCurve(info.data);
+          const expectedInitialReal = rawSupply * INITIAL_REAL_BPS / BPS;
+          if (
+            !state.mint.equals(mint)
+            || !state.creator.equals(creator)
+            || state.totalSupply !== rawSupply
+            || state.initialRealTokenReserves !== expectedInitialReal
+            || state.decimals !== pending.decimals
+            || BigInt(mintInfo.supply.toString()) !== rawSupply
+            || mintInfo.freezeAuthority !== null
+            || !vaultInfo
+            || !vaultInfo.owner.equals(curve)
+            || !vaultInfo.mint.equals(mint)
+          ) {
+            throw new Error("Recovered curve state does not match this pending launch. Nothing was listed; inspect the mint and curve first.");
+          }
+          pending.curveVault = vault.toBase58();
+          curveAddressText = curve.toBase58();
+        } else {'''
+          if text.count(old) != 1:
+            raise SystemExit(f'expected one recovery block, found {text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+          PY
+      - name: Verify patch
+        run: |
+          node --input-type=module --check < apps/web/src/client/launch-solana-curve.js
+          grep -F 'Recovered curve state does not match this pending launch.' apps/web/src/client/launch-solana-curve.js
+          grep -F 'state.initialRealTokenReserves !== expectedInitialReal' apps/web/src/client/launch-solana-curve.js
+          git diff --check
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/client/launch-solana-curve.js
+          git commit -m "Harden interrupted launch recovery verification"
+          git push origin HEAD:pf-style-bonding-curve
