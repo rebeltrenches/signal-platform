@@ -98,7 +98,7 @@ async function expectFailure(label, callback) {
   assert(failed, `${label} must fail`);
   console.log(`✓ ${label} rejected`);
 }
-function initializeInstruction({ mint, curve, vault, rawSupply, decimals, creator = payer.publicKey }) {
+function initializeInstruction({ mint, curve, vault, rawSupply, decimals, creator = payer.publicKey, launchFeeRecipient = platformWallet }) {
   return new TransactionInstruction({
     programId,
     keys: [
@@ -106,6 +106,7 @@ function initializeInstruction({ mint, curve, vault, rawSupply, decimals, creato
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: creator, isSigner: true, isWritable: true },
+      { pubkey: launchFeeRecipient, isSigner: false, isWritable: true },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
@@ -163,16 +164,36 @@ await expectFailure('supply below 100M', async () => {
   });
 }
 
+// A direct caller cannot redirect the fixed launch fee to another wallet.
+{
+  const prepared = await prepareMint();
+  await expectFailure('wrong launch fee recipient', async () => {
+    await sendAndConfirmTransaction(
+      connection,
+      new Transaction().add(initializeInstruction({
+        ...prepared,
+        rawSupply: RAW_SUPPLY,
+        decimals: DECIMALS,
+        launchFeeRecipient: payer.publicKey,
+      })),
+      [payer],
+      { commitment: 'confirmed' },
+    );
+  });
+}
+
 // Happy-path launch at exactly the protocol minimum.
 const { mint, curve, vault } = await prepareMint();
 const creatorAta = await getAssociatedTokenAddress(mint, payer.publicKey, false, TOKEN_PROGRAM_ID);
 assert(!(await connection.getAccountInfo(creatorAta, 'confirmed')), 'creator has no automatic token account/allocation before trading');
+const platformBeforeLaunch = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
 await sendAndConfirmTransaction(
   connection,
   new Transaction().add(initializeInstruction({ mint, curve, vault, rawSupply: RAW_SUPPLY, decimals: DECIMALS })),
   [payer],
   { commitment: 'confirmed' },
 );
+const platformAfterLaunch = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
 
 const mintState = await getMint(connection, mint, 'confirmed', TOKEN_PROGRAM_ID);
 const vaultState = await getAccount(connection, vault, 'confirmed', TOKEN_PROGRAM_ID);
@@ -189,7 +210,8 @@ assert(initial.initialRealTokens === RAW_SUPPLY * 7_931n / 10_000n, '79.31% is c
 assert(initial.realTokens === initial.initialRealTokens, 'no curve inventory has been sold initially');
 assert(initial.realSol === 0n, 'curve begins with zero real SOL');
 assert(!initial.complete && !initial.graduated, 'new curve begins active');
-console.log('✓ initialize verified: full supply under curve custody, creator automatic allocation = 0');
+assert(platformAfterLaunch - platformBeforeLaunch === 1_000_000n, 'initialize pays exact 0.001 SOL launch fee to bound Signal wallet');
+console.log('✓ initialize verified: full supply under curve custody, creator automatic allocation = 0, 0.001 SOL launch fee enforced');
 
 const traderAta = await getOrCreateAssociatedTokenAccount(connection, payer, mint, payer.publicKey, false, 'confirmed', undefined, TOKEN_PROGRAM_ID);
 const platformBeforeBuy = BigInt(await connection.getBalance(platformWallet, 'confirmed'));
