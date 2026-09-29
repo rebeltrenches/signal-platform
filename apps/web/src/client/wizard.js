@@ -76,6 +76,8 @@
   const MAX_LOGO_BYTES = 100 * 1024;
   const MAX_LOGO_INPUT_BYTES = 5 * 1024 * 1024;
   const LOGO_MAX_DIMENSION = 512;
+  const MAX_LOGO_INPUT_SIDE = 8192;
+  const MAX_LOGO_INPUT_PIXELS = 32 * 1024 * 1024;
   const utf8 = new TextEncoder();
   const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
@@ -174,16 +176,52 @@
     return null;
   }
 
+  // Reads the declared pixel size from the file header, so a small but
+  // huge-when-decoded image is refused before the browser tries to decode it.
+  function declaredSize(b, type) {
+    const u16be = (i) => (b[i] << 8) | b[i + 1];
+    const u32be = (i) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+    const u16le = (i) => b[i] | (b[i + 1] << 8);
+    const u24le = (i) => b[i] | (b[i + 1] << 8) | (b[i + 2] << 16);
+    if (type === 'image/png') return b.length >= 24 ? { w: u32be(16), h: u32be(20) } : null;
+    if (type === 'image/gif') return b.length >= 10 ? { w: u16le(6), h: u16le(8) } : null;
+    if (type === 'image/jpeg') {
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1];
+        if (marker === 0xff) { i++; continue; }
+        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) return { w: u16be(i + 7), h: u16be(i + 5) };
+        i += 2 + u16be(i + 2);
+      }
+      return null;
+    }
+    if (type === 'image/webp' && b.length >= 30) {
+      const kind = String.fromCharCode(b[12], b[13], b[14], b[15]);
+      if (kind === 'VP8X') return { w: u24le(24) + 1, h: u24le(27) + 1 };
+      if (kind === 'VP8L') { const bits = (b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] << 24)) >>> 0; return { w: (bits & 0x3fff) + 1, h: ((bits >>> 14) & 0x3fff) + 1 }; }
+      if (kind === 'VP8 ') return { w: u16le(26) & 0x3fff, h: u16le(28) & 0x3fff };
+    }
+    return null;
+  }
+
   // Turns whatever the creator picked into the exact file that will be
   // stored: returns { file, animated } or { error }.
   async function prepareLogo(file) {
     if (file.size > MAX_LOGO_INPUT_BYTES) {
       return { error: `This image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the maximum is 5 MB.` };
     }
-    const head = new Uint8Array(await file.slice(0, 64).arrayBuffer());
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const head = bytes.subarray(0, 64);
     const type = logoTypeFromBytes(head);
     if (!type) return { error: 'The logo must be a PNG, JPEG, GIF or WebP image (SVG is not supported).' };
     const unreadable = { error: "We couldn't read this image. Try another PNG, JPEG, GIF or WebP file." };
+    const size = declaredSize(bytes, type);
+    if (!size || !size.w || !size.h) return unreadable;
+    if (size.w > MAX_LOGO_INPUT_SIDE || size.h > MAX_LOGO_INPUT_SIDE || size.w * size.h > MAX_LOGO_INPUT_PIXELS) {
+      return { error: `This image is ${size.w}×${size.h} pixels, which is too large to process here. Try one under ${MAX_LOGO_INPUT_SIDE}×${MAX_LOGO_INPUT_SIDE}.` };
+    }
     let image;
     try {
       image = await decodeImage(file);

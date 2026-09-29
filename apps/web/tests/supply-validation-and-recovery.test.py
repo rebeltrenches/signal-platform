@@ -762,6 +762,16 @@ def main():
         page.wait_for_function("() => /SVG/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
         disabled_real_svg = page.is_disabled(next_btn) and not page.is_visible('#tk-logo-preview')
 
+        # A tiny file that declares enormous dimensions is refused before decoding.
+        import struct as _st
+        def _c(kind, data):
+            import zlib as _z
+            return _st.pack(">I", len(data)) + kind + data + _st.pack(">I", _z.crc32(kind + data) & 0xFFFFFFFF)
+        bomb = bytes([0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10]) + _c(b"IHDR", _st.pack(">IIBBBBB", 30000, 30000, 8, 2, 0, 0, 0)) + _c(b"IEND", b"")
+        page.set_input_files('#tk-logo', files=[{"name": "bomb.png", "mimeType": "image/png", "buffer": bomb}])
+        page.wait_for_function("() => /too large to process/.test(document.getElementById('tk-logo-error').textContent)", timeout=5000)
+        refused_bomb = page.is_disabled(next_btn) and not page.is_visible('#tk-logo-preview')
+
         # A large PNG (~3 MB of noise, 1000x1000) is resized to fit 512x512 and under 100 KB.
         big_png = noise_png(1000, 1000)
         page.set_input_files('#tk-logo', files=[{"name": "photo.png", "mimeType": "image/png", "buffer": big_png}])
@@ -818,6 +828,7 @@ def main():
         check("M (wizard): a non-image renamed .png is refused", disabled_svg)
         check("M (wizard): a file that isn't a decodable image is refused, with no preview", disabled_undecodable)
         check("M (wizard): a real SVG file is refused", disabled_real_svg)
+        check("M (wizard): an image declaring huge dimensions is refused before decoding", refused_bomb)
         check("M (wizard): a large PNG is resized to fit 512x512 and under 100 KB", png_result["size"] <= 100 * 1024 and max(png_result["w"], png_result["h"]) <= 512 and png_result["type"] == "image/webp" and enabled_ok)
         check("M (wizard): the final size is shown to the creator", "KB" in png_result["info"] and "on-chain" in png_result["info"])
         check("M (wizard): a large JPEG is resized to fit 512x512 and under 100 KB", jpeg_result["size"] <= 100 * 1024 and max(jpeg_result["w"], jpeg_result["h"]) <= 512)
