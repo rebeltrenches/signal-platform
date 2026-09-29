@@ -454,24 +454,24 @@ fn account_needs_ata(account: &AccountInfo) -> Result<bool, ProgramError> {
 }
 
 fn create_migration_ata<'a>(
+    payer: &AccountInfo<'a>,
     migration_authority: &AccountInfo<'a>,
     ata: &AccountInfo<'a>,
     mint: &AccountInfo<'a>,
     token_program: &AccountInfo<'a>,
     associated_token_program: &AccountInfo<'a>,
     system_program_info: &AccountInfo<'a>,
-    migration_seeds: &[&[u8]],
 ) -> ProgramResult {
     let ix = create_associated_token_account_idempotent(
-        migration_authority.key,
+        payer.key,
         migration_authority.key,
         mint.key,
         token_program.key,
     );
-    invoke_signed(
+    invoke(
         &ix,
         &[
-            migration_authority.clone(),
+            payer.clone(),
             ata.clone(),
             migration_authority.clone(),
             mint.clone(),
@@ -479,7 +479,6 @@ fn create_migration_ata<'a>(
             token_program.clone(),
             associated_token_program.clone(),
         ],
-        &[migration_seeds],
     )
 }
 
@@ -502,6 +501,13 @@ fn graduation_setup_lamports(rent: &Rent, create_pool_fee: u64, token_ata_needed
     Ok(total)
 }
 
+// Graduation is deliberately a two-instruction state machine using the same
+// opcode and account list. The first invocation prepares the migration vaults
+// and moves native lamports only after every CPI has finished. The second
+// invocation performs SyncNative + the Raydium CPI + LP burn. Keeping direct
+// lamport mutation and later CPIs in separate outer instructions avoids
+// Solana's UnbalancedInstruction runtime failure while still allowing both
+// invocations to live in one atomic transaction.
 fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let mut it = accounts.iter();
     let curve = next_account_info(&mut it)?;
@@ -527,7 +533,7 @@ fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     let system_program_info = next_account_info(&mut it)?;
     let rent_sysvar = next_account_info(&mut it)?;
 
-    if !caller.is_signer { return Err(ProgramError::MissingRequiredSignature); }
+    if !caller.is_signer || !caller.is_writable { return Err(ProgramError::MissingRequiredSignature); }
     if token_program.key != &spl_token::id()
         || associated_token_program.key != &spl_associated_token_account::id()
         || system_program_info.key != &system_program::id()
@@ -542,7 +548,7 @@ fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     }
 
     let mut state = validate_curve_accounts(program_id, curve, mint, curve_vault, token_program)?;
-    if !state.complete || state.graduated || state.real_token_reserves != 0 || state.real_sol_reserves == 0 {
+    if !state.complete || state.graduated || state.real_token_reserves != 0 {
         return Err(ProgramError::InvalidArgument);
     }
 
@@ -560,8 +566,6 @@ fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
     if migration_token.key != &expected_token_ata || migration_wsol.key != &expected_wsol_ata {
         return Err(ProgramError::InvalidAccountData);
     }
-    let token_ata_needed = account_needs_ata(migration_token)?;
-    let wsol_ata_needed = account_needs_ata(migration_wsol)?;
 
     let token0_is_mint = mint.key.to_bytes() < WSOL_MINT.to_bytes();
     let token_0 = if token0_is_mint { mint } else { wsol_mint };
@@ -585,51 +589,95 @@ fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
         return Err(ProgramError::InvalidSeeds);
     }
 
-    let create_fee = raydium_create_pool_fee(amm_config)?;
-    let rent = Rent::get()?;
-    let setup = graduation_setup_lamports(&rent, create_fee, token_ata_needed, wsol_ata_needed)?;
-    let existing_setup = migration_authority.lamports();
-    let curve_funding = setup.saturating_sub(existing_setup);
-    if curve_funding >= state.real_sol_reserves { return Err(ProgramError::InsufficientFunds); }
-    let liquidity_sol = state.real_sol_reserves.checked_sub(curve_funding).ok_or(ProgramError::ArithmeticOverflow)?;
-    if liquidity_sol == 0 { return Err(ProgramError::InsufficientFunds); }
+    // An unset graduation_pool means this is the preparation invocation.
+    // All CPIs happen first. Only after the final CPI returns do we directly
+    // move lamports out of the Signal-owned curve account.
+    if state.graduation_pool == Pubkey::default() {
+        if state.real_sol_reserves == 0 { return Err(ProgramError::InsufficientFunds); }
+        let token_ata_needed = account_needs_ata(migration_token)?;
+        let wsol_ata_needed = account_needs_ata(migration_wsol)?;
 
-    let curve_rent_floor = rent.minimum_balance(STATE_LEN);
-    debit_owned_lamports(curve, curve_funding, curve_rent_floor)?;
-    credit_lamports(migration_authority, curve_funding)?;
+        let create_fee = raydium_create_pool_fee(amm_config)?;
+        let rent = Rent::get()?;
+        let raydium_setup = graduation_setup_lamports(&rent, create_fee, false, false)?;
+        let full_setup = graduation_setup_lamports(&rent, create_fee, token_ata_needed, wsol_ata_needed)?;
+        let ata_reimbursement = full_setup.checked_sub(raydium_setup).ok_or(ProgramError::ArithmeticOverflow)?;
+        let existing_setup = migration_authority.lamports();
+        let curve_setup_funding = raydium_setup.saturating_sub(existing_setup);
+        let non_liquidity_cost = curve_setup_funding.checked_add(ata_reimbursement).ok_or(ProgramError::ArithmeticOverflow)?;
+        if non_liquidity_cost >= state.real_sol_reserves { return Err(ProgramError::InsufficientFunds); }
+        let curve_sol_before_prepare = state.real_sol_reserves;
+        let liquidity_sol = curve_sol_before_prepare.checked_sub(non_liquidity_cost).ok_or(ProgramError::ArithmeticOverflow)?;
+        if liquidity_sol == 0 { return Err(ProgramError::InsufficientFunds); }
 
-    let migration_bump_seed = [migration_bump];
-    let migration_seeds: &[&[u8]] = &[b"migration-authority", mint.key.as_ref(), &migration_bump_seed];
-    create_migration_ata(migration_authority, migration_token, mint, token_program, associated_token_program, system_program_info, migration_seeds)?;
-    create_migration_ata(migration_authority, migration_wsol, wsol_mint, token_program, associated_token_program, system_program_info, migration_seeds)?;
+        // The caller temporarily pays only for the two migration ATAs; the
+        // curve reimburses the exact rent at the end of this instruction.
+        // This keeps the migration signer unfunded until all CPIs are done.
+        create_migration_ata(caller, migration_authority, migration_token, mint, token_program, associated_token_program, system_program_info)?;
+        create_migration_ata(caller, migration_authority, migration_wsol, wsol_mint, token_program, associated_token_program, system_program_info)?;
 
+        let token_ata_state = TokenAccount::unpack(&migration_token.try_borrow_data()?)?;
+        let wsol_ata_state = TokenAccount::unpack(&migration_wsol.try_borrow_data()?)?;
+        if token_ata_state.owner != expected_migration || token_ata_state.mint != *mint.key
+            || wsol_ata_state.owner != expected_migration || wsol_ata_state.mint != WSOL_MINT
+        {
+            return Err(ProgramError::InvalidAccountData);
+        }
+
+        let graduation_tokens = state.token_total_supply.checked_sub(state.initial_real_token_reserves)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let curve_vault_state = TokenAccount::unpack(&curve_vault.try_borrow_data()?)?;
+        if curve_vault_state.amount < graduation_tokens { return Err(ProgramError::InsufficientFunds); }
+        let curve_bump_seed = [state.bump];
+        let curve_seeds: &[&[u8]] = &[b"bonding-curve", mint.key.as_ref(), &curve_bump_seed];
+        invoke_signed(
+            &token_instruction::transfer(token_program.key, curve_vault.key, migration_token.key, curve.key, &[], graduation_tokens)?,
+            &[curve_vault.clone(), migration_token.clone(), curve.clone(), token_program.clone()],
+            &[curve_seeds],
+        )?;
+
+        // IMPORTANT: no CPI is allowed after this point. Solana's runtime can
+        // reject an instruction as unbalanced if a program directly changes
+        // lamports and then performs another CPI. The next outer graduation
+        // instruction does SyncNative and Raydium initialization.
+        let curve_rent_floor = rent.minimum_balance(STATE_LEN);
+        debit_owned_lamports(curve, curve_sol_before_prepare, curve_rent_floor)?;
+        credit_lamports(migration_authority, curve_setup_funding)?;
+        credit_lamports(migration_wsol, liquidity_sol)?;
+        credit_lamports(caller, ata_reimbursement)?;
+
+        state.real_sol_reserves = liquidity_sol;
+        state.graduation_pool = expected_pool;
+        return state.pack(&mut curve.try_borrow_mut_data()?);
+    }
+
+    // A non-default pool marks a prepared migration. This second invocation
+    // contains only CPIs plus the final state write — no direct lamport edits.
+    if state.graduation_pool != expected_pool || state.real_sol_reserves == 0 {
+        return Err(ProgramError::InvalidArgument);
+    }
+    if migration_token.owner != token_program.key || migration_wsol.owner != token_program.key {
+        return Err(ProgramError::IllegalOwner);
+    }
+    let graduation_tokens = state.token_total_supply.checked_sub(state.initial_real_token_reserves)
+        .ok_or(ProgramError::ArithmeticOverflow)?;
     let token_ata_state = TokenAccount::unpack(&migration_token.try_borrow_data()?)?;
-    let wsol_ata_state = TokenAccount::unpack(&migration_wsol.try_borrow_data()?)?;
-    if token_ata_state.owner != expected_migration || token_ata_state.mint != *mint.key
-        || wsol_ata_state.owner != expected_migration || wsol_ata_state.mint != WSOL_MINT
-    {
+    if token_ata_state.owner != expected_migration || token_ata_state.mint != *mint.key || token_ata_state.amount < graduation_tokens {
         return Err(ProgramError::InvalidAccountData);
     }
 
-    let graduation_tokens = state.token_total_supply.checked_sub(state.initial_real_token_reserves)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let curve_vault_state = TokenAccount::unpack(&curve_vault.try_borrow_data()?)?;
-    if curve_vault_state.amount < graduation_tokens { return Err(ProgramError::InsufficientFunds); }
-    let curve_bump_seed = [state.bump];
-    let curve_seeds: &[&[u8]] = &[b"bonding-curve", mint.key.as_ref(), &curve_bump_seed];
-    invoke_signed(
-        &token_instruction::transfer(token_program.key, curve_vault.key, migration_token.key, curve.key, &[], graduation_tokens)?,
-        &[curve_vault.clone(), migration_token.clone(), curve.clone(), token_program.clone()],
-        &[curve_seeds],
-    )?;
-
-    debit_owned_lamports(curve, liquidity_sol, curve_rent_floor)?;
-    credit_lamports(migration_wsol, liquidity_sol)?;
     invoke(
         &token_instruction::sync_native(token_program.key, migration_wsol.key)?,
         &[migration_wsol.clone(), token_program.clone()],
     )?;
+    let wsol_ata_state = TokenAccount::unpack(&migration_wsol.try_borrow_data()?)?;
+    if wsol_ata_state.owner != expected_migration || wsol_ata_state.mint != WSOL_MINT || wsol_ata_state.amount < state.real_sol_reserves {
+        return Err(ProgramError::InvalidAccountData);
+    }
+    let liquidity_sol = state.real_sol_reserves;
 
+    let migration_bump_seed = [migration_bump];
+    let migration_seeds: &[&[u8]] = &[b"migration-authority", mint.key.as_ref(), &migration_bump_seed];
     let amount_0 = if token0_is_mint { graduation_tokens } else { liquidity_sol };
     let amount_1 = if token0_is_mint { liquidity_sol } else { graduation_tokens };
     let raydium_ix = Instruction {
@@ -688,7 +736,6 @@ fn graduate(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramResult {
 
     state.real_sol_reserves = 0;
     state.graduated = true;
-    state.graduation_pool = expected_pool;
     state.pack(&mut curve.try_borrow_mut_data()?)
 }
 
