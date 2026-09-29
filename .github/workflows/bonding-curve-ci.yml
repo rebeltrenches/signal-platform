@@ -10,6 +10,7 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
+      - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
@@ -24,6 +25,7 @@ on:
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
+      - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
       - 'apps/web/src/pages/CreatePage.tsx'
       - 'apps/web/src/pages/SecurityPage.tsx'
       - 'apps/web/src/pages/TermsPage.tsx'
@@ -111,6 +113,10 @@ jobs:
           grep -F 'validate_initial_supply(total_supply, decimals)?;' programs/signal-bonding-curve/src/lib.rs
           grep -F 'const MINIMUM_TOKEN_SUPPLY = 100_000_000n;' apps/web/src/client/launch-solana-curve.js
           grep -F 'if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");' apps/web/src/client/trade-router.js
+      - name: Guard curve-safe maximum supply
+        run: |
+          grep -F 'const INITIAL_VIRTUAL_BPS = 10_730n;' apps/web/src/client/launch-solana-curve.js
+          grep -F 'const MAX_CURVE_RAW_SUPPLY = ((U64_MAX + 1n) * BPS - 1n) / INITIAL_VIRTUAL_BPS;' apps/web/src/client/launch-solana-curve.js
       - name: Guard Raydium graduation wiring
         run: |
           grep -F 'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C' apps/web/src/client/trade-router.js
@@ -179,6 +185,11 @@ jobs:
         env:
           SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
         run: node tests/bonding-curve-runtime-smoke.mjs
+      - name: Execute exact full-curve completion on Solana runtime
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-completion-runtime.mjs
       - name: Show validator log on failure
         if: failure()
         run: tail -n 300 /tmp/signal-validator.log || true
