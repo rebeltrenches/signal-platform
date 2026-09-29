@@ -35,7 +35,12 @@ const MAX_DECIMALS = 9;
 const COMPUTE_LIMIT_MAX = 1_400_000;
 const COMPUTE_PRICE_MICRO_LAMPORTS = 50_000;
 const INITIAL_REAL_BPS = 7_931n;
+const INITIAL_VIRTUAL_BPS = 10_730n;
 const BPS = 10_000n;
+// The curve stores virtual token reserves in a u64 too. Because the Pump-style
+// virtual reserve begins at 107.30% of supply, its safe maximum is slightly
+// below the SPL mint's raw u64 maximum. Reject it before any paid mint action.
+const MAX_CURVE_RAW_SUPPLY = ((U64_MAX + 1n) * BPS - 1n) / INITIAL_VIRTUAL_BPS;
 const CURVE_STATE_LEN = 160;
 const CURVE_STATE_VERSION = 2;
 const PENDING_KEY = IS_DEVNET ? "signal_curve_pending_devnet_v2" : "signal_curve_pending_v2";
@@ -94,8 +99,12 @@ function validateSupply(rawSupply, decimals) {
   const whole = BigInt(text);
   if (whole < MINIMUM_TOKEN_SUPPLY) throw new Error("Minimum supply is 100,000,000 tokens.");
   if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_DECIMALS) throw new Error("Decimals must be from 0 to 9.");
-  const raw = whole * 10n ** BigInt(decimals);
-  if (raw > U64_MAX) throw new Error(`That supply is too large with ${decimals} decimals.`);
+  const scale = 10n ** BigInt(decimals);
+  const raw = whole * scale;
+  if (raw > MAX_CURVE_RAW_SUPPLY) {
+    const maxWhole = MAX_CURVE_RAW_SUPPLY / scale;
+    throw new Error(`That supply is too large for the bonding curve with ${decimals} decimals. Maximum is ${maxWhole.toLocaleString()} tokens.`);
+  }
   return { whole, raw };
 }
 
