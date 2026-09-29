@@ -28,6 +28,7 @@ const INITIAL_VIRTUAL_TOKEN_BPS: u128 = 10_730;
 const BPS_DENOMINATOR: u128 = 10_000;
 const INITIAL_VIRTUAL_SOL_RESERVES: u64 = 30_000_000_000; // 30 SOL
 const SIGNAL_FEE_BPS: u128 = 100; // 1% of each Signal curve trade
+const MINIMUM_TOKEN_SUPPLY_WHOLE: u64 = 100_000_000;
 const STATE_LEN: usize = 160;
 const STATE_VERSION: u8 = 2;
 
@@ -148,6 +149,14 @@ fn ceil_div(n: u128, d: u128) -> Result<u128, ProgramError> {
     Ok(n.checked_add(d - 1).ok_or(ProgramError::ArithmeticOverflow)? / d)
 }
 
+fn validate_initial_supply(total_supply: u64, decimals: u8) -> ProgramResult {
+    if decimals > 9 { return Err(ProgramError::InvalidArgument); }
+    let scale = 10u64.checked_pow(u32::from(decimals)).ok_or(ProgramError::ArithmeticOverflow)?;
+    let minimum = MINIMUM_TOKEN_SUPPLY_WHOLE.checked_mul(scale).ok_or(ProgramError::ArithmeticOverflow)?;
+    if total_supply < minimum { return Err(ProgramError::InvalidArgument); }
+    Ok(())
+}
+
 fn initial_reserves(total_supply: u64) -> Result<(u64, u64), ProgramError> {
     let total = u128::from(total_supply);
     let real = total.checked_mul(INITIAL_REAL_TOKEN_BPS)
@@ -266,7 +275,7 @@ fn initialize(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pro
     if data.len() != 10 { return Err(ProgramError::InvalidInstructionData); }
     let total_supply = read_u64(data, 1)?;
     let decimals = data[9];
-    if total_supply == 0 || decimals > 9 { return Err(ProgramError::InvalidArgument); }
+    validate_initial_supply(total_supply, decimals)?;
 
     let mut it = accounts.iter();
     let curve = next_account_info(&mut it)?;
@@ -718,6 +727,16 @@ mod tests {
     }
 
     #[test]
+    fn minimum_supply_is_enforced_in_base_units() {
+        assert!(validate_initial_supply(99_999_999, 0).is_err());
+        assert!(validate_initial_supply(100_000_000, 0).is_ok());
+        assert!(validate_initial_supply(99_999_999_999_999, 6).is_err());
+        assert!(validate_initial_supply(100_000_000_000_000, 6).is_ok());
+        assert!(validate_initial_supply(100_000_000_000_000_000, 9).is_ok());
+        assert!(validate_initial_supply(100_000_000_000_000_000, 10).is_err());
+    }
+
+    #[test]
     fn matches_classic_pump_shape_for_one_billion_supply() {
         let s = state();
         assert_eq!(s.virtual_token_reserves, 1_073_000_000_000_000);
@@ -729,6 +748,7 @@ mod tests {
     #[test]
     fn curve_shape_scales_to_signal_minimum_supply() {
         let supply = 100_000_000_000_000u64; // 100M at 6 decimals
+        validate_initial_supply(supply, 6).unwrap();
         let (real, virtual_tokens) = initial_reserves(supply).unwrap();
         assert_eq!(real, 79_310_000_000_000);
         assert_eq!(virtual_tokens, 107_300_000_000_000);
