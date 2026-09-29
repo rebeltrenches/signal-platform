@@ -1,7 +1,7 @@
 {
   "$comment": "Signal's regional restrictions and terms version — the ONE place they are set. The Cloudflare Worker (functions/compliance.js) reads it to answer /api/geo and to refuse launch registration and trade building; the site reads the result from /api/geo. To move a country between levels, move its entry from one level's \"countries\" to the other's; no code changes are needed. Country codes are ISO 3166-1 alpha-2 as sent by Cloudflare (CF-IPCountry / request.cf.country). Changing termsVersion re-prompts every visitor to accept the terms. DRAFT pending legal review.",
-  "version": "2026-09-28",
-  "termsVersion": "2026-09-28",
+  "version": "2026-09-29",
+  "termsVersion": "2026-09-29",
   "levels": {
     "blocked": {
       "$comment": "Level 1. No wallet connect, launch or trade; browsing is allowed with a clear notice.",
@@ -25,15 +25,15 @@
       "countries": {
         "GB": {
           "name": "United Kingdom",
-          "warning": "UK financial promotion rules restrict how cryptoassets can be promoted to UK consumers. Signal does not target UK consumers, and nothing on Signal is a financial promotion or an invitation to invest. You use Signal on your own initiative and at your own risk."
+          "warning": "UK financial-promotion rules can apply to cryptoasset communications capable of having an effect in the UK, including online communications from overseas firms. Signal does not provide financial advice. Access to or use of Signal does not mean that any token, project or promotion has been approved by the FCA. Additional restrictions may apply to UK users."
         },
         "US": {
           "name": "United States",
-          "warning": "In the United States, launching or trading tokens may be subject to federal and state rules on securities, commodities, exchanges and money transmission. Signal is not registered with any US regulator. You are responsible for making sure what you do is lawful where you are."
+          "warning": "In the United States, laws and regulatory requirements may apply differently depending on the token, activity and state. These can include federal and state rules relating to securities, commodities, money transmission and trading services. Signal does not provide legal or financial advice. You are responsible for complying with laws that apply to you."
         },
         "ZA": {
           "name": "South Africa",
-          "warning": "In South Africa, crypto assets are financial products and crypto asset service providers must be licensed by the FSCA. Signal is not an FSCA-licensed provider. You use Signal on your own initiative and at your own risk."
+          "warning": "In South Africa, crypto assets are regulated as financial products under the FAIS Act. Certain businesses providing financial services in relation to crypto assets must be authorised by the FSCA. Signal is not currently an FSCA-authorised financial services provider. Signal does not provide financial advice. You use Signal on your own initiative and remain responsible for your wallet and every transaction you approve."
         }
       }
     }
