@@ -133,6 +133,7 @@ function quoteSell(s, tokenIn) {
   const gross = s.virtualSol - newVs;
   if (gross <= 0n || gross > s.realSol) throw new Error("The curve does not have enough real SOL for this sell.");
   const tradeFee = fee(gross);
+  if (tradeFee <= 0n || tradeFee >= gross) throw new Error("Amount is too small.");
   return { tokens: tokenIn, gross, fee: tradeFee, net: gross - tradeFee };
 }
 function priceImpactBuy(s, q) {
