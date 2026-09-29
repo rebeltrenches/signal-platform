@@ -433,9 +433,29 @@ function mountPendingRecovery() {
         if (mintInfo.mintAuthority === null) {
           const pid = await flow.ensureProgramReady();
           const curve = curveAddress(mint, pid);
-          const info = await flow.connection.getAccountInfo(curve, "confirmed");
-          if (!info) throw new Error("Mint authority is already revoked but the Signal curve state is missing. Do not retry automatically; inspect this mint first.");
-          decodeCurve(info.data);
+          const vault = splToken.getAssociatedTokenAddressSync(mint, curve, true, splToken.TOKEN_PROGRAM_ID);
+          const [info, vaultInfo] = await Promise.all([
+            flow.connection.getAccountInfo(curve, "confirmed"),
+            splToken.getAccount(flow.connection, vault, "confirmed", splToken.TOKEN_PROGRAM_ID).catch(() => null),
+          ]);
+          if (!info || !info.owner.equals(pid)) throw new Error("Mint authority is already revoked but the expected Signal curve state is missing. Do not retry automatically; inspect this mint first.");
+          const state = decodeCurve(info.data);
+          const expectedInitialReal = rawSupply * INITIAL_REAL_BPS / BPS;
+          if (
+            !state.mint.equals(mint)
+            || !state.creator.equals(creator)
+            || state.totalSupply !== rawSupply
+            || state.initialRealTokenReserves !== expectedInitialReal
+            || state.decimals !== pending.decimals
+            || BigInt(mintInfo.supply.toString()) !== rawSupply
+            || mintInfo.freezeAuthority !== null
+            || !vaultInfo
+            || !vaultInfo.owner.equals(curve)
+            || !vaultInfo.mint.equals(mint)
+          ) {
+            throw new Error("Recovered curve state does not match this pending launch. Nothing was listed; inspect the mint and curve first.");
+          }
+          pending.curveVault = vault.toBase58();
           curveAddressText = curve.toBase58();
         } else {
           const initialized = await flow.initializeCurve(creator, mint, rawSupply, pending.decimals);
