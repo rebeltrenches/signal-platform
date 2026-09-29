@@ -233,8 +233,8 @@ export function CreatePage() {
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
               <div className="review-row" data-launch-step="upload"><span className="k">1. Store logo + metadata on Arweave</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="mint"><span className="k">2. Create mint + immutable metadata + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="curve"><span className="k">3. Mint full supply to curve vault + revoke mint authority + initialize curve</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="mint"><span className="k">2. Create mint + immutable metadata</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="curve"><span className="k">3. Mint full supply to curve vault + revoke mint authority + initialize curve + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
               <div className="review-row" data-launch-step="lock"><span className="k">4. Verify program custody, supply and authorities on-chain</span><span className="v" data-state>Not started</span></div>
               <div className="review-row" data-launch-step="meta"><span className="k">5. Verify immutable token metadata</span><span className="v" data-state>Not started</span></div>
             </div>
