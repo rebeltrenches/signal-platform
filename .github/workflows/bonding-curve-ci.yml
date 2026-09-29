@@ -9,6 +9,7 @@ on:
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-economics.mjs'
+      - 'apps/web/tests/bonding-curve-recovery-guard.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -26,6 +27,7 @@ on:
       - 'apps/web/src/client/launch-solana-curve.js'
       - 'apps/web/src/client/trade-router.js'
       - 'apps/web/tests/bonding-curve-economics.mjs'
+      - 'apps/web/tests/bonding-curve-recovery-guard.mjs'
       - 'apps/web/tests/bonding-curve-final-fill-size.mjs'
       - 'apps/web/tests/bonding-curve-runtime-smoke.mjs'
       - 'apps/web/tests/bonding-curve-multiwallet-runtime.mjs'
@@ -86,9 +88,6 @@ jobs:
           cache: pnpm
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
-      # apps/web is CommonJS only for its Node build script; the files below
-      # are loaded by browsers as ESM. Feed them to Node as module source so
-      # the syntax check uses the same grammar the browser does.
       - name: Check curve browser module syntax
         run: |
           node --input-type=module --check < apps/web/src/client/launch-solana-curve.js
@@ -120,6 +119,9 @@ jobs:
       - name: Guard Pump-style curve economics
         working-directory: apps/web
         run: node tests/bonding-curve-economics.mjs
+      - name: Guard interrupted launch recovery integrity
+        working-directory: apps/web
+        run: node tests/bonding-curve-recovery-guard.mjs
       - name: Guard launch fee at protocol layer
         run: |
           grep -F 'const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;' programs/signal-bonding-curve/src/lib.rs
