@@ -54,7 +54,9 @@ export function TransparencyPage() {
           <div className="review-row"><span className="k">Current Solana launch fee</span><span className="v">0.001 SOL → Signal platform wallet</span></div>
           <div className="review-row"><span className="k">Network costs</span><span className="v">Separate rent and transaction fees shown by the wallet</span></div>
           <div className="review-row"><span className="k">New-token transfer tax</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
-          <div className="review-row"><span className="k">Signal trading fee</span><span className="v">1% of gross SOL → Signal platform wallet, only on Signal-routed buys</span></div>
+          <div className="review-row"><span className="k">Signal curve trading fee</span><span className="v">1% in SOL on Signal bonding-curve buys and sells → Signal platform wallet</span></div>
+          <div className="review-row"><span className="k">Signal-routed external buy fee</span><span className="v">1% of gross SOL where Signal's in-app routed buy path is available</span></div>
+          <div className="review-row"><span className="k">Direct external-market trades</span><span className="v" style={{ color: 'var(--ink-faint)' }}>No Signal routing fee when the trade is completed outside Signal</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None promised</span></div>
         </div>
       </section>
@@ -62,9 +64,10 @@ export function TransparencyPage() {
       <section style={{ marginBottom: 36 }}>
         <h2 style={{ font: 'var(--text-h2)', marginBottom: 10 }}>What works now — and what comes next</h2>
         <div className="card">
-          <div className="review-row"><span className="k">Live now</span><span className="v">Solana Mainnet creation and buys, Solana/Base/BNB discovery, wallet portfolio, chat, watchlists</span></div>
-          <div className="review-row"><span className="k">External today</span><span className="v">Solana sells and non-Solana trades open the available source market</span></div>
-          <div className="review-row"><span className="k">Planned</span><span className="v">Solana sell execution plus in-app Base and BNB routing</span></div>
+          <div className="review-row"><span className="k">Signal-launched Solana tokens</span><span className="v">Bonding-curve buys and sells before graduation; automatic Raydium CPMM graduation at curve completion</span></div>
+          <div className="review-row"><span className="k">After graduation</span><span className="v">The token trades in its Raydium CPMM pool; Signal can use available in-app/external market routes</span></div>
+          <div className="review-row"><span className="k">Other live features</span><span className="v">Solana/Base/BNB discovery, wallet portfolio, chat and watchlists</span></div>
+          <div className="review-row"><span className="k">Still planned</span><span className="v">Broader in-app sell routing after graduation/external listings, plus Base and BNB creation and in-app trading</span></div>
         </div>
       </section>
 
