@@ -65,7 +65,7 @@ const routes: RouteDef[] = [
     title: 'Token',
     element: <TokenDetailPage />,
     clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
-    moduleScripts: ['/client/swap-execute.js?v=swap-confirmation-retry-8'],
+    moduleScripts: ['/client/swap-execute.js?v=lighthouse-guard-1'],
   },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },
   {
