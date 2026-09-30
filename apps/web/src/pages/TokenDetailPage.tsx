@@ -57,10 +57,13 @@ export function TokenDetailPage() {
       <p id="token-market-source" className="hint" style={{ marginTop: 8, textTransform: 'none' }} hidden></p>
 
       <div className="card" style={{ marginTop: 20 }} id="trade-terminal">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           <button className="chip" aria-pressed="true" type="button" id="trade-buy">Buy</button>
-          <button className="chip" aria-pressed="false" type="button" disabled title="Sell quoting will be enabled after token-decimal loading is complete">Sell</button>
+          {/* Sells happen on Jupiter (client/sell-link.js sets this token's
+              link); Signal builds no sell transaction and charges no fee on sells. */}
+          <a className="chip sell-link" id="trade-sell-link" href="https://jup.ag/" target="_blank" rel="noopener noreferrer" hidden>Sell on Jupiter ↗</a>
         </div>
+        <p className="hint sell-note" id="trade-sell-note" hidden>Sells happen on Jupiter, an external exchange. Signal doesn't charge a fee on sells.</p>
         <label htmlFor="trade-amount" style={{ display: 'block', marginBottom: 7, color: 'var(--ink-dim)', fontSize: 13 }}>Amount in SOL</label>
         <input className="input" id="trade-amount" placeholder="0.05" inputMode="decimal" style={{ marginBottom: 10 }} />
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>

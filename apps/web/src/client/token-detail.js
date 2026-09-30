@@ -236,9 +236,16 @@
       slot.replaceWith(element);
     }
 
+    // The lookup's outcome is shared with other scripts on this page (e.g.
+    // sell-link.js), so the page asks for market data only once.
+    const announce = (detail) => {
+      window.signalTokenMarket = detail;
+      document.dispatchEvent(new CustomEvent('signal:token-market', { detail }));
+    };
     fetch(`/api/solana/token-market?mint=${encodeURIComponent(tokenMint)}`)
-      .then(async (response) => ({ ok: response.ok, body: await response.json().catch(() => ({})) }))
-      .then(({ ok, body }) => {
+      .then(async (response) => ({ ok: response.ok, status: response.status, body: await response.json().catch(() => ({})) }))
+      .then(({ ok, status, body }) => {
+        announce({ ok, status, code: body.code || null });
         if (!ok) {
           const reason = body.error || 'Market data is temporarily unavailable.';
           ['price', 'marketCap', 'liquidity', 'holders'].forEach((name) => setStat(name, { unavailable: reason }));
@@ -272,6 +279,7 @@
         showLogo(body.logo, tokenSymbol || body.symbol || body.name);
       })
       .catch(() => {
+        if (!window.signalTokenMarket) announce({ ok: false, status: 0, code: null });
         ['price', 'marketCap', 'liquidity', 'holders'].forEach((name) => setStat(name, { unavailable: 'Market data service unreachable.' }));
       });
   })();

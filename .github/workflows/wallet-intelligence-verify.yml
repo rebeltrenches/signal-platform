@@ -152,6 +152,8 @@ jobs:
           python apps/web/tests/watchlist-sync.test.py
       - name: Signal X-Ray page tests (front page box, Signal Check tab, mobile)
         run: python apps/web/tests/xray-page.test.py
+      - name: Token page Sell link (opens Jupiter, no Signal sell transaction)
+        run: python apps/web/tests/sell-link.test.py
       - name: Safety boundary
         run: |
           echo "Wallet Intelligence verification completed against isolated CI resources."
