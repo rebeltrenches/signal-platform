@@ -129,14 +129,12 @@ export function TokenDetailPage() {
         {/* Signal Check — "Know Before You Buy", spec section 12. Facts
             only, each with its real source. No safety score, ever. */}
         <div data-panel="Signal Check" hidden>
-          <div className="card">
-            <SourcedRow label="Mint authority" data={sourcedUnavailable('blockchain-derived')} format={(v: boolean) => (v ? 'Active' : 'Renounced')} />
-            <SourcedRow label="Freeze authority" data={sourcedUnavailable('blockchain-derived')} format={(v: boolean) => (v ? 'Active' : 'Renounced')} />
-            <SourcedRow label="Creator holdings" data={sourcedUnavailable('blockchain-derived')} format={(v: number) => `${v}%`} />
-            <SourcedRow label="Top 10 holder concentration" data={sourcedUnavailable('blockchain-derived')} format={(v: number) => `${v}%`} />
-            <SourcedRow label="Liquidity" data={sourcedUnavailable('third-party')} format={(v: number) => `$${v}`} />
-            <SourcedRow label="Deployment transaction" data={sourcedUnavailable('blockchain-derived')} format={(v: string) => v} />
-            <SourcedRow label="Community reports" data={sourcedUnavailable('community-reported')} format={(v: number) => `${v} report(s)`} />
+          {/* Signal X-Ray (client/xray.js): the same results as the front
+              page's "X-Ray any token", loaded when this tab is opened. */}
+          <div className="card xray-card">
+            <div id="xray-token-results" className="xray-results" aria-live="polite">
+              <p className="xray-status">Open this tab from a Solana token to X-Ray it.</p>
+            </div>
           </div>
           <div className="how-box" style={{ marginTop: 14 }}>
             These are facts, not a verdict. Signal never labels a token "safe" or assigns a
