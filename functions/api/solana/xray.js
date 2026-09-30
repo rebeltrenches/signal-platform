@@ -255,6 +255,10 @@ function createRpc(env, usage) {
   return rpc;
 }
 
+/** DEX Screener's view of the token: its main pair (most liquidity) and
+ *  the sells it counts across all of the token's pairs. DEX Screener counts
+ *  from the pair's base token, so where this token is the quote side its
+ *  "buys" are this token's sells. */
 async function dexScreenerPairs(mint, usage) {
   usage.dexScreenerRequests += 1;
   const response = await fetch(`https://api.dexscreener.com/tokens/v1/solana/${mint}`, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
@@ -263,7 +267,18 @@ async function dexScreenerPairs(mint, usage) {
   const own = (Array.isArray(pairs) ? pairs : []).filter((pair) => pair?.baseToken?.address === mint || pair?.quoteToken?.address === mint);
   const dexPairs = own.filter((pair) => String(pair?.dexId) !== "pumpfun");
   dexPairs.sort((a, b) => (Number(b?.liquidity?.usd) || 0) - (Number(a?.liquidity?.usd) || 0));
-  return dexPairs[0] || null;
+  const counted = own.filter((pair) => pair?.txns?.h1 || pair?.txns?.h24);
+  const sellsIn = (window) => counted.reduce((sum, pair) => sum + (Number(pair.txns?.[window]?.[pair.baseToken?.address === mint ? "sells" : "buys"]) || 0), 0);
+  return { pair: dexPairs[0] || null, sells: counted.length ? { h1: sellsIn("h1"), h24: sellsIn("h24"), pairs: counted.length } : null };
+}
+
+function dexScreenerSellsItem(dex) {
+  const why = "A third-party count of sell transactions on this token's trading pairs. It includes bots and can't tell who sold.";
+  if (!dex) return unavailable("dex-sells", "Sells counted by DEX Screener (third-party)", why, "DEX Screener couldn't be reached.");
+  if (!dex.sells) return unavailable("dex-sells", "Sells counted by DEX Screener (third-party)", why, "DEX Screener has no trade counts for this token.");
+  const { h1, h24, pairs } = dex.sells;
+  const where = `across ${pairs} pair${pairs === 1 ? "" : "s"}`;
+  return item("dex-sells", "Sells counted by DEX Screener (third-party)", `${h1.toLocaleString("en-US")} in the last hour, ${h24.toLocaleString("en-US")} in the last 24 hours (${where}, all wallets)`, h24 > 0 ? "ok" : "warn", h24 > 0 ? why : "DEX Screener counted no sells in the last 24 hours.");
 }
 
 /** { registered, creator } from Signal's registry, or null if unreachable. */
@@ -527,6 +542,11 @@ async function recentSells({ mint, pools, excludedOwners, creator, counterMints,
   if (read.length < MIN_TRANSACTIONS_FOR_SELLS) {
     return item("recent-sells", "Recent sells", "Not enough recent data", "unavailable", why, { reason: `Only ${read.length} of ${wanted || RECENT_TRANSACTIONS} recent pool transactions could be read right now.` });
   }
+  // Only transactions where a real wallet's balance of this token changed
+  // say anything about selling. On busy tokens most recent pool
+  // transactions are bots moving the token between pools (arbitrage):
+  // pools pay each other and no wallet ends up holding more or less.
+  let walletTrades = 0;
   let sells = 0;
   const sellers = new Set();
   for (const tx of read) {
@@ -545,6 +565,8 @@ async function recentSells({ mint, pools, excludedOwners, creator, counterMints,
     // receives (and LP tokens are minted, not paid by the pool).
     const proceeds = new Set(counterMints);
     for (const [key, change] of poolDeltas) if (change < 0n) proceeds.add(key.split(" ")[1]);
+    if (![...deltas].some(([owner, delta]) => delta !== 0n && !excludedOwners.has(owner))) continue;
+    walletTrades += 1;
     let sold = false;
     for (const [owner, delta] of deltas) {
       if (delta < 0n && !excludedOwners.has(owner) && owner !== creator && receivedCounterValue(tx, owner, proceeds)) {
@@ -554,12 +576,15 @@ async function recentSells({ mint, pools, excludedOwners, creator, counterMints,
     }
     if (sold) sells += 1;
   }
-  const scope = `in the last ${read.length} transactions across ${readPools} pool${readPools === 1 ? "" : "s"}${failedPools ? ` (${failedPools} more pool${failedPools === 1 ? "" : "s"} couldn't be read)` : ""}`;
+  const scope = `in the last ${walletTrades} wallet trade${walletTrades === 1 ? "" : "s"} (from ${read.length} transactions across ${readPools} pool${readPools === 1 ? "" : "s"}${failedPools ? `; ${failedPools} more pool${failedPools === 1 ? "" : "s"} couldn't be read` : ""})`;
   const creatorNote = creator ? "" : " (creator wallet not identified, so all sellers are counted)";
   if (sells > 0) return item("recent-sells", "Recent sells", `${sells} successful sell${sells === 1 ? "" : "s"} by ${sellers.size} non-creator wallet${sellers.size === 1 ? "" : "s"} ${scope}${creatorNote}`, "ok", why);
-  // "No sells" is only claimed when every pool was read.
+  // "No sells" is only claimed from enough wallet trades, with every pool read.
+  if (walletTrades < MIN_TRANSACTIONS_FOR_SELLS) {
+    return item("recent-sells", "Recent sells", "Not enough recent data", "unavailable", why, { reason: `Only ${walletTrades} of the ${read.length} recent pool transactions read involved a wallet trading this token (the rest moved it between pools, e.g. bots).` });
+  }
   if (failedPools) {
-    return item("recent-sells", "Recent sells", "Not enough recent data", "unavailable", why, { reason: `No sells in the ${read.length} transactions read, but ${failedPools} of ${pools.length} pools couldn't be read.` });
+    return item("recent-sells", "Recent sells", "Not enough recent data", "unavailable", why, { reason: `No sells in the ${walletTrades} wallet trades read, but ${failedPools} of ${pools.length} pools couldn't be read.` });
   }
   return item("recent-sells", "Recent sells", `No successful sells by non-creator wallets ${scope}${creatorNote}`, "warn", "No other wallet has sold successfully in the recent transactions read.");
 }
@@ -690,7 +715,8 @@ export async function runXray(mintAddress, env, now = Date.now()) {
   const metadata = metadataAccount && metadataAccount.owner === METADATA_PROGRAM_ID ? parseMetaplexMetadata(metadataAccount.data) : null;
   const curveOk = curveAccount && curveAccount.owner === PUMP_PROGRAM_ID ? decodeBondingCurve(curveAccount.data) : null;
   const curveCreator = curveOk && curveAccount.data.length >= CURVE_CREATOR_OFFSET + 32 ? nonZeroKey(curveAccount.data, CURVE_CREATOR_OFFSET) : null;
-  const pair = pairResult.status === "fulfilled" ? pairResult.value : null;
+  const dex = pairResult.status === "fulfilled" ? pairResult.value : null;
+  const pair = dex?.pair ?? null;
   const signal = signalResult.status === "fulfilled" ? signalResult.value : null;
   let partial = epochUnavailable || pairResult.status !== "fulfilled" || largestResult.status !== "fulfilled" || signal === null;
 
@@ -764,8 +790,10 @@ export async function runXray(mintAddress, env, now = Date.now()) {
       : item("mechanisms", "Sell-blocking or taxing mechanisms", "None of the checked mechanisms found (freeze authority, transfer hook, permanent delegate, default-frozen accounts, pausing, non-transferable, transfer fee)", "ok", "These are the known ways a token can stop, seize or tax sells. Other risks remain."),
     simulation,
     sells,
+    dexScreenerSellsItem(dex),
   ];
-  if ([...honeypotItems, lp].some((entry) => entry.status === "unavailable")) partial = true;
+  // The DEX Screener line only reflects DEX Screener, whose outage already counts above.
+  if ([...honeypotItems, lp].some((entry) => entry.status === "unavailable" && entry.id !== "dex-sells")) partial = true;
 
   const t22 = mint.extensions.tokenMetadata;
   const body = {
