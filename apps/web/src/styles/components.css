@@ -650,3 +650,8 @@
 .xray-holder-label { color: var(--ink-dim); }
 .xray-holder-excluded .xray-holder-percent, .xray-holder-excluded .xray-holder-address { color: var(--ink-dim); }
 .xray-note { margin: 16px 0 0; color: var(--ink-faint); font: var(--text-small); }
+
+/* Token page: the Sell link to Jupiter (client/sell-link.js). */
+.sell-link { text-decoration: none; color: var(--ink); white-space: nowrap; }
+.sell-link:hover { border-color: var(--brand); color: var(--ink); }
+.sell-note { margin: -6px 0 14px; text-transform: none; font: var(--text-small); color: var(--ink-dim); }
