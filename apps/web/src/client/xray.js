@@ -53,14 +53,27 @@
         list.append(row);
       }
       block.append(list);
-      if (section.id === 'holders' && data.holders && data.holders.length) {
+      // Largest holders: percentage, short address and label on each row;
+      // rows without an address or percentage are left out, and the list
+      // isn't shown at all when none are complete.
+      const holderRows = section.id === 'holders' && Array.isArray(data.holders)
+        ? data.holders.filter((holder) => holder && typeof holder.owner === 'string' && holder.owner && typeof holder.percent === 'number' && isFinite(holder.percent))
+        : [];
+      if (holderRows.length) {
         const details = el('details', 'xray-holders');
         details.append(el('summary', '', 'Largest holders'));
         const holders = el('ol', 'xray-holder-list');
-        for (const holder of data.holders) {
-          const item = el('li', holder.excluded ? 'xray-holder-excluded' : '');
-          item.textContent = (holder.percent === null ? '?' : holder.percent + '%') + ' — ' + short(holder.owner) + (holder.label ? ' (' + holder.label + (holder.excluded ? ', not counted' : '') + ')' : '');
-          holders.append(item);
+        for (const holder of holderRows) {
+          const row = el('li', 'xray-holder' + (holder.excluded ? ' xray-holder-excluded' : ''));
+          row.append(
+            el('span', 'xray-holder-percent', holder.percent.toFixed(2) + '%'),
+            el('span', 'xray-holder-address', short(holder.owner)),
+          );
+          if (holder.label || holder.excluded) {
+            row.append(el('span', 'xray-holder-label', (holder.label || 'pool') + (holder.excluded ? ' · not counted' : '')));
+          }
+          row.title = holder.owner;
+          holders.append(row);
         }
         details.append(holders);
         block.append(details);
