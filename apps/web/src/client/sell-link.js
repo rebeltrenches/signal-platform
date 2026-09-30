@@ -2,6 +2,9 @@
 // exchange, with this token as the input and SOL as the output. Signal
 // builds no sell transaction and charges no fee on sells.
 //
+// Jupiter prefills tokens from ?sell=<mint>&buy=<mint> (checked in a
+// browser: the old /swap/<MINT>-SOL form is ignored and shows USDC).
+//
 // Shown only for a Solana token mint: the address (from the URL, like
 // token-detail.js) must look like one, and the page's token-market lookup
 // (made once by token-detail.js, shared as "signal:token-market") must not
@@ -17,8 +20,9 @@
   const mint = params.get('mint') || window.location.pathname.split('/').filter(Boolean).pop() || '';
   if (chain !== 'solana' || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return;
 
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
   const show = () => {
-    link.href = 'https://jup.ag/swap/' + encodeURIComponent(mint) + '-SOL';
+    link.href = 'https://jup.ag/swap?sell=' + encodeURIComponent(mint) + '&buy=' + SOL_MINT;
     link.hidden = false;
     if (note) note.hidden = false;
   };
