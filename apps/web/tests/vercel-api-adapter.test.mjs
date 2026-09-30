@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import handler from "../server/vercel-worker.mjs";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import handler, { worker, resolveWorker } from "../server/vercel-worker.mjs";
 import rpc from "../api/solana/rpc.mjs";
 import catchall from "../api/[...path].mjs";
 
@@ -92,5 +96,25 @@ for (const rule of tokenRules) {
 }
 const buildScript = await readFile(new URL("../scripts/build.tsx", import.meta.url), "utf8");
 check(buildScript.includes("path: 'token/example'"), true);
+
+// The adapter must end up with a callable worker.fetch, whatever module
+// shape the import gives it.
+check(typeof worker?.fetch, "function");
+check(resolveWorker({}), null);
+check(resolveWorker(null), null);
+// Vercel can bundle worker.js as CommonJS (its package.json has no
+// "type": "module"); the default import then arrives as { default: { fetch } }.
+// Reproduce that shape with esbuild and check the adapter still finds fetch.
+const cjsDir = await mkdtemp(join(tmpdir(), "signal-vercel-cjs-"));
+try {
+  const cjsFile = join(cjsDir, "worker.cjs");
+  await build({ entryPoints: [fileURLToPath(new URL("../../../worker.js", import.meta.url))], bundle: true, platform: "node", format: "cjs", outfile: cjsFile, logLevel: "silent" });
+  const cjsNamespace = await import(pathToFileURL(cjsFile).href);
+  check(typeof cjsNamespace.default.fetch, "undefined"); // the shape that broke `worker.fetch` on Vercel
+  check(typeof resolveWorker(cjsNamespace)?.fetch, "function");
+  check(typeof resolveWorker(cjsNamespace.default)?.fetch, "function");
+} finally {
+  await rm(cjsDir, { recursive: true, force: true });
+}
 
 console.log(`Vercel API adapter: ${checks} checks passed.`);
