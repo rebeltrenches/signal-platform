@@ -109,6 +109,28 @@ this step is just configuration, not more code:
 3. Rebuild the frontend with `SIGNAL_API_BASE_URL` set to that host's
    URL, per `apps/web/scripts/build.tsx`.
 
+## Production configuration (current)
+
+Names only; values live in the Render and Cloudflare dashboards, never in
+the repo. `.env.example` describes each one.
+
+**Render (`apps/api`; `pnpm --filter @launchpad/api start` runs it):**
+- Required: `DATABASE_URL`, `CHAT_STORAGE=database`, `AUTH_SECRET`,
+  `SOLANA_RPC_URL`, `SIGNAL_EDGE_SECRET` (the same value as on Cloudflare).
+- Recommended: `CORS_ORIGINS` (the site's origin), `TRUST_PROXY=true`,
+  `CHAT_MODERATOR_WALLETS`.
+- Never on the Mainnet API: `SIGNAL_TEST_ALLOW_DIRECT_REGISTRATION`.
+
+**Cloudflare Worker (`signal-platform`):**
+- Secrets (Production and Previews): `SIGNAL_EDGE_SECRET`,
+  `SOLANA_RPC_URL`, `JUPITER_API_KEY`.
+- Plain vars and bindings in `wrangler.jsonc`: `SIGNAL_API_ORIGIN`,
+  `TOKEN_MARKET_RATE_LIMITER`, `ASSETS`.
+- Optional: `OFAC_LIST_URL` (defaults to the `ofac-data` branch file,
+  refreshed every 6 hours by `.github/workflows/ofac-sdn-list.yml`).
+
+**Not hosted yet:** the indexer (`apps/indexer`, `INDEXER_INTERVAL_MS`).
+
 ## What this document is not
 
 Not a claim that any of the above has been run. Not a claim that the

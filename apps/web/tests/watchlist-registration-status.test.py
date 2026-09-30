@@ -14,6 +14,7 @@ import os
 import shutil
 import socketserver
 import subprocess
+from browser_stubs import stub_pages, wait_for_api
 import sys
 import threading
 import time
@@ -62,25 +63,25 @@ def run():
     env = dict(os.environ)
     env["PORT"] = str(API_PORT)
     api_proc = subprocess.Popen(
-        [shutil.which("npx") or "npx", "tsx", "apps/api/tests/support/test-server.ts"],
+        [shutil.which("node") or "node", "--import", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    time.sleep(1.5)
+    wait_for_api(API_PORT, api_proc)
 
     status = register(API_PORT, "WatchlistEnrichRegisteredMint", "Watchlist Enrich Token", "WET", "WatchlistEnrichCreator")
     check("setup: a real token registered via the actual API", status == 201, str(status))
 
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
+    httpd = socketserver.ThreadingTCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = stub_pages(p.chromium.launch(), DIST_DIR)
             page = browser.new_page()
             page.add_init_script(f"window.SIGNAL_API_BASE_URL = 'http://localhost:{API_PORT}';")
 
@@ -118,8 +119,10 @@ def run():
 
             console_errors = []
             page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
-            page.reload(wait_until="networkidle")
-            page.wait_for_timeout(500)
+            # The dashboard keeps background requests going, so the network
+            # never goes fully idle; give the reloaded page time to render.
+            page.reload(wait_until="load")
+            page.wait_for_timeout(1500)
             # Same filter convention as every other test in this project
             # (e.g. chat-e2e.test.py): esm.sh CDN imports fail in this
             # sandbox because there is no internet access at all — a

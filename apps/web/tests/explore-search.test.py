@@ -15,6 +15,7 @@ import os
 import shutil
 import socketserver
 import subprocess
+from browser_stubs import stub_pages, wait_for_api
 import sys
 import threading
 import time
@@ -63,11 +64,11 @@ def run():
     env = dict(os.environ)
     env["PORT"] = str(API_PORT)
     api_proc = subprocess.Popen(
-        [shutil.which("npx") or "npx", "tsx", "apps/api/tests/support/test-server.ts"],
+        [shutil.which("node") or "node", "--import", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    time.sleep(1.5)
+    wait_for_api(API_PORT, api_proc)
 
     status_a = register(API_PORT, "SearchableUniqueMintAAA", "Very Unique Falcon", "FLCN")
     status_b = register(API_PORT, "SearchableUniqueMintBBB", "Totally Different Whale", "WHL")
@@ -75,18 +76,18 @@ def run():
 
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
+    httpd = socketserver.ThreadingTCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = stub_pages(p.chromium.launch(), DIST_DIR)
             page = browser.new_page()
             page.add_init_script(f"window.SIGNAL_API_BASE_URL = 'http://localhost:{API_PORT}';")
 
-            page.goto(f"http://localhost:{STATIC_PORT}/explore", wait_until="networkidle")
+            page.goto(f"http://localhost:{STATIC_PORT}/explore", wait_until="domcontentloaded")
             page.wait_for_timeout(400)
 
             list_html_before = page.inner_html("#explore-new-list")
@@ -118,16 +119,16 @@ def run():
             # BEFORE "example" is registered anywhere (a real 404 from the
             # real API), then AFTER registering a real token at that exact
             # literal address (a real 201, then a real 200 lookup).
-            page.goto(f"http://localhost:{STATIC_PORT}/token/example/", wait_until="networkidle")
-            page.wait_for_timeout(500)
+            page.goto(f"http://localhost:{STATIC_PORT}/token/example/", wait_until="domcontentloaded")
+            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Launched on Signal: No')")
             badge_text_before = page.inner_text("#signal-launch-badge")
             check("before 'example' is registered anywhere, the real lookup honestly shows 'No'", "No" in badge_text_before, badge_text_before)
 
             status_example = register(API_PORT, "example", "Example Token", "EX")
             check("setup: a real token registered at the literal address 'example'", status_example == 201, str(status_example))
 
-            page.reload(wait_until="networkidle")
-            page.wait_for_timeout(500)
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Launched on Signal: Yes')")
             badge_text_after = page.inner_text("#signal-launch-badge")
             check("after registering it for real, the SAME page now honestly shows 'Yes'", "Yes" in badge_text_after, badge_text_after)
 

@@ -13,6 +13,7 @@ import os
 import shutil
 import socketserver
 import subprocess
+from browser_stubs import stub_pages, wait_for_api
 import sys
 import threading
 import time
@@ -48,11 +49,11 @@ def run():
     env = dict(os.environ)
     env["PORT"] = str(API_PORT)
     api_proc = subprocess.Popen(
-        [shutil.which("npx") or "npx", "tsx", "apps/api/tests/support/test-server.ts"],
+        [shutil.which("node") or "node", "--import", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    time.sleep(1.5)
+    wait_for_api(API_PORT, api_proc)
 
     payload = json.dumps({
         "chain": "solana", "address": "ExploreTestMint111", "name": "Explore Test Token",
@@ -71,14 +72,14 @@ def run():
 
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
+    httpd = socketserver.ThreadingTCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = stub_pages(p.chromium.launch(), DIST_DIR)
             page = browser.new_page()
             page.add_init_script(f"window.SIGNAL_API_BASE_URL = 'http://localhost:{API_PORT}';")
 
@@ -98,12 +99,12 @@ def run():
             page.click('[data-tab="momentum"]')
             page.wait_for_timeout(200)
             momentum_text = page.inner_text('[data-panel="momentum"]')
-            check("Momentum tab still shows its original honest empty-state copy, unchanged", "Stage 11" in momentum_text, momentum_text)
+            check("Momentum tab shows its honest empty state (no live market data in this test)", "No momentum matches" in momentum_text, momentum_text)
 
             page.click('[data-tab="graduating"]')
             page.wait_for_timeout(200)
             graduating_text = page.inner_text('[data-panel="graduating"]')
-            check("Graduating tab still shows its original honest empty-state copy, unchanged", "Stage 8" in graduating_text, graduating_text)
+            check("Graduating tab shows its honest empty state (no live bonding curves in this test)", "No live bonding curves" in graduating_text, graduating_text)
 
             console_errors = []
             page.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)

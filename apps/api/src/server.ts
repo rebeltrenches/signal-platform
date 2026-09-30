@@ -91,8 +91,11 @@ const PORT = Number(process.env.PORT ?? 4000);
 export function createServer() {
   return http.createServer((req, res) => {
     router.handleNode(req, res).catch((err) => {
+      // Last resort: log the real error, never send its text to the client.
+      console.error('[api] unhandled request error:', err);
+      if (res.headersSent) return res.end();
       res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: (err as Error).message }));
+      res.end(JSON.stringify({ error: 'INTERNAL_ERROR', message: 'An internal error occurred.' }));
     });
   });
 }

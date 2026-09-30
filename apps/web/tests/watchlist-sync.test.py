@@ -18,7 +18,9 @@ Requires: a built apps/web/dist and Python's `playwright` package.
 import http.server
 import os
 import socketserver
+import shutil
 import subprocess
+from browser_stubs import stub_pages, wait_for_api
 import sys
 import threading
 import time
@@ -54,23 +56,23 @@ def run():
     env["PORT"] = str(API_PORT)
     env["AUTH_SECRET"] = "a-real-test-secret-for-watchlist-sync-e2e"
     api_proc = subprocess.Popen(
-        ["npx", "tsx", "apps/api/src/server.ts"],
+        [shutil.which("node") or "node", "--import", "tsx", "apps/api/tests/support/test-server.ts"],
         cwd=REPO_ROOT, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
-    time.sleep(1.5)  # real startup time for tsx to compile and bind
+    wait_for_api(API_PORT, api_proc)
 
     # --- Static file server for the built frontend ---
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
+    httpd = socketserver.ThreadingTCPServer(("", STATIC_PORT), http.server.SimpleHTTPRequestHandler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.3)
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = stub_pages(p.chromium.launch(), DIST_DIR)
             page = browser.new_page()
 
             # Real Ed25519 keypair generated IN Node (via a helper script),
@@ -178,8 +180,10 @@ def run():
             check("the item genuinely exists on the REAL backend after sync, not just locally", any(i["value"] == "LocalOnlyToken111" for i in backend_items), str(backend_items))
 
             # --- Reload the page: session persists, no re-signing needed ---
-            page.reload(wait_until="networkidle")
-            page.wait_for_timeout(300)
+            # The dashboard keeps background requests going, so the network
+            # never goes fully idle; wait for the sync status instead.
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_function("(document.getElementById('watchlist-sync-status')?.textContent || '').includes('Synced')", timeout=15000)
             status_reload = page.text_content("#watchlist-sync-status")
             check("after a page reload, still shows synced (session persisted)", "Synced" in (status_reload or ""), status_reload)
             items_after_reload = page.query_selector_all("#watchlist-list [data-idx]")
