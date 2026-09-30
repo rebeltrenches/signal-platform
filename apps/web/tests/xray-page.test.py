@@ -55,7 +55,9 @@ XRAY = {
     ],
     "holders": [
         {"owner": "Pool1111111111111111111111111111111111111111", "percent": 50, "label": "PumpSwap pool", "excluded": True},
-        {"owner": "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg", "percent": 8, "label": None, "excluded": False},
+        {"owner": "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg", "percent": 8.5, "label": None, "excluded": False},
+        {"owner": None, "percent": 3, "label": None, "excluded": False},
+        {"owner": "Incomp1ete111111111111111111111111111111111", "percent": None, "label": None, "excluded": False},
     ],
     "usage": {"rpcCalls": 12}, "note": "Facts, not a verdict. Conditions can change at any time.",
 }
@@ -115,8 +117,22 @@ def run():
             check("no overall verdict words anywhere in the X-Ray", not BANNED.search(text), BANNED.search(text).group(0) if BANNED.search(text) else "")
             check("values are shown as text, never as HTML", "<img src=x" in text and page.evaluate("window.__xss") is None and page.query_selector("#xray-results img") is None)
             page.click(".xray-holders summary")
-            check("the largest holders list marks the pool as not counted", "PumpSwap pool, not counted" in xray_text(page, ".xray-holders"))
+            rows = page.eval_on_selector_all(".xray-holder", "els => els.map(e => ({percent: e.querySelector('.xray-holder-percent')?.textContent, address: e.querySelector('.xray-holder-address')?.textContent, text: e.innerText}))")
+            check("every largest-holder row shows a percentage and a short address", len(rows) == 2 and all(r["percent"] and r["address"] for r in rows), str(rows))
+            check("percentages in the holder list have two decimals", [r["percent"] for r in rows] == ["50.00%", "8.50%"], str(rows))
+            check("the pool row is labelled as not counted", "PumpSwap pool · not counted" in rows[0]["text"], rows[0]["text"])
+            check("rows with a missing address or percentage are left out", "Incomp" not in xray_text(page, ".xray-holders"))
             home_text = text
+            page.close()
+
+            # ---- no holder data: no empty list ----
+            page = browser.new_page()
+            stub_xray(page, 200, {**XRAY, "holders": [{"owner": None, "percent": None, "label": None, "excluded": False}]})
+            page.goto(f"http://localhost:{PORT}/", wait_until="domcontentloaded")
+            page.fill("#xray-mint", MINT)
+            page.click("#xray-form button[type=submit]")
+            page.wait_for_selector("#xray-results .xray-item")
+            check("without usable holder data, the Largest holders list isn't shown", page.query_selector("#xray-results .xray-holders") is None)
             page.close()
 
             # ---- error states ----

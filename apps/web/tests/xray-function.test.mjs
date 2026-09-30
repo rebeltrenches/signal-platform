@@ -85,10 +85,11 @@ function metaplexBytes({ mint, updateAuthority, name = "Test", symbol = "TST", i
 function curveBytes({ complete = false, realSol = 20_000_000_000n, creator }) {
   return concat(Uint8Array.of(23, 183, 248, 55, 96, 216, 172, 96), u64le(1n), u64le(1n), u64le(1n), u64le(realSol), u64le(1_000_000_000_000_000n), Uint8Array.of(complete ? 1 : 0), pubkeyBytes(creator), new Uint8Array(70));
 }
-function pumpSwapPoolBytes({ baseMint, lpMint, coinCreator }) {
+function pumpSwapPoolBytes({ baseMint, lpMint, coinCreator, lpIssued = 0n }) {
   const bytes = new Uint8Array(301);
   bytes.set(pubkeyBytes(baseMint), 43);
   bytes.set(pubkeyBytes(lpMint), 107);
+  bytes.set(u64le(lpIssued), 203);
   bytes.set(pubkeyBytes(coinCreator), 211);
   return bytes;
 }
@@ -119,6 +120,10 @@ function network(state) {
           case "getSignaturesForAddress":
             return (state.signatures[first] || []).map((signature) => ({ signature, err: null }));
           case "getTransaction":
+            if (state.flaky?.has(first)) {
+              state.flaky.delete(first);
+              throw new Error("rate limited");
+            }
             return state.transactions[first] ?? null;
           case "getEpochInfo":
             if (state.epoch === undefined) throw new Error("no epoch");
@@ -160,7 +165,7 @@ function network(state) {
 }
 
 /** A realistic token: a pump.fun bonding-curve coin, or graduated to PumpSwap. */
-async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 0n, lpHolders = [], simulation, extra = {} } = {}) {
+async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 0n, lpIssued = 0n, lpHolders = [], meteora = false, simulation, extra = {} } = {}) {
   const creator = key();
   const [curve, metadataPda] = await Promise.all([
     findProgramAddress([new TextEncoder().encode("bonding-curve"), decodeAddress(mint)], PUMP),
@@ -188,12 +193,19 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
     [holderA]: { owner: SYSTEM, lamports: 50_000_000, data: new Uint8Array(0) },
     [holderB]: { owner: SYSTEM, lamports: 50_000_000, data: new Uint8Array(0) },
     [creator]: { owner: SYSTEM, lamports: 50_000_000, data: new Uint8Array(0) },
-    [pool]: { owner: PUMPSWAP, data: pumpSwapPoolBytes({ baseMint: mint, lpMint, coinCreator: creator }) },
+    [pool]: { owner: PUMPSWAP, data: pumpSwapPoolBytes({ baseMint: mint, lpMint, coinCreator: creator, lpIssued }) },
   };
+  const meteoraPool = key();
+  const meteoraVault = key();
+  if (meteora) {
+    accounts[meteoraPool] = { owner: "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo", data: new Uint8Array(900) };
+    accounts[meteoraVault] = { owner: TOKEN, data: tokenAccountBytes(mint, meteoraPool, 90_000_000_000_000n) };
+  }
   const largest = graduated
     ? [[poolVault, 500_000_000_000_000n], [ataA, 80_000_000_000_000n], [creatorAccount, 60_000_000_000_000n], [ataB, 40_000_000_000_000n]]
     : [[curveVault, 600_000_000_000_000n], [ataA, 80_000_000_000_000n], [creatorAccount, 60_000_000_000_000n], [ataB, 40_000_000_000_000n]];
   const target = graduated ? pool : curve;
+  if (meteora) largest.splice(1, 0, [meteoraVault, 90_000_000_000_000n]);
   // Recent transactions: two sells by holders, one by the creator, one buy.
   // A swap between `owner` and the pool: tokens one way, SOL (lamports) the other.
   const tx = (owner, pre, post, { solDelta = (pre - post) * 10, wsol = false } = {}) => ({
@@ -219,7 +231,7 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
     accounts: { ...accounts, ...lpAccounts },
     largest: { [mint]: largest, [lpMint]: lpLargest },
     supply: { [lpMint]: lpSupply },
-    signatures: { [target]: ["s1", "s2", "s3", "s4", "s5"] },
+    signatures: { [target]: ["s1", "s2", "s3", "s4", "s5"], [meteoraPool]: ["m1", "m2"] },
     transactions: {
       s1: tx(holderA, 500, 400),
       s2: tx(holderB, 300, 100, { wsol: true }), // paid out in WSOL
@@ -227,12 +239,16 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
       s4: tx(holderA, 400, 700), // a buy
       // Adding liquidity: tokens AND SOL go into the pool; not a sell.
       s5: tx(holderB, 200, 100, { solDelta: -1_000 }),
+      s6: tx(holderB, 100, 300), // a buy
+      s7: tx(holderA, 700, 900), // a buy
+      m1: tx(holderB, 900, 800), // sells through the Meteora pool
+      m2: tx(holderA, 900, 850),
     },
     pairs: graduated ? [{ dexId: "pumpswap", pairAddress: pool, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" }, liquidity: { usd: 25_000 }, pairCreatedAt: Date.parse("2026-09-01T00:00:00Z") }] : [{ dexId: "pumpfun", pairAddress: curve, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" } }],
     simulation,
     ...extra,
   };
-  return { mint, creator, curve, pool, holderA, holderB, state };
+  return { mint, creator, curve, pool, meteoraPool, holderA, holderB, state };
 }
 
 const NOW = Date.parse("2026-09-30T12:00:00Z");
@@ -409,7 +425,7 @@ await test("LP held by a wallet: ⚠️ naming the share; LP sent to the inciner
   let s = await scenario({ graduated: true, lpSupply: 1000n, lpHolders: [[holder, 900n], [INCINERATOR, 100n]] });
   network(s.state);
   let { body } = await run(s.mint);
-  assert.match(find(body, "lp").value, /^90% held by wallets \(largest .*\), 10% burned$/);
+  assert.match(find(body, "lp").value, /^10% burned; 90% held by wallets of the LP tokens that still exist \(largest .*\)$/);
   assert.equal(find(body, "lp").status, "warn");
   xray.resetXrayForTests();
   s = await scenario({ graduated: true, lpSupply: 1000n, lpHolders: [[INCINERATOR, 1000n]] });
@@ -417,6 +433,30 @@ await test("LP held by a wallet: ⚠️ naming the share; LP sent to the inciner
   ({ body } = await run(s.mint));
   assert.equal(find(body, "lp").value, "100% burned");
   assert.equal(find(body, "lp").status, "ok");
+});
+
+await test("PumpSwap LP mostly burned (PAID's real numbers): burned share counted from the pool's issued LP; small wallet leftover ✅", async () => {
+  const wallets = [[key(), 3_144_431_697n], [key(), 752_964_574n], [key(), 148_929_078n]];
+  const s = await scenario({ graduated: true, lpIssued: 4_197_438_549_426n, lpSupply: 4_050_259_939n, lpHolders: wallets });
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.match(find(body, "lp").value, /^99\.9% burned; 0\.09% held by wallets \(largest .*\)$/);
+  assert.equal(find(body, "lp").status, "ok");
+  assert.match(find(body, "lp").why, /Almost all LP tokens are burned/);
+});
+
+await test("PumpSwap LP where wallets hold a real share of the issued LP: ⚠️", async () => {
+  const s = await scenario({ graduated: true, lpIssued: 1_000_000n, lpSupply: 400_000n, lpHolders: [[key(), 400_000n]] });
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.match(find(body, "lp").value, /^60% burned; 40% held by wallets \(largest .*\)$/);
+  assert.equal(find(body, "lp").status, "warn");
+});
+
+await test("percentages are shown with two decimals", async () => {
+  assert.equal(xray.percentOf(1n, 3n), 33.33);
+  assert.equal(xray.percentOf(245_002n, 1_000_000n), 24.5);
+  assert.equal(xray.percentOf(1n, 0n), null);
 });
 
 await test("thin, brand-new pool: liquidity and pool age flagged ⚠️", async () => {
@@ -478,26 +518,46 @@ await test("recent sells: successful sells by non-creator wallets counted (SOL o
   network(s.state);
   const { body } = await run(s.mint);
   const sells = find(body, "recent-sells");
-  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 5 pool transactions");
+  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool");
   assert.equal(sells.status, "ok");
 });
 
 await test("recent sells: a liquidity deposit (tokens and SOL into the pool) isn't a sell", async () => {
   const s = await scenario();
-  s.state.signatures[s.curve] = ["s5", "s4"]; // a deposit and a buy
+  s.state.signatures[s.curve] = ["s5", "s4", "s6", "s7", "s3"]; // a deposit, buys and the creator's sell
   network(s.state);
   const { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 2 pool transactions");
+  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 5 transactions across 1 pool");
   assert.equal(find(body, "recent-sells").status, "warn");
 });
 
-await test("recent sells: none from other wallets → ⚠️", async () => {
+await test("recent sells: too few readable transactions → 'Not enough recent data', not a warning", async () => {
   const s = await scenario();
-  s.state.signatures[s.curve] = ["s3", "s4"]; // the creator's sell and a buy
+  s.state.signatures[s.curve] = ["s3", "s4"];
   network(s.state);
   const { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 2 pool transactions");
-  assert.equal(find(body, "recent-sells").status, "warn");
+  const sells = find(body, "recent-sells");
+  assert.equal(sells.value, "Not enough recent data");
+  assert.equal(sells.status, "unavailable");
+  assert.match(sells.reason, /^Only 2 of 2 recent pool transactions could be read/);
+});
+
+await test("recent sells: the token's other pools found among its holders (Meteora DLMM) are read too", async () => {
+  const s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  const calls = network(s.state);
+  const { body } = await run(s.mint);
+  // PumpSwap: 2 sells (holders A and B); Meteora: 2 more by the same wallets.
+  assert.equal(find(body, "recent-sells").value, "4 successful sells by 2 non-creator wallets in the last 7 transactions across 2 pools");
+  assert.equal(calls.filter((method) => method === "getSignaturesForAddress").length, 2);
+  assert.equal(find(body, "top10").value, "18% of supply (not counting PumpSwap pool, Meteora DLMM pool)");
+});
+
+await test("recent sells: transactions that fail to load are retried once (rate limits), in small batches", async () => {
+  const s = await scenario({ extra: { flaky: new Set(["s1", "s2"]) } });
+  const calls = network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool");
+  assert.equal(calls.filter((method) => method === "getTransaction").length, 7, "5 reads + 2 retries");
 });
 
 // ---- Signal launches, unavailable data ---------------------------------------------------------------

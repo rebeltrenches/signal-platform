@@ -33,8 +33,20 @@ const SIGNAL_API_TIMEOUT_MS = 4_000;
 export const CACHE_TTL_MS = { full: 5 * 60_000, partial: 60_000, error: 30_000 };
 export const RATE_LIMIT = { requests: 10, windowMs: 60_000 };
 const MAX_MEMORY_CACHE_ENTRIES = 1_000;
-/** Recent pool/curve transactions read for the sell history. */
+/** Recent pool/curve transactions read for the sell history. Busy pools
+ *  carry many failed bot transactions, so more signatures are listed than
+ *  read; reads go in small chunks (rate limits) with one retry. */
 export const RECENT_TRANSACTIONS = 15;
+export const MIN_TRANSACTIONS_FOR_SELLS = 5;
+const SIGNATURES_PER_POOL = 60;
+const MAX_POOLS_FOR_SELLS = 3;
+const TRANSACTION_CHUNK = 5;
+/** PumpSwap pools record every LP token ever issued (lp_supply, checked
+ *  on mainnet), so LP burned with an SPL burn can be counted. */
+const PUMPSWAP_LP_SUPPLY_OFFSET = 203;
+/** A wallet share of all LP below this is shown as ✅ (it can only
+ *  withdraw that small share of the liquidity). */
+const LP_WALLET_WARN_PERCENT = 5;
 /** A holder needs this much SOL to pay the simulated sell's fees. */
 const SIMULATION_MIN_LAMPORTS = 5_000_000n;
 /** Marker thresholds (facts, not scores): shown as ⚠️ past these. */
@@ -166,9 +178,10 @@ export function parseMetaplexMetadata(bytes) {
   }
 }
 
-function percentOf(amount, total) {
+/** amount / total as a percentage with two decimals (e.g. 24.5). */
+export function percentOf(amount, total) {
   if (!total || total <= 0n) return null;
-  return Number((amount * 1_000_000n) / total) / 10_000; // two decimals, in percent
+  return Number((amount * 10_000n) / total) / 100;
 }
 function formatUnits(amount, decimals) {
   const scale = 10n ** BigInt(decimals);
@@ -463,19 +476,51 @@ function receivedCounterValue(tx, owner, counterMints) {
   return delta > 0n;
 }
 
-async function recentSells({ mint, target, excludedOwners, creator, counterMints, rpc }) {
+/** The latest successful transactions across `pools`, newest first. */
+async function recentPoolSignatures(pools, rpc) {
+  const lists = await Promise.all(pools.map((pool) => rpc.call("getSignaturesForAddress", [pool, { limit: SIGNATURES_PER_POOL, commitment: "confirmed" }]).catch(() => [])));
+  const seen = new Set();
+  return lists.flat()
+    .filter((entry) => entry && !entry.err && !seen.has(entry.signature) && seen.add(entry.signature))
+    .sort((a, b) => (Number(b.blockTime) || 0) - (Number(a.blockTime) || 0))
+    .slice(0, RECENT_TRANSACTIONS)
+    .map((entry) => entry.signature);
+}
+
+/** getTransaction for each signature, in small batches, retrying misses once. */
+async function readTransactions(signatures, rpc) {
+  const params = (signature) => ["getTransaction", [signature, { encoding: "json", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]];
+  const found = new Map();
+  for (const attempt of [0, 1]) {
+    const missing = signatures.filter((signature) => !found.has(signature));
+    if (!missing.length) break;
+    for (let index = 0; index < missing.length; index += TRANSACTION_CHUNK) {
+      const chunk = missing.slice(index, index + TRANSACTION_CHUNK);
+      const results = await rpc.batch(chunk.map(params)).catch(() => []);
+      chunk.forEach((signature, position) => {
+        if (results[position]) found.set(signature, results[position]);
+      });
+    }
+    if (attempt === 0 && found.size === signatures.length) break;
+  }
+  return signatures.map((signature) => found.get(signature)).filter(Boolean);
+}
+
+async function recentSells({ mint, pools, excludedOwners, creator, counterMints, rpc }) {
   const why = "Recent successful sells (the wallet's tokens went out and SOL or the pool's other token came in) show that selling has worked lately.";
-  if (!target) return unavailable("recent-sells", "Recent sells", why, "No pool or bonding curve found to read transactions from.");
-  let transactions;
+  if (!pools.length) return unavailable("recent-sells", "Recent sells", why, "No pool or bonding curve found to read transactions from.");
+  let read;
+  let wanted = 0;
   try {
-    const signatures = await rpc.call("getSignaturesForAddress", [target, { limit: RECENT_TRANSACTIONS + 10, commitment: "confirmed" }]);
-    const ok = (Array.isArray(signatures) ? signatures : []).filter((entry) => !entry.err).slice(0, RECENT_TRANSACTIONS);
-    transactions = await rpc.batch(ok.map((entry) => ["getTransaction", [entry.signature, { encoding: "json", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]]));
+    const signatures = await recentPoolSignatures(pools, rpc);
+    wanted = signatures.length;
+    read = await readTransactions(signatures, rpc);
   } catch {
     return unavailable("recent-sells", "Recent sells", why);
   }
-  const read = transactions.filter(Boolean);
-  if (!read.length) return unavailable("recent-sells", "Recent sells", why, "No recent transactions could be read.");
+  if (read.length < MIN_TRANSACTIONS_FOR_SELLS) {
+    return item("recent-sells", "Recent sells", "Not enough recent data", "unavailable", why, { reason: `Only ${read.length} of ${wanted || RECENT_TRANSACTIONS} recent pool transactions could be read right now.` });
+  }
   let sells = 0;
   const sellers = new Set();
   for (const tx of read) {
@@ -496,7 +541,7 @@ async function recentSells({ mint, target, excludedOwners, creator, counterMints
     }
     if (sold) sells += 1;
   }
-  const scope = `in the last ${read.length} pool transactions`;
+  const scope = `in the last ${read.length} transactions across ${pools.length} pool${pools.length === 1 ? "" : "s"}`;
   const creatorNote = creator ? "" : " (creator wallet not identified, so all sellers are counted)";
   return sells > 0
     ? item("recent-sells", "Recent sells", `${sells} successful sell${sells === 1 ? "" : "s"} by ${sellers.size} non-creator wallet${sellers.size === 1 ? "" : "s"} ${scope}${creatorNote}`, "ok", why)
@@ -510,10 +555,16 @@ async function lpStatus({ poolAccount, rpc }) {
   const offset = LP_MINT_OFFSETS[poolAccount.owner];
   if (offset === undefined || poolAccount.data.length < offset + 32) return unavailable("lp", "LP tokens", why, "This pool type isn't supported yet.");
   const lpMint = encodeAddress(poolAccount.data.subarray(offset, offset + 32));
+  // All LP ever issued, when the pool records it (PumpSwap); burning LP
+  // lowers the mint's supply but not this.
+  const issuedField = poolAccount.owner === PUMPSWAP_PROGRAM_ID && poolAccount.data.length >= PUMPSWAP_LP_SUPPLY_OFFSET + 8 ? u64(poolAccount.data, PUMPSWAP_LP_SUPPLY_OFFSET) : null;
   try {
     const [supplyResult, largest] = await Promise.all([rpc.call("getTokenSupply", [lpMint, { commitment: "confirmed" }]), rpc.call("getTokenLargestAccounts", [lpMint, { commitment: "confirmed" }])]);
     const supply = BigInt(supplyResult?.value?.amount ?? "0");
     if (supply === 0n) return item("lp", "LP tokens", "100% burned", "ok", "Burned LP tokens can't be redeemed, so this liquidity can't be withdrawn.");
+    const issued = issuedField !== null && issuedField >= supply ? issuedField : null;
+    const base = issued ?? supply;
+    const burnedBySupply = issued !== null ? issued - supply : 0n;
     const top = (largest?.value || []).slice(0, 5);
     const accounts = top.length ? await rpc.accounts(top.map((entry) => entry.address)) : [];
     const holders = accounts.map((account, index) => ({ owner: account?.data?.length >= 72 ? decodeTokenAccount(account.data)?.owner : null, amount: BigInt(top[index].amount) }));
@@ -530,11 +581,18 @@ async function lpStatus({ poolAccount, rpc }) {
         if (!biggestWallet || holder.amount > biggestWallet.amount) biggestWallet = holder;
       }
     });
+    const allBurned = burned + burnedBySupply;
+    const of = issued !== null ? "" : " of the LP tokens that still exist";
+    const burnedText = allBurned > 0n ? `${percentOf(allBurned, base)}% burned; ` : "";
     if (wallet > 0n) {
-      return item("lp", "LP tokens", `${percentOf(wallet, supply)}% held by wallets (largest ${short(biggestWallet.owner)})${burned ? `, ${percentOf(burned, supply)}% burned` : ""}`, "warn", "A wallet holding LP tokens can withdraw that share of the liquidity at any time.");
+      const walletPercent = percentOf(wallet, base);
+      const small = issued !== null && walletPercent < LP_WALLET_WARN_PERCENT;
+      return item("lp", "LP tokens", `${burnedText}${walletPercent}% held by wallets${of} (largest ${short(biggestWallet.owner)})`, small ? "ok" : "warn", small
+        ? "Almost all LP tokens are burned; the wallets holding the rest can only withdraw their small share of the liquidity."
+        : `A wallet holding LP tokens can withdraw that share of the liquidity at any time${issued === null ? " (LP burned earlier can't be counted for this pool type)" : ""}.`);
     }
-    if (burned > 0n && program === 0n) return item("lp", "LP tokens", `${percentOf(burned, supply)}% burned`, "ok", "Burned LP tokens can't be redeemed, so this liquidity can't be withdrawn.");
-    return item("lp", "LP tokens", `${percentOf(program, supply)}% held by programs (e.g. a locker or the pool)${burned ? `, ${percentOf(burned, supply)}% burned` : ""}`, "info", "LP held by a program is only as locked as that program's rules; check the lock's terms and end date.");
+    if (program === 0n) return item("lp", "LP tokens", `${percentOf(allBurned, base)}% burned`, "ok", "Burned LP tokens can't be redeemed, so this liquidity can't be withdrawn.");
+    return item("lp", "LP tokens", `${burnedText}${percentOf(program, base)}% held by programs${of} (e.g. a locker or the pool)`, "info", "LP held by a program is only as locked as that program's rules; check the lock's terms and end date.");
   } catch {
     return unavailable("lp", "LP tokens", why);
   }
@@ -663,7 +721,10 @@ export async function runXray(mintAddress, env, now = Date.now()) {
     sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage }),
     recentSells({
       mint: mintAddress,
-      target: onCurve ? curvePda : pair?.pairAddress,
+      pools: [...new Set([
+        ...(onCurve ? [curvePda] : pair?.pairAddress ? [pair.pairAddress] : []),
+        ...holders.filter((holder, index) => holder.excluded && ownerAccounts[index] && POOL_PROGRAMS[ownerAccounts[index].owner] && holder.owner !== curvePda).map((holder) => holder.owner),
+      ])].slice(0, MAX_POOLS_FOR_SELLS),
       excludedOwners,
       creator: mint.creator,
       // What a seller receives: SOL, or the pool's other token.

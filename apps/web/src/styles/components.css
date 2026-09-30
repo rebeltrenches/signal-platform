@@ -640,8 +640,13 @@
 .xray-warn .xray-value { color: var(--gold); }
 .xray-unavailable .xray-value { color: var(--ink-faint); }
 .xray-why, .xray-reason { margin: 2px 0 0; color: var(--ink-faint); font: var(--text-small); }
-.xray-holders { margin-top: 8px; font: var(--text-small); color: var(--ink-dim); }
-.xray-holders summary { cursor: pointer; }
-.xray-holder-list { margin: 6px 0 0; padding-left: 1.4em; }
-.xray-holder-excluded { color: var(--ink-faint); }
+.xray-holders { margin-top: 8px; font: var(--text-small); color: var(--ink); }
+.xray-holders summary { cursor: pointer; color: var(--ink-dim); }
+.xray-holder-list { margin: 6px 0 0; padding-left: 1.8em; }
+.xray-holder { padding: 2px 0; }
+.xray-holder > span + span { margin-left: 8px; }
+.xray-holder-percent { display: inline-block; min-width: 4.5em; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+.xray-holder-address { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink); }
+.xray-holder-label { color: var(--ink-dim); }
+.xray-holder-excluded .xray-holder-percent, .xray-holder-excluded .xray-holder-address { color: var(--ink-dim); }
 .xray-note { margin: 16px 0 0; color: var(--ink-faint); font: var(--text-small); }
