@@ -19,6 +19,13 @@ DIST_DIR = os.path.join(REPO_ROOT, "apps/web/dist")
 PORT = 8219
 MINT = "98kfF7rmsg1QDUEoCqNE7g7M1FdrTt92TEp2CLzypump"
 NOTE = "Sells happen on Jupiter, an external exchange. Signal doesn't charge a fee on sells."
+NOT_A_MINT = "11111111111111111111111111111111"  # the System Program: base58, but not a token
+
+
+def stub_market(page, status):
+    """The token-market lookup the link waits for (200: a mint; 404: not one)."""
+    body = '{"code":"MINT_NOT_FOUND","error":"No token mint exists at this address."}' if status == 404 else '{"mint":"x"}'
+    page.route("**/api/solana/token-market*", lambda route: route.fulfill(status=status, content_type="application/json", body=body))
 
 results = []
 
@@ -45,8 +52,10 @@ def run():
             swap_requests = []
             page.on("request", lambda r: swap_requests.append(r.url) if "/api/solana/swap" in r.url else None)
             page.context.route("https://jup.ag/**", lambda route: route.fulfill(status=200, content_type="text/html", body="<title>Jupiter</title>"))
+            stub_market(page, 200)
             page.goto(f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=solana", wait_until="domcontentloaded")
             link = page.locator("#trade-sell-link")
+            link.wait_for(state="visible")
             check("the Sell link is shown for a Solana token", link.is_visible())
             check("it is labelled 'Sell on Jupiter ↗'", link.inner_text().strip() == "Sell on Jupiter ↗", link.inner_text())
             check("it opens this token on Jupiter with SOL as the output", link.get_attribute("href") == f"https://jup.ag/swap/{MINT}-SOL", link.get_attribute("href"))
@@ -66,6 +75,22 @@ def run():
             check("clicking Sell makes Signal build no transaction (no swap request)", not swap_requests, str(swap_requests))
             page.close()
 
+            # Wallets, programs and token accounts look like mints but aren't.
+            page = browser.new_page()
+            stub_market(page, 404)
+            page.goto(f"http://localhost:{PORT}/token/example/?mint={NOT_A_MINT}&chain=solana", wait_until="domcontentloaded")
+            page.wait_for_timeout(400)
+            check("no Sell link when the address isn't a token mint (MINT_NOT_FOUND)", not page.locator("#trade-sell-link").is_visible() and not page.locator("#trade-sell-note").is_visible())
+            page.close()
+
+            # The lookup failing (rate limit, outage) doesn't hide the only way to sell.
+            page = browser.new_page()
+            stub_market(page, 502)
+            page.goto(f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=solana", wait_until="domcontentloaded")
+            page.locator("#trade-sell-link").wait_for(state="visible", timeout=5000)
+            check("if the token lookup is unavailable, the Sell link is still shown", page.locator("#trade-sell-link").get_attribute("href") == f"https://jup.ag/swap/{MINT}-SOL")
+            page.close()
+
             for name, url in (
                 ("without a mint", f"http://localhost:{PORT}/token/example/"),
                 ("for a non-Solana token", f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=base"),
@@ -78,7 +103,9 @@ def run():
                 page.close()
 
             page = browser.new_page(viewport={"width": 375, "height": 812})
+            stub_market(page, 200)
             page.goto(f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=solana", wait_until="domcontentloaded")
+            page.locator("#trade-sell-link").wait_for(state="visible")
             box = page.locator("#trade-sell-link").bounding_box()
             check("on a phone the Sell link is visible and inside the screen", box is not None and box["x"] >= 0 and box["x"] + box["width"] <= 375, str(box))
             overflow = page.evaluate("document.documentElement.scrollWidth - window.innerWidth")
