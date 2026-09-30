@@ -113,6 +113,8 @@ jobs:
           node apps/web/tests/turbo-upload.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
+      - name: Swap tamper check tests (Lighthouse guards allowed, anything else blocked)
+        run: node apps/web/tests/swap-intent.test.mjs
       - name: Token market function tests (bonding curve, holders, logo, quota protection)
         run: node apps/web/tests/token-market-function.test.mjs
       - name: Regional restrictions and sanctions screening tests (Worker)

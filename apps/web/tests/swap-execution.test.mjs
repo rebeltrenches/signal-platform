@@ -13,13 +13,11 @@ const buildSource = await readFile("apps/web/scripts/build.tsx", "utf8");
 assert.match(clientSource, /new URL\(RPC_PROXY, window\.location\.origin\)\.toString\(\)/);
 assert.doesNotMatch(clientSource, /new web3\.Connection\(RPC_PROXY/);
 assert.match(clientSource, /transactionIntentDifference\(finalMessage, signed\.message, tables\)/);
-assert.match(clientSource, /ComputeBudgetProgram\.programId/);
 assert.doesNotMatch(clientSource, /sameBytes\(originalMessage, signed\.message\.serialize\(\)\)/);
-assert.match(clientSource, /added instruction\$\{added\.length === 1/);
-assert.match(clientSource, /L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95/);
-assert.match(clientSource, /signedInstructions\.length !== originalInstructions\.length \+ 2/);
-assert.match(clientSource, /if \(key\.isSigner && !key\.pubkey\.equals\(payer\)\) return false/);
-assert.match(clientSource, /!key\.isWritable \|\| originalWritableAccounts\.has\(address\)/);
+// The tamper check itself lives in swap-intent.js (tested in swap-intent.test.mjs).
+assert.match(clientSource, /import \{ createIntentCheck \} from "\.\/swap-intent\.js\?v=lighthouse-guard-1"/);
+assert.match(clientSource, /const transactionIntentDifference = createIntentCheck\(web3\)/);
+assert.match(clientSource, /throw new Error\(`Wallet changed transaction \$\{intentDifference\}; submission stopped\.`\)/);
 assert.match(clientSource, /getLatestBlockhash\("confirmed"\)/);
 assert.match(clientSource, /recentBlockhash: latestBlockhash\.blockhash/);
 assert.match(clientSource, /latestBlockhash\.lastValidBlockHeight/);
@@ -28,7 +26,7 @@ assert.match(clientSource, /Submitted — verify on Solscan/);
 assert.match(clientSource, /Signal could not verify confirmation yet/);
 assert.match(clientSource, /status = await connection\.getSignatureStatus/);
 assert.doesNotMatch(clientSource, /waitForConfirmation\(connection, submitted\.signature, build\.blockhashWithMetadata\.lastValidBlockHeight\)/);
-assert.match(buildSource, /\/client\/swap-execute\.js\?v=swap-confirmation-retry-8/);
+assert.match(buildSource, /\/client\/swap-execute\.js\?v=lighthouse-guard-1/);
 const buildPayload = {
   outAmount: "25000000",
   slippageBps: 100,

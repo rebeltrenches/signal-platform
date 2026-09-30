@@ -1,11 +1,13 @@
 import * as web3 from "./vendor/solana-web3.js";
 // Generated at build time from packages/config (the one place it is set).
 import { SIGNAL_PLATFORM_WALLET_ADDRESS } from "./platform-wallet.js";
+// Post-signing tamper check (allows only Lighthouse guards to be appended).
+import { createIntentCheck } from "./swap-intent.js?v=lighthouse-guard-1";
 
 const SIGNAL_FEE_WALLET = new web3.PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS);
-const LIGHTHOUSE_PROGRAM = new web3.PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95");
 const RPC_PROXY = "/api/solana/rpc";
 const COMPUTE_UNIT_LIMIT_MAX = 1_400_000;
+const transactionIntentDifference = createIntentCheck(web3);
 
 function base58Encode(bytes) {
   const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -63,81 +65,6 @@ function serializeBase64(transaction) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
   return btoa(binary);
-}
-
-function sameBytes(left, right) {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
-function instructionDifference(left, right) {
-  if (!left.programId.equals(right.programId)) return "program";
-  if (!sameBytes(left.data, right.data)) return "data";
-  if (left.keys.length !== right.keys.length) return "account-count";
-  for (let index = 0; index < left.keys.length; index += 1) {
-    const key = left.keys[index];
-    const other = right.keys[index];
-    if (!key.pubkey.equals(other.pubkey)) return "account";
-    if (key.isSigner !== other.isSigner || key.isWritable !== other.isWritable) return "account-permissions";
-  }
-  return null;
-}
-
-function safeLighthouseAssertions(originalInstructions, signedInstructions, payer) {
-  if (signedInstructions.length !== originalInstructions.length + 2) return false;
-  for (let index = 0; index < originalInstructions.length; index += 1) {
-    if (instructionDifference(originalInstructions[index], signedInstructions[index])) return false;
-  }
-  const originalAccounts = new Set([payer.toBase58()]);
-  const originalWritableAccounts = new Set([payer.toBase58()]);
-  for (const instruction of originalInstructions) {
-    for (const key of instruction.keys) {
-      originalAccounts.add(key.pubkey.toBase58());
-      if (key.isWritable) originalWritableAccounts.add(key.pubkey.toBase58());
-    }
-  }
-  return signedInstructions.slice(originalInstructions.length).every((instruction) =>
-    instruction.programId.equals(LIGHTHOUSE_PROGRAM)
-      && instruction.data.length > 0
-      && instruction.keys.every((key) => {
-        const address = key.pubkey.toBase58();
-        if (!originalAccounts.has(address)) return false;
-        if (key.isSigner && !key.pubkey.equals(payer)) return false;
-        return !key.isWritable || originalWritableAccounts.has(address);
-      }));
-}
-
-function transactionIntentDifference(original, signed, addressLookupTableAccounts) {
-  if (original.recentBlockhash !== signed.recentBlockhash) return "blockhash";
-  if (!original.staticAccountKeys[0]?.equals(signed.staticAccountKeys[0])) return "payer";
-  const originalInstructions = web3.TransactionMessage
-    .decompile(original, { addressLookupTableAccounts }).instructions
-    .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
-  const signedInstructions = web3.TransactionMessage
-    .decompile(signed, { addressLookupTableAccounts }).instructions
-    .filter((instruction) => !instruction.programId.equals(web3.ComputeBudgetProgram.programId));
-  if (originalInstructions.length !== signedInstructions.length) {
-    if (safeLighthouseAssertions(originalInstructions, signedInstructions, original.staticAccountKeys[0])) return null;
-    const added = [];
-    let expectedIndex = 0;
-    for (let signedIndex = 0; signedIndex < signedInstructions.length; signedIndex += 1) {
-      const expected = originalInstructions[expectedIndex];
-      if (expected && !instructionDifference(expected, signedInstructions[signedIndex])) {
-        expectedIndex += 1;
-      } else {
-        added.push(`#${signedIndex + 1} ${signedInstructions[signedIndex].programId.toBase58()}`);
-      }
-    }
-    if (expectedIndex === originalInstructions.length && added.length) {
-      return `added instruction${added.length === 1 ? "" : "s"}: ${added.join("; ")}`;
-    }
-    return `instruction-count (${originalInstructions.length} expected, ${signedInstructions.length} signed; original sequence was also changed)`;
-  }
-  for (let index = 0; index < originalInstructions.length; index += 1) {
-    const difference = instructionDifference(originalInstructions[index], signedInstructions[index]);
-    if (difference) return `${difference} at instruction ${index + 1}`;
-  }
-  return null;
 }
 
 async function waitForConfirmation(connection, signature, lastValidBlockHeight) {
