@@ -1,11 +1,17 @@
 // Vercel's Node adapter for the shared, compliance-checked Worker handlers.
 import worker from "../../../worker.js";
 
+// A header name Fetch accepts (RFC 9110 token); anything else is skipped.
+const FETCH_HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
 export default async function handler(req, res) {
   try {
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers || {})) {
-      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(",") : String(value));
+      // HTTP/2 requests carry pseudo-headers (":authority", ":path", ...)
+      // in req.headers; Fetch's Headers rejects those names and throws.
+      if (value === undefined || !FETCH_HEADER_NAME.test(key)) continue;
+      headers.set(key, Array.isArray(value) ? value.join(",") : String(value));
     }
     headers.delete("cf-ipcountry");
     headers.delete("cf-connecting-ip");
@@ -42,7 +48,10 @@ export default async function handler(req, res) {
     res.statusCode = response.status;
     for (const [key, value] of response.headers) res.setHeader(key, value);
     res.end(Buffer.from(await response.arrayBuffer()));
-  } catch {
+  } catch (error) {
+    // Log the real cause (never header values or secrets) so a failure
+    // shows up in Vercel's function logs instead of disappearing.
+    console.error("[vercel-api] request failed", req.method || "GET", String(req.url || "").split("?")[0], error?.name || "Error", error?.message || String(error));
     res.statusCode = 500;
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ code: "API_ADAPTER_ERROR", error: "The preview API request could not be handled." }));

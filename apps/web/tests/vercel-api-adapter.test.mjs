@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import handler from "../server/vercel-worker.mjs";
 import rpc from "../api/solana/rpc.mjs";
 import catchall from "../api/[...path].mjs";
@@ -49,4 +50,47 @@ check(r.body.status, "clear");
 check((await call("/api/unknown")).statusCode, 404);
 check((await call("/api/solana/swap/build")).statusCode, 405);
 check((await call("/api/solana/rpc", { method: "POST", body: "x".repeat(32_001) })).statusCode, 413);
+// HTTP/2 requests carry pseudo-headers in req.headers; Fetch's Headers
+// rejects those names. They're skipped, so /api/geo still answers.
+r = await call("/api/geo", { headers: { ":authority": "signal.vercel.app", ":method": "GET", ":path": "/api/geo", ":scheme": "https", "x-vercel-ip-country": "ZA", "x-vercel-ip-country-region": "GP" } });
+check(r.statusCode, 200);
+check(r.body.level, "regulated");
+check(r.body.country, "ZA");
+
+// A request the adapter can't handle is logged with its cause (never
+// header values) instead of disappearing behind API_ADAPTER_ERROR.
+const logged = [];
+const realError = console.error;
+console.error = (...args) => logged.push(args.map(String).join(" "));
+try {
+  r = await call("/api/geo?x=1", { headers: { "x-bad-value": "secret-–-value" } });
+} finally {
+  console.error = realError;
+}
+check(r.statusCode, 500);
+check(r.body.code, "API_ADAPTER_ERROR");
+check(logged.length, 1);
+check(/\[vercel-api\] request failed GET \/api\/geo TypeError/.test(logged[0]), true);
+check(logged[0].includes("secret"), false);
+
+// /token/<mint> is served by the one generated token page, as the
+// Cloudflare Worker does; the visible URL (mint and query) is unchanged.
+const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
+const tokenRules = (vercel.rewrites || []).filter((rule) => rule.source.startsWith("/token/"));
+check(tokenRules.length, 2);
+const asRegExp = (source) => new RegExp("^" + source.replace(/:mint\(/, "(") + "$");
+const served = (path) => tokenRules.some((rule) => asRegExp(rule.source).test(path));
+const MINT = "3mwznTzZ5LJic9nvBCMLkXgw7scA6HnX1GNuQwmUf4Ar";
+check(served(`/token/${MINT}`), true);
+check(served(`/token/${MINT}/`), true);
+check(served("/token/example"), false);
+check(served("/token/example/"), false);
+check(served(`/token/${MINT}/extra`), false);
+for (const rule of tokenRules) {
+  check(rule.destination, "/token/example/index.html");
+  check(rule.destination.includes("?"), false); // Vercel passes the original query through
+}
+const buildScript = await readFile(new URL("../scripts/build.tsx", import.meta.url), "utf8");
+check(buildScript.includes("path: 'token/example'"), true);
+
 console.log(`Vercel API adapter: ${checks} checks passed.`);
