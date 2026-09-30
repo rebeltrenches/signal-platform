@@ -1,5 +1,19 @@
 // Vercel's Node adapter for the shared, compliance-checked Worker handlers.
-import worker from "../../../worker.js";
+import * as workerModule from "../../../worker.js";
+
+/** The Worker object ({ fetch }) from the imported module, whatever shape
+ *  the bundler gave it. worker.js sits where package.json has no
+ *  "type": "module", so Vercel can bundle it as CommonJS, and then the
+ *  default export arrives wrapped once more ({ default: { fetch } }).
+ *  Returns null when no callable fetch is found. */
+export function resolveWorker(mod) {
+  for (let candidate = mod, depth = 0; candidate && depth < 3; candidate = candidate.default, depth += 1) {
+    if (typeof candidate.fetch === "function") return candidate;
+  }
+  return null;
+}
+
+export const worker = resolveWorker(workerModule);
 
 // A header name Fetch accepts (RFC 9110 token); anything else is skipped.
 const FETCH_HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -41,6 +55,7 @@ export default async function handler(req, res) {
       country: headers.get("x-vercel-ip-country") || "",
       regionCode: headers.get("x-vercel-ip-country-region") || "",
     } });
+    if (!worker) throw new TypeError("the imported worker module has no fetch() handler");
     const response = await worker.fetch(request, {
       ...process.env,
       ASSETS: { fetch: () => Response.json({ code: "NOT_FOUND", error: "API route not found." }, { status: 404 }) },
