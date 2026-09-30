@@ -20,6 +20,9 @@ PORT = 8219
 MINT = "98kfF7rmsg1QDUEoCqNE7g7M1FdrTt92TEp2CLzypump"
 NOTE = "Sells happen on Jupiter, an external exchange. Signal doesn't charge a fee on sells."
 NOT_A_MINT = "11111111111111111111111111111111"  # the System Program: base58, but not a token
+SOL_MINT = "So11111111111111111111111111111111111111112"
+# Jupiter prefills Sell/Buy from these query parameters (checked in a real browser).
+JUPITER_URL = f"https://jup.ag/swap?sell={MINT}&buy={SOL_MINT}"
 
 
 def stub_market(page, status):
@@ -67,7 +70,7 @@ def run():
             check("the Sell link reuses the page's market lookup (one request, not two)", len(market_calls) == 1, str(len(market_calls)))
             check("the Sell link is shown for a Solana token", link.is_visible())
             check("it is labelled 'Sell on Jupiter ↗'", link.inner_text().strip() == "Sell on Jupiter ↗", link.inner_text())
-            check("it opens this token on Jupiter with SOL as the output", link.get_attribute("href") == f"https://jup.ag/swap/{MINT}-SOL", link.get_attribute("href"))
+            check("it opens Jupiter with this token as the Sell side and SOL as the Buy side", link.get_attribute("href") == JUPITER_URL, link.get_attribute("href"))
             check("it opens in a new tab", link.get_attribute("target") == "_blank")
             rel = link.get_attribute("rel") or ""
             check("the new tab can't reach back into Signal (noopener noreferrer)", "noopener" in rel and "noreferrer" in rel, rel)
@@ -79,7 +82,7 @@ def run():
                 link.click()
             popup = popup_info.value
             popup.wait_for_load_state()
-            check("clicking opens Jupiter in a new tab at this token", popup.url == f"https://jup.ag/swap/{MINT}-SOL", popup.url)
+            check("clicking opens Jupiter in a new tab at this token", popup.url == JUPITER_URL, popup.url)
             page.wait_for_timeout(300)
             check("clicking Sell makes Signal build no transaction (no swap request)", not swap_requests, str(swap_requests))
             page.close()
@@ -97,7 +100,7 @@ def run():
             stub_market(page, 502)
             page.goto(f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=solana", wait_until="domcontentloaded")
             page.locator("#trade-sell-link").wait_for(state="visible", timeout=5000)
-            check("if the token lookup is unavailable, the Sell link is still shown", page.locator("#trade-sell-link").get_attribute("href") == f"https://jup.ag/swap/{MINT}-SOL")
+            check("if the token lookup is unavailable, the Sell link is still shown", page.locator("#trade-sell-link").get_attribute("href") == JUPITER_URL)
             page.close()
 
             for name, url in (
