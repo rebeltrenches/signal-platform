@@ -23,9 +23,16 @@ NOT_A_MINT = "11111111111111111111111111111111"  # the System Program: base58, b
 
 
 def stub_market(page, status):
-    """The token-market lookup the link waits for (200: a mint; 404: not one)."""
+    """The page's token-market lookup (200: a mint; 404: not one). Returns
+    the list of lookups made, which should stay at one per page."""
     body = '{"code":"MINT_NOT_FOUND","error":"No token mint exists at this address."}' if status == 404 else '{"mint":"x"}'
-    page.route("**/api/solana/token-market*", lambda route: route.fulfill(status=status, content_type="application/json", body=body))
+    calls = []
+
+    def handle(route):
+        calls.append(route.request.url)
+        route.fulfill(status=status, content_type="application/json", body=body)
+    page.route("**/api/solana/token-market*", handle)
+    return calls
 
 results = []
 
@@ -52,10 +59,12 @@ def run():
             swap_requests = []
             page.on("request", lambda r: swap_requests.append(r.url) if "/api/solana/swap" in r.url else None)
             page.context.route("https://jup.ag/**", lambda route: route.fulfill(status=200, content_type="text/html", body="<title>Jupiter</title>"))
-            stub_market(page, 200)
+            market_calls = stub_market(page, 200)
             page.goto(f"http://localhost:{PORT}/token/example/?mint={MINT}&chain=solana", wait_until="domcontentloaded")
             link = page.locator("#trade-sell-link")
             link.wait_for(state="visible")
+            page.wait_for_timeout(300)
+            check("the Sell link reuses the page's market lookup (one request, not two)", len(market_calls) == 1, str(len(market_calls)))
             check("the Sell link is shown for a Solana token", link.is_visible())
             check("it is labelled 'Sell on Jupiter ↗'", link.inner_text().strip() == "Sell on Jupiter ↗", link.inner_text())
             check("it opens this token on Jupiter with SOL as the output", link.get_attribute("href") == f"https://jup.ag/swap/{MINT}-SOL", link.get_attribute("href"))

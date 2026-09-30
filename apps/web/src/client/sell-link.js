@@ -3,11 +3,11 @@
 // builds no sell transaction and charges no fee on sells.
 //
 // Shown only for a Solana token mint: the address (from the URL, like
-// token-detail.js) must look like one, and the token-market lookup (the
-// same cached request the page already makes) must not answer
-// MINT_NOT_FOUND, which it does for wallets, programs and token accounts.
-// If that lookup can't be made right now, the link is still shown: it's
-// only a link to an exchange, and Jupiter checks the token itself.
+// token-detail.js) must look like one, and the page's token-market lookup
+// (made once by token-detail.js, shared as "signal:token-market") must not
+// answer MINT_NOT_FOUND, which it does for wallets, programs and token
+// accounts. If that lookup fails or never answers, the link is still shown:
+// it's only a link to an exchange, and Jupiter checks the token itself.
 (function () {
   const link = document.getElementById('trade-sell-link');
   const note = document.getElementById('trade-sell-note');
@@ -22,13 +22,16 @@
     link.hidden = false;
     if (note) note.hidden = false;
   };
-  fetch('/api/solana/token-market?mint=' + encodeURIComponent(mint))
-    .then(async (response) => {
-      if (response.status === 404) {
-        const body = await response.json().catch(() => ({}));
-        if (body.code === 'MINT_NOT_FOUND') return; // not a token mint: no Sell link
-      }
-      show();
-    })
-    .catch(show);
+  let decided = false;
+  const decide = (market) => {
+    if (decided) return;
+    decided = true;
+    if (market && market.status === 404 && market.code === 'MINT_NOT_FOUND') return; // not a token mint
+    show();
+  };
+  if (window.signalTokenMarket) decide(window.signalTokenMarket);
+  else {
+    document.addEventListener('signal:token-market', (event) => decide(event.detail), { once: true });
+    setTimeout(() => decide(null), 10_000);
+  }
 })();
