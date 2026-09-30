@@ -3,6 +3,9 @@ name: Wallet Intelligence verification
 # verification trigger: history replay interaction
 
 on:
+  # Every push to main runs the full suite too, not only pull requests.
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
     paths:
@@ -135,6 +138,13 @@ jobs:
           python apps/web/tests/explore-logos.test.py
       - name: Terms, regional restrictions and sanctions screening tests (site)
         run: python apps/web/tests/compliance-page.test.py
+      - name: Community chat, Explore and watchlist browser tests
+        run: |
+          python apps/web/tests/chat-e2e.test.py
+          python apps/web/tests/explore-search.test.py
+          python apps/web/tests/explore-new-tab.test.py
+          python apps/web/tests/watchlist-registration-status.test.py
+          python apps/web/tests/watchlist-sync.test.py
       - name: Safety boundary
         run: |
           echo "Wallet Intelligence verification completed against isolated CI resources."

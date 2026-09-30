@@ -6,6 +6,7 @@ async function run() {
   const router = new Router({ maxBodyBytes: 32, rateLimitMax: 3, rateLimitWindowMs: 60_000 });
   router.register('POST', '/echo', (req) => ({ status: 200, body: req.body }));
   router.register('GET', '/boom', () => { throw new Error('database password must not leak'); });
+  router.register('GET', '/items/:id', (req) => ({ status: 200, body: { id: req.params.id } }));
   const server = http.createServer((req, res) => router.handleNode(req, res));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -28,6 +29,14 @@ async function run() {
     const internalBody = await internal.text();
     assert.doesNotMatch(internalBody, /database password/i);
 
+    // Checked before the rate limit: a refused path isn't counted.
+    const malformed = await fetch(`${base}/items/%E0%A4%A`);
+    assert.equal(malformed.status, 400);
+    assert.equal(malformed.headers.get('x-content-type-options'), 'nosniff');
+    const malformedBody = await malformed.json() as any;
+    assert.equal(malformedBody.error, 'BAD_REQUEST');
+    assert.doesNotMatch(JSON.stringify(malformedBody), /URI malformed/i);
+
     const limited = await fetch(`${base}/missing`);
     assert.equal(limited.status, 429);
     assert.ok(Number(limited.headers.get('retry-after')) >= 1);
@@ -36,8 +45,9 @@ async function run() {
     console.log('  ok  - applies security headers to API responses');
     console.log('  ok  - rejects oversized request bodies');
     console.log('  ok  - does not expose internal exception messages');
+    console.log('  ok  - a malformed path encoding is a 400, without internal details');
     console.log('  ok  - rate limits repeated requests by client address');
-    console.log('\n4 test(s) passed.');
+    console.log('\n5 test(s) passed.');
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

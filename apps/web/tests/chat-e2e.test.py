@@ -14,6 +14,7 @@ Requires: apps/web/dist built, and apps/api reachable via a live
 subprocess (started here) — Python's `cryptography` package.
 """
 import subprocess
+from browser_stubs import stub_pages
 import time
 import sys
 import os
@@ -111,6 +112,7 @@ def start_web_server():
             fixtures = {
                 "/api/geo": {"country": "DE", "level": "allowed", "termsVersion": "chat-test"},
                 "/api/solana/swap/quote": {"quoteEnabled": False},
+                "/api/solana/token-market": {"marketEnabled": False},
             }
             fixture = fixtures.get(self.path.split("?", 1)[0])
             if fixture is not None:
@@ -142,7 +144,7 @@ def start_web_server():
 
     os.chdir(DIST_DIR)
     socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(("", WEB_PORT), ProxyingHandler)
+    httpd = socketserver.ThreadingTCPServer(("", WEB_PORT), ProxyingHandler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
@@ -188,10 +190,22 @@ def main():
     env["PORT"] = str(API_PORT)
     env["AUTH_SECRET"] = "chat-e2e-session-secret-that-is-not-a-placeholder"
     api_proc = subprocess.Popen(
-        [shutil.which("npx") or "npx", "tsx", os.path.join(REPO_ROOT, "apps/api/tests/support/test-server.ts")],
+        [shutil.which("node") or "node", "--import", "tsx", os.path.join(REPO_ROOT, "apps/api/tests/support/test-server.ts")],
         cwd=REPO_ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    time.sleep(1.5)
+    for attempt in range(100):
+        if api_proc.poll() is not None:
+            raise RuntimeError(api_proc.stdout.read().decode())
+        try:
+            urllib.request.urlopen(f"http://localhost:{API_PORT}/api/v1/chat/main/messages", timeout=1)
+            break
+        except urllib.error.HTTPError:
+            break
+        except urllib.error.URLError:
+            time.sleep(0.1)
+    else:
+        api_proc.terminate()
+        raise RuntimeError("Local chat API did not become ready")
 
     web_httpd = start_web_server()
     time.sleep(0.3)
@@ -201,7 +215,7 @@ def main():
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = stub_pages(p.chromium.launch(), DIST_DIR)
 
             # ---- Case 1: disconnected state on the Community page ----
             page = browser.new_page(viewport={"width": 1280, "height": 900})

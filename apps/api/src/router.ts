@@ -150,7 +150,16 @@ export class Router {
       return;
     }
 
-    const matched = this.match(req.method ?? 'GET', pathParts);
+    let matched: ReturnType<Router['match']>;
+    try {
+      matched = this.match(req.method ?? 'GET', pathParts);
+    } catch (err) {
+      // A malformed percent-encoding in a path parameter (e.g. "%E0%A4%A").
+      if (!(err instanceof URIError)) throw err;
+      res.writeHead(400, responseHeaders);
+      res.end(JSON.stringify({ error: 'BAD_REQUEST', message: 'The request path is not validly encoded.' }));
+      return;
+    }
 
     const forwarded = req.headers['x-forwarded-for'];
     const clientKey = process.env.TRUST_PROXY === 'true' && typeof forwarded === 'string'
