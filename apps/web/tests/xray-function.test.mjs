@@ -245,7 +245,7 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
       m1: tx(holderB, 900, 800), // sells through the Meteora pool
       m2: tx(holderA, 900, 850),
     },
-    pairs: graduated ? [{ dexId: "pumpswap", pairAddress: pool, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" }, liquidity: { usd: 25_000 }, pairCreatedAt: Date.parse("2026-09-01T00:00:00Z") }] : [{ dexId: "pumpfun", pairAddress: curve, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" } }],
+    pairs: graduated ? [{ dexId: "pumpswap", pairAddress: pool, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" }, liquidity: { usd: 25_000 }, pairCreatedAt: Date.parse("2026-09-01T00:00:00Z"), txns: { h1: { buys: 400, sells: 600 }, h24: { buys: 9_000, sells: 8_000 } } }] : [{ dexId: "pumpfun", pairAddress: curve, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" } }],
     simulation,
     ...extra,
   };
@@ -519,7 +519,7 @@ await test("recent sells: successful sells by non-creator wallets counted (SOL o
   network(s.state);
   const { body } = await run(s.mint);
   const sells = find(body, "recent-sells");
-  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool");
+  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 5 wallet trades (from 5 transactions across 1 pool)");
   assert.equal(sells.status, "ok");
 });
 
@@ -528,7 +528,7 @@ await test("recent sells: a liquidity deposit (tokens and SOL into the pool) isn
   s.state.signatures[s.curve] = ["s5", "s4", "s6", "s7", "s3"]; // a deposit, buys and the creator's sell
   network(s.state);
   const { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 5 transactions across 1 pool");
+  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 5 wallet trades (from 5 transactions across 1 pool)");
   assert.equal(find(body, "recent-sells").status, "warn");
 });
 
@@ -548,7 +548,7 @@ await test("recent sells: the token's other pools found among its holders (Meteo
   const calls = network(s.state);
   const { body } = await run(s.mint);
   // PumpSwap: 2 sells (holders A and B); Meteora: 2 more by the same wallets.
-  assert.equal(find(body, "recent-sells").value, "4 successful sells by 2 non-creator wallets in the last 7 transactions across 2 pools");
+  assert.equal(find(body, "recent-sells").value, "4 successful sells by 2 non-creator wallets in the last 7 wallet trades (from 7 transactions across 2 pools)");
   assert.equal(calls.filter((method) => method === "getSignaturesForAddress").length, 2);
   assert.equal(find(body, "top10").value, "18% of supply (not counting PumpSwap pool, Meteora DLMM pool)");
 });
@@ -559,7 +559,7 @@ await test("recent sells: a pool whose transactions can't be listed isn't counte
   s.state.failingPools = new Set([s.meteoraPool]);
   network(s.state);
   let { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool (1 more pool couldn't be read)");
+  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 wallet trades (from 5 transactions across 1 pool; 1 more pool couldn't be read)");
   // No sells in the pool that was read: no "no sells" claim.
   xray.resetXrayForTests();
   s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
@@ -598,7 +598,7 @@ await test("recent sells: a sell paid out in a secondary pool's own quote token 
   s.state.signatures[s.pool] = ["s3", "s4", "s6", "s7"]; // no sells in the PumpSwap pool
   network(s.state);
   const { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "1 successful sell by 1 non-creator wallet in the last 6 transactions across 2 pools");
+  assert.equal(find(body, "recent-sells").value, "1 successful sell by 1 non-creator wallet in the last 6 wallet trades (from 6 transactions across 2 pools)");
 });
 
 await test("PumpSwap LP spread over many small wallets: all listed accounts are counted, so 6% of issued LP is ⚠️", async () => {
@@ -618,11 +618,73 @@ await test("LP not among the listed accounts counts against ✅ (it could be wal
   assert.equal(find(body, "lp").status, "warn");
 });
 
+await test("recent sells: bot arbitrage between pools (no wallet's balance changes) isn't counted; too few wallet trades → 'Not enough recent data', not ⚠️", async () => {
+  const s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  const bot = key();
+  // The bot buys from PumpSwap and sells into Meteora in one transaction:
+  // tokens go pool → pool; the bot's own balance doesn't change.
+  const arb = (n) => ({
+    transaction: { message: { accountKeys: [bot, s.pool, s.meteoraPool] } },
+    meta: {
+      err: null, fee: 5000, preBalances: [1_000_000_000, 1, 1], postBalances: [1_000_100_000, 1, 1],
+      preTokenBalances: [{ mint: s.mint, owner: s.pool, uiTokenAmount: { amount: "10000" } }, { mint: s.mint, owner: s.meteoraPool, uiTokenAmount: { amount: "10000" } }, { mint: s.mint, owner: bot, uiTokenAmount: { amount: "0" } }],
+      postTokenBalances: [{ mint: s.mint, owner: s.pool, uiTokenAmount: { amount: String(10000 - n) } }, { mint: s.mint, owner: s.meteoraPool, uiTokenAmount: { amount: String(10000 + n) } }, { mint: s.mint, owner: bot, uiTokenAmount: { amount: "0" } }],
+    },
+  });
+  for (let i = 1; i <= 8; i += 1) s.state.transactions[`a${i}`] = arb(100 * i);
+  s.state.signatures[s.pool] = ["a1", "a2", "a3", "a4", "a5", "a6", "s4"]; // arbitrage and one wallet buy
+  s.state.signatures[s.meteoraPool] = ["a7", "a8"];
+  network(s.state);
+  const { body } = await run(s.mint);
+  const sells = find(body, "recent-sells");
+  assert.equal(sells.value, "Not enough recent data");
+  assert.equal(sells.status, "unavailable");
+  assert.match(sells.reason, /^Only 1 of the 9 recent pool transactions read involved a wallet trading this token/);
+});
+
+await test("DEX Screener's sell count is shown as its own third-party line, summed across pairs", async () => {
+  const s = await scenario({ graduated: true, lpSupply: 0n });
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  // A second pair where this token is the QUOTE side: its "buys" are this token's sells.
+  s.state.pairs.push({ dexId: "meteora", pairAddress: key(), baseToken: { address: USDC }, quoteToken: { address: s.mint }, liquidity: { usd: 1_000 }, txns: { h1: { buys: 29, sells: 5 }, h24: { buys: 1_000, sells: 3 } } });
+  network(s.state);
+  const { body } = await run(s.mint);
+  const line = find(body, "dex-sells");
+  assert.equal(line.label, "Sells counted by DEX Screener (third-party)");
+  assert.equal(line.value, "629 in the last hour, 9,000 in the last 24 hours (across 2 pairs, all wallets)");
+  assert.equal(line.status, "ok");
+  assert.match(line.why, /third-party .* includes bots and can't tell who sold/);
+  const ids = body.sections.find((section) => section.id === "honeypot").items.map((entry) => entry.id);
+  assert.deepEqual(ids, ["mechanisms", "sell-simulation", "recent-sells", "dex-sells"]);
+});
+
+await test("DEX Screener line: no sells in 24 hours → ⚠️; DEX Screener down or no counts → Unavailable", async () => {
+  let s = await scenario({ graduated: true, lpSupply: 0n });
+  s.state.pairs[0].txns = { h1: { buys: 3, sells: 0 }, h24: { buys: 40, sells: 0 } };
+  network(s.state);
+  let line = find((await run(s.mint)).body, "dex-sells");
+  assert.equal(line.value, "0 in the last hour, 0 in the last 24 hours (across 1 pair, all wallets)");
+  assert.equal(line.status, "warn");
+  xray.resetXrayForTests();
+  s = await scenario({ graduated: true, lpSupply: 0n, extra: { dexDown: true } });
+  network(s.state);
+  line = find((await run(s.mint)).body, "dex-sells");
+  assert.equal(line.value, "Unavailable");
+  assert.match(line.reason, /couldn't be reached/);
+  xray.resetXrayForTests();
+  s = await scenario({ graduated: true, lpSupply: 0n });
+  delete s.state.pairs[0].txns;
+  network(s.state);
+  line = find((await run(s.mint)).body, "dex-sells");
+  assert.equal(line.value, "Unavailable");
+  assert.match(line.reason, /no trade counts/);
+});
+
 await test("recent sells: transactions that fail to load are retried once (rate limits), in small batches", async () => {
   const s = await scenario({ extra: { flaky: new Set(["s1", "s2"]) } });
   const calls = network(s.state);
   const { body } = await run(s.mint);
-  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool");
+  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 wallet trades (from 5 transactions across 1 pool)");
   assert.equal(calls.filter((method) => method === "getTransaction").length, 7, "5 reads + 2 retries");
 });
 
