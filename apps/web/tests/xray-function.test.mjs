@@ -642,6 +642,21 @@ await test("recent sells: bot arbitrage between pools (no wallet's balance chang
   assert.match(sells.reason, /^Only 1 of the 9 recent pool transactions read involved a wallet trading this token/);
 });
 
+await test("recent sells: a sell found in a small sample is still reported (positive evidence, sample stated); only 'no sells' needs 5 wallet trades", async () => {
+  const s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  const bot = key();
+  const arb = { transaction: { message: { accountKeys: [bot, s.pool, s.meteoraPool] } }, meta: { err: null, fee: 5000, preBalances: [1, 1, 1], postBalances: [1, 1, 1],
+    preTokenBalances: [{ mint: s.mint, owner: s.pool, uiTokenAmount: { amount: "10000" } }, { mint: s.mint, owner: s.meteoraPool, uiTokenAmount: { amount: "10000" } }],
+    postTokenBalances: [{ mint: s.mint, owner: s.pool, uiTokenAmount: { amount: "9900" } }, { mint: s.mint, owner: s.meteoraPool, uiTokenAmount: { amount: "10100" } }] } };
+  for (let i = 1; i <= 6; i += 1) s.state.transactions[`b${i}`] = arb;
+  s.state.signatures[s.pool] = ["b1", "b2", "b3", "b4", "b5", "b6", "s1"]; // bots, and one real sell
+  s.state.signatures[s.meteoraPool] = [];
+  network(s.state);
+  const sells = find((await run(s.mint)).body, "recent-sells");
+  assert.equal(sells.value, "1 successful sell by 1 non-creator wallet in the last 1 wallet trade (from 7 transactions across 2 pools)");
+  assert.equal(sells.status, "ok");
+});
+
 await test("DEX Screener's sell count is shown as its own third-party line, summed across pairs", async () => {
   const s = await scenario({ graduated: true, lpSupply: 0n });
   const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
