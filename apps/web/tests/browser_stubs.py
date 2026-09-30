@@ -5,7 +5,8 @@ stub_pages(browser, dist_dir) wraps browser.new_page so every page gets:
 - the Worker-only endpoints (/api/geo, /api/wallet-screen, swap quote,
   token market) answered with neutral fixtures, since a file server 404s;
 - DEX Screener (fetched by Explore straight from the browser) answered with
-  no tokens, so results don't depend on live market data;
+  no tokens, and the PumpPortal WebSocket accepted but silent, so results
+  don't depend on live market data or network access;
 - the large vendor bundle served from disk, since Python's file server can
   reset those connections under parallel page loads.
 """
@@ -44,6 +45,9 @@ def install(page, dist_dir):
     for path in [*WORKER_FIXTURES, "/api/wallet-screen"]:
         page.route(f"**{path}*", worker)
     page.route("https://api.dexscreener.com/**", lambda route: _json(route, []))
+    # Explore's live PumpPortal feed: accept the socket and send nothing, so
+    # offline or restricted runs don't log a connection error.
+    page.route_web_socket("wss://pumpportal.fun/**", lambda ws: None)
     page.route("**/client/vendor/**", vendor)
     return page
 
