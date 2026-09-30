@@ -118,6 +118,7 @@ function network(state) {
           case "getTokenSupply":
             return { value: { amount: String(state.supply[first] ?? 0) } };
           case "getSignaturesForAddress":
+            if (state.failingPools?.has(first)) throw new Error("rate limited");
             return (state.signatures[first] || []).map((signature) => ({ signature, err: null }));
           case "getTransaction":
             if (state.flaky?.has(first)) {
@@ -436,7 +437,7 @@ await test("LP held by a wallet: ⚠️ naming the share; LP sent to the inciner
 });
 
 await test("PumpSwap LP mostly burned (PAID's real numbers): burned share counted from the pool's issued LP; small wallet leftover ✅", async () => {
-  const wallets = [[key(), 3_144_431_697n], [key(), 752_964_574n], [key(), 148_929_078n]];
+  const wallets = [[key(), 3_144_431_697n], [key(), 752_964_574n], [key(), 148_929_078n], [key(), 3_934_590n]];
   const s = await scenario({ graduated: true, lpIssued: 4_197_438_549_426n, lpSupply: 4_050_259_939n, lpHolders: wallets });
   network(s.state);
   const { body } = await run(s.mint);
@@ -550,6 +551,71 @@ await test("recent sells: the token's other pools found among its holders (Meteo
   assert.equal(find(body, "recent-sells").value, "4 successful sells by 2 non-creator wallets in the last 7 transactions across 2 pools");
   assert.equal(calls.filter((method) => method === "getSignaturesForAddress").length, 2);
   assert.equal(find(body, "top10").value, "18% of supply (not counting PumpSwap pool, Meteora DLMM pool)");
+});
+
+await test("recent sells: a pool whose transactions can't be listed isn't counted as read; no sells then → 'Not enough recent data'", async () => {
+  // Sells found in the pool that was read: reported, noting the other pool.
+  let s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  s.state.failingPools = new Set([s.meteoraPool]);
+  network(s.state);
+  let { body } = await run(s.mint);
+  assert.equal(find(body, "recent-sells").value, "2 successful sells by 2 non-creator wallets in the last 5 transactions across 1 pool (1 more pool couldn't be read)");
+  // No sells in the pool that was read: no "no sells" claim.
+  xray.resetXrayForTests();
+  s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  s.state.failingPools = new Set([s.meteoraPool]);
+  s.state.signatures[s.pool] = ["s3", "s4", "s5", "s6", "s7"];
+  network(s.state);
+  ({ body } = await run(s.mint));
+  const sells = find(body, "recent-sells");
+  assert.equal(sells.value, "Not enough recent data");
+  assert.equal(sells.status, "unavailable");
+  assert.match(sells.reason, /1 of 2 pools couldn't be read/);
+});
+
+await test("recent sells: a sell paid out in a secondary pool's own quote token (USDC) is counted", async () => {
+  const s = await scenario({ graduated: true, lpSupply: 0n, meteora: true });
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  // holderB sells 100 tokens into the Meteora pool and gets 50 USDC from it;
+  // no SOL moves.
+  s.state.transactions.m1 = {
+    transaction: { message: { accountKeys: [s.holderB, s.meteoraPool] } },
+    meta: {
+      err: null, fee: 5000, preBalances: [1_000_000_000, 1], postBalances: [999_995_000, 1],
+      preTokenBalances: [{ mint: s.mint, owner: s.holderB, uiTokenAmount: { amount: "900" } }, { mint: USDC, owner: s.meteoraPool, uiTokenAmount: { amount: "1000" } }, { mint: USDC, owner: s.holderB, uiTokenAmount: { amount: "0" } }],
+      postTokenBalances: [{ mint: s.mint, owner: s.holderB, uiTokenAmount: { amount: "800" } }, { mint: USDC, owner: s.meteoraPool, uiTokenAmount: { amount: "950" } }, { mint: USDC, owner: s.holderB, uiTokenAmount: { amount: "50" } }],
+    },
+  };
+  // holderA deposits tokens and USDC into the Meteora pool: not a sell.
+  s.state.transactions.m2 = {
+    transaction: { message: { accountKeys: [s.holderA, s.meteoraPool] } },
+    meta: {
+      err: null, fee: 5000, preBalances: [1_000_000_000, 1], postBalances: [999_995_000, 1],
+      preTokenBalances: [{ mint: s.mint, owner: s.holderA, uiTokenAmount: { amount: "900" } }, { mint: USDC, owner: s.holderA, uiTokenAmount: { amount: "100" } }, { mint: USDC, owner: s.meteoraPool, uiTokenAmount: { amount: "1000" } }],
+      postTokenBalances: [{ mint: s.mint, owner: s.holderA, uiTokenAmount: { amount: "850" } }, { mint: USDC, owner: s.holderA, uiTokenAmount: { amount: "0" } }, { mint: USDC, owner: s.meteoraPool, uiTokenAmount: { amount: "1100" } }],
+    },
+  };
+  s.state.signatures[s.pool] = ["s3", "s4", "s6", "s7"]; // no sells in the PumpSwap pool
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "recent-sells").value, "1 successful sell by 1 non-creator wallet in the last 6 transactions across 2 pools");
+});
+
+await test("PumpSwap LP spread over many small wallets: all listed accounts are counted, so 6% of issued LP is ⚠️", async () => {
+  const wallets = Array.from({ length: 10 }, () => [key(), 6_000n]); // 10 x 0.6% of 1,000,000 issued
+  const s = await scenario({ graduated: true, lpIssued: 1_000_000n, lpSupply: 60_000n, lpHolders: wallets });
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.match(find(body, "lp").value, /^94% burned; 6% held by wallets \(largest .*\)$/);
+  assert.equal(find(body, "lp").status, "warn");
+});
+
+await test("LP not among the listed accounts counts against ✅ (it could be wallet-held)", async () => {
+  const s = await scenario({ graduated: true, lpIssued: 1_000_000n, lpSupply: 60_000n, lpHolders: [[key(), 10_000n]] });
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.match(find(body, "lp").value, /^94% burned; 1% held by wallets \(largest .*\); 5% in smaller holdings not checked$/);
+  assert.equal(find(body, "lp").status, "warn");
 });
 
 await test("recent sells: transactions that fail to load are retried once (rate limits), in small batches", async () => {
