@@ -25,7 +25,7 @@ Endpoint `GET /api/xray?mint=…` (`functions/api/solana/xray.js`), shown on the
   - the mechanisms found above, listed together;
   - a simulated 1% sell from a real holder (`simulateTransaction`, `sigVerify: false`; never sent);
   - successful sells by non-creator wallets in the last 15 pool or curve transactions.
-- **Signal launches:** an extra line, "Launched on Signal: mint authority revoked at launch".
+- **Signal registry:** an extra line, "Registered on Signal: Yes (mint authority revoked)". It says "registered", not "launched", because the registry holds both tokens launched on Signal and tokens listed afterwards, and doesn't record which.
 
 **Cost per uncached X-Ray** (cached 5 minutes per mint; 1 minute if something was unavailable):
 
@@ -37,6 +37,8 @@ Endpoint `GET /api/xray?mint=…` (`functions/api/solana/xray.js`), shown on the
 | Signal API | 1 |
 
 ## V2: not built yet
+
+- **"Launched on Signal" line.** Needs the registry to record each token's origin (launched on Signal or listed afterwards) at registration. That's a change to the launch/registration flow, so it needs the owner's approval first.
 
 - **Clusters.** Buys bundled in the same block, and wallets funded from shared sources.
 - **Creator plus linked wallets.** Their combined share of supply.

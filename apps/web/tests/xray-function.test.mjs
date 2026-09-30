@@ -120,6 +120,9 @@ function network(state) {
             return (state.signatures[first] || []).map((signature) => ({ signature, err: null }));
           case "getTransaction":
             return state.transactions[first] ?? null;
+          case "getEpochInfo":
+            if (state.epoch === undefined) throw new Error("no epoch");
+            return { epoch: state.epoch };
           case "simulateTransaction":
             state.simulated = { tx: first, options };
             return { value: state.simulation ?? { err: null, logs: [] } };
@@ -192,7 +195,18 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
     : [[curveVault, 600_000_000_000_000n], [ataA, 80_000_000_000_000n], [creatorAccount, 60_000_000_000_000n], [ataB, 40_000_000_000_000n]];
   const target = graduated ? pool : curve;
   // Recent transactions: two sells by holders, one by the creator, one buy.
-  const tx = (owner, pre, post) => ({ meta: { err: null, preTokenBalances: [{ mint, owner, uiTokenAmount: { amount: String(pre) } }, { mint, owner: target, uiTokenAmount: { amount: "1000" } }], postTokenBalances: [{ mint, owner, uiTokenAmount: { amount: String(post) } }, { mint, owner: target, uiTokenAmount: { amount: String(1000 + pre - post) } }] } });
+  // A swap between `owner` and the pool: tokens one way, SOL (lamports) the other.
+  const tx = (owner, pre, post, { solDelta = (pre - post) * 10, wsol = false } = {}) => ({
+    transaction: { message: { accountKeys: [owner, target] } },
+    meta: {
+      err: null,
+      fee: 5000,
+      preBalances: [1_000_000_000, 5_000_000_000],
+      postBalances: [1_000_000_000 - 5000 + (wsol ? 0 : solDelta), 5_000_000_000 - (wsol ? 0 : solDelta)],
+      preTokenBalances: [{ mint, owner, uiTokenAmount: { amount: String(pre) } }, { mint, owner: target, uiTokenAmount: { amount: "1000" } }, ...(wsol ? [{ mint: "So11111111111111111111111111111111111111112", owner, uiTokenAmount: { amount: "0" } }] : [])],
+      postTokenBalances: [{ mint, owner, uiTokenAmount: { amount: String(post) } }, { mint, owner: target, uiTokenAmount: { amount: String(1000 + pre - post) } }, ...(wsol ? [{ mint: "So11111111111111111111111111111111111111112", owner, uiTokenAmount: { amount: String(solDelta) } }] : [])],
+    },
+  });
   const lpAccounts = {};
   const lpLargest = [];
   for (const [owner, amount, ownerProgram] of lpHolders) {
@@ -205,8 +219,15 @@ async function scenario({ graduated = false, mint = key(), mintData, lpSupply = 
     accounts: { ...accounts, ...lpAccounts },
     largest: { [mint]: largest, [lpMint]: lpLargest },
     supply: { [lpMint]: lpSupply },
-    signatures: { [target]: ["s1", "s2", "s3", "s4"] },
-    transactions: { s1: tx(holderA, 500, 400), s2: tx(holderB, 300, 100), s3: tx(creator, 900, 0), s4: tx(holderA, 400, 700) },
+    signatures: { [target]: ["s1", "s2", "s3", "s4", "s5"] },
+    transactions: {
+      s1: tx(holderA, 500, 400),
+      s2: tx(holderB, 300, 100, { wsol: true }), // paid out in WSOL
+      s3: tx(creator, 900, 0),
+      s4: tx(holderA, 400, 700), // a buy
+      // Adding liquidity: tokens AND SOL go into the pool; not a sell.
+      s5: tx(holderB, 200, 100, { solDelta: -1_000 }),
+    },
     pairs: graduated ? [{ dexId: "pumpswap", pairAddress: pool, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" }, liquidity: { usd: 25_000 }, pairCreatedAt: Date.parse("2026-09-01T00:00:00Z") }] : [{ dexId: "pumpfun", pairAddress: curve, baseToken: { address: mint }, quoteToken: { address: "So11111111111111111111111111111111111111112" } }],
     simulation,
     ...extra,
@@ -263,7 +284,7 @@ const delegate = key();
 const pauseAuthority = key();
 const feeAuthority = key();
 for (const [name, extensions, id, expected] of [
-  ["transfer fee 5% with a fee authority", [EXT.transferFee(500, feeAuthority)], "transfer-fee", /^5%; fee authority/],
+  ["transfer fee 5% with a fee authority", [EXT.transferFee(500, feeAuthority)], "transfer-fee", /^5% now; fee authority/],
   ["transfer hook", [EXT.transferHook(hookProgram)], "transfer-hook", /^Program /],
   ["permanent delegate", [EXT.permanentDelegate(delegate)], "permanent-delegate", /…/],
   ["accounts frozen by default", [EXT.defaultFrozen()], "default-frozen", /^Yes$/],
@@ -287,6 +308,50 @@ for (const [name, extensions, id, expected] of [
     }
   });
 }
+
+/** A transfer fee that changes from `olderBps` to `newerBps` at `epoch`. */
+const scheduledFee = (olderBps, newerBps, epoch) => [1, concat(new Uint8Array(32), new Uint8Array(32), u64le(0), u64le(0), u64le(1_000_000), u16le(olderBps), u64le(epoch), u64le(1_000_000), u16le(newerBps))];
+
+await test("scheduled fee change, before its epoch: the active (older) fee is shown, the new one as scheduled", async () => {
+  const s = await scenario({ mintData: mintBytes({ extensions: [scheduledFee(0, 1000, 900)] }), extra: { epoch: 850 } });
+  s.state.accounts[s.mint].owner = TOKEN_2022;
+  const calls = network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "transfer-fee").value, "0% now, changing to 10% at epoch 900");
+  assert.equal(find(body, "transfer-fee").status, "warn");
+  assert.match(find(body, "transfer-fee").why, /starts at epoch 900/);
+  assert.match(find(body, "mechanisms").value, /transfer fee scheduled \(10% from epoch 900\)/);
+  assert.doesNotMatch(find(body, "mechanisms").value, /transfer fee \(10%\)/);
+  assert.ok(calls.includes("getEpochInfo"));
+});
+
+await test("scheduled fee change, after its epoch: the newer fee is the one in force", async () => {
+  const s = await scenario({ mintData: mintBytes({ extensions: [scheduledFee(1000, 200, 900)] }), extra: { epoch: 901 } });
+  s.state.accounts[s.mint].owner = TOKEN_2022;
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "transfer-fee").value, "2% now");
+  assert.match(find(body, "mechanisms").value, /transfer fee \(2%\)/);
+});
+
+await test("scheduled fee change with the epoch unreadable: both fees shown as possible, ⚠️, cached briefly", async () => {
+  const s = await scenario({ mintData: mintBytes({ extensions: [scheduledFee(100, 500, 900)] }) });
+  s.state.accounts[s.mint].owner = TOKEN_2022;
+  network(s.state);
+  const { body, ttl } = await run(s.mint);
+  assert.match(find(body, "transfer-fee").value, /^1% or 5% \(5% from epoch 900; the current epoch couldn't be read\)/);
+  assert.match(find(body, "mechanisms").value, /transfer fee \(up to 5%\)/);
+  assert.equal(ttl, xray.CACHE_TTL_MS.partial);
+});
+
+await test("an unchanging fee needs no epoch read", async () => {
+  const s = await scenario({ mintData: mintBytes({ extensions: [EXT.transferFee(300)] }) });
+  s.state.accounts[s.mint].owner = TOKEN_2022;
+  const calls = network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "transfer-fee").value, "3% now");
+  assert.ok(!calls.includes("getEpochInfo"));
+});
 
 await test("Token-2022 with a 0% fee and no authority, and none of the mechanisms: all ✅, no mechanisms found", async () => {
   const s = await scenario({ mintData: mintBytes({ extensions: [EXT.transferFee(0)] }) });
@@ -408,13 +473,22 @@ await test("sell simulation: transfer hook rejection ⚠️; no route or no key 
   assert.equal(noKey.value, "Unavailable");
 });
 
-await test("recent sells: successful sells by non-creator wallets counted; the creator's sell and buys aren't", async () => {
+await test("recent sells: successful sells by non-creator wallets counted (SOL or WSOL received); the creator's sell and buys aren't", async () => {
   const s = await scenario();
   network(s.state);
   const { body } = await run(s.mint);
   const sells = find(body, "recent-sells");
-  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 4 pool transactions");
+  assert.equal(sells.value, "2 successful sells by 2 non-creator wallets in the last 5 pool transactions");
   assert.equal(sells.status, "ok");
+});
+
+await test("recent sells: a liquidity deposit (tokens and SOL into the pool) isn't a sell", async () => {
+  const s = await scenario();
+  s.state.signatures[s.curve] = ["s5", "s4"]; // a deposit and a buy
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.equal(find(body, "recent-sells").value, "No successful sells by non-creator wallets in the last 2 pool transactions");
+  assert.equal(find(body, "recent-sells").status, "warn");
 });
 
 await test("recent sells: none from other wallets → ⚠️", async () => {
@@ -427,15 +501,16 @@ await test("recent sells: none from other wallets → ⚠️", async () => {
 });
 
 // ---- Signal launches, unavailable data ---------------------------------------------------------------
-await test("a token launched on Signal gets the extra line", async () => {
+await test("a token in Signal's registry gets an extra line: 'Registered on Signal', never 'launched' (the registry can't tell)", async () => {
   const s = await scenario({ extra: { signalToken: { creatorWalletAddress: "x" } } });
   network(s.state);
   const { body } = await run(s.mint);
-  const line = find(body, "signal-launch");
-  assert.equal(line.label, "Launched on Signal");
-  assert.equal(line.value, "Mint authority revoked at launch");
+  const line = find(body, "signal-registered");
+  assert.equal(line.label, "Registered on Signal");
+  assert.equal(line.value, "Yes (mint authority revoked)");
   assert.equal(line.status, "ok");
-  assert.equal(body.sections[0].items[0].id, "signal-launch", "shown first");
+  assert.equal(body.sections[0].items[0].id, "signal-registered", "shown first");
+  assert.doesNotMatch(JSON.stringify(body), /Launched on Signal|revoked at launch/);
 });
 
 await test("unreachable sources say Unavailable (never a guess) and are cached only briefly", async () => {
@@ -443,7 +518,7 @@ await test("unreachable sources say Unavailable (never a guess) and are cached o
   network(s.state);
   const { status, body, ttl } = await run(s.mint);
   assert.equal(status, 200);
-  for (const id of ["top10", "market", "liquidity", "pool-age", "lp", "signal-launch"]) {
+  for (const id of ["top10", "market", "liquidity", "pool-age", "lp", "signal-registered"]) {
     assert.equal(find(body, id).value, "Unavailable", id);
     assert.equal(find(body, id).status, "unavailable", id);
   }
@@ -465,8 +540,8 @@ await test("usage is reported per X-Ray (the Helius/RPC cost of an uncached look
   const s = await scenario({ graduated: true, lpSupply: 0n });
   network(s.state);
   const { body } = await run(s.mint);
-  assert.deepEqual(body.usage.rpcByMethod, { getMultipleAccounts: 3, getTokenLargestAccounts: 2, getTokenSupply: 1, simulateTransaction: 1, getSignaturesForAddress: 1, getTransaction: 4 });
-  assert.equal(body.usage.rpcCalls, 12);
+  assert.deepEqual(body.usage.rpcByMethod, { getMultipleAccounts: 3, getTokenLargestAccounts: 2, getTokenSupply: 1, simulateTransaction: 1, getSignaturesForAddress: 1, getTransaction: 5 });
+  assert.equal(body.usage.rpcCalls, 13);
   assert.equal(body.usage.jupiterRequests, 1);
   assert.equal(body.usage.dexScreenerRequests, 1);
   assert.equal(body.usage.signalApiRequests, 1);

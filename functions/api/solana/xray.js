@@ -253,17 +253,17 @@ async function dexScreenerPairs(mint, usage) {
   return dexPairs[0] || null;
 }
 
-/** { launched, creator } from Signal's registry, or null if unreachable. */
+/** { registered, creator } from Signal's registry, or null if unreachable. */
 async function signalRecord(mint, env, usage) {
   const origin = typeof env?.SIGNAL_API_ORIGIN === "string" ? env.SIGNAL_API_ORIGIN.trim().replace(/\/$/, "") : "";
   if (!origin.startsWith("https://")) return null;
   usage.signalApiRequests += 1;
   try {
     const response = await fetch(`${origin}/api/v1/tokens/solana/${mint}`, { signal: AbortSignal.timeout(SIGNAL_API_TIMEOUT_MS) });
-    if (response.status === 404) return { launched: false };
+    if (response.status === 404) return { registered: false };
     if (!response.ok) return null;
     const body = await response.json();
-    return body?.token ? { launched: true, creator: body.token.creatorWalletAddress || null } : { launched: false };
+    return body?.token ? { registered: true, creator: body.token.creatorWalletAddress || null } : { registered: false };
   } catch {
     return null;
   }
@@ -274,12 +274,15 @@ async function signalRecord(mint, env, usage) {
 
 function factItems(mint, metadata, signal) {
   const items = [];
-  if (signal?.launched) {
+  // Signal's registry holds tokens launched on Signal and tokens listed
+  // afterwards ("List an existing token"), with no record of which, so this
+  // says "registered", never "launched on Signal".
+  if (signal?.registered) {
     items.push(mint.mintAuthority
-      ? item("signal-launch", "Launched on Signal", "Yes", "info", "This token was launched on Signal.")
-      : item("signal-launch", "Launched on Signal", "Mint authority revoked at launch", "ok", "Signal launches revoke mint authority in the launch transaction, so the supply is fixed."));
+      ? item("signal-registered", "Registered on Signal", "Yes", "info", "This token is listed on Signal.")
+      : item("signal-registered", "Registered on Signal", "Yes (mint authority revoked)", "ok", "Signal only lists tokens whose mint authority is revoked, so the supply can't grow."));
   } else if (signal === null) {
-    items.push(unavailable("signal-launch", "Launched on Signal", "Signal's launch records couldn't be reached right now."));
+    items.push(unavailable("signal-registered", "Registered on Signal", "Signal's token records couldn't be reached right now."));
   }
   items.push(mint.mintAuthority
     ? item("mint-authority", "Mint authority", `Active (${short(mint.mintAuthority)})`, "warn", "Whoever holds this key can mint more tokens at any time, diluting every holder.")
@@ -308,23 +311,40 @@ function factItems(mint, metadata, signal) {
   return items;
 }
 
+/** The transfer fee in force now, and any scheduled change. Token-2022
+ *  keeps the active ("older") fee and a "newer" one that takes over at its
+ *  epoch; `now` is null when the current epoch couldn't be read. */
+export function transferFeeSchedule(fee, currentEpoch) {
+  if (!fee) return null;
+  const older = fee.older.basisPoints;
+  const newer = fee.newer.basisPoints;
+  if (older === newer) return { now: newer, next: null, epoch: null };
+  if (currentEpoch === null || currentEpoch === undefined) return { now: null, older, next: newer, epoch: fee.newer.epoch };
+  return currentEpoch >= fee.newer.epoch ? { now: newer, next: null, epoch: null } : { now: older, next: newer, epoch: fee.newer.epoch };
+}
+
+function transferFeeItem(fee, currentEpoch) {
+  if (!fee) return item("transfer-fee", "Transfer fee", "None", "ok", "Transfers and sells aren't taxed by the token itself.");
+  const schedule = transferFeeSchedule(fee, currentEpoch);
+  const authority = fee.authority ? `; fee authority ${short(fee.authority)} can change it` : "";
+  if (schedule.now === null) {
+    return item("transfer-fee", "Transfer fee", `${schedule.older / 100}% or ${schedule.next / 100}% (${schedule.next / 100}% from epoch ${schedule.epoch}; the current epoch couldn't be read)${authority}`, "warn", `Every transfer, including a sell, loses up to ${Math.max(schedule.older, schedule.next) / 100}% of the tokens to the fee.`);
+  }
+  const scheduled = schedule.next !== null ? `, changing to ${schedule.next / 100}% at epoch ${schedule.epoch}` : "";
+  if (schedule.now > 0) {
+    return item("transfer-fee", "Transfer fee", `${schedule.now / 100}% now${scheduled}${authority}`, "warn", `Every transfer, including a sell, loses ${schedule.now / 100}% of the tokens to the fee${fee.authority ? ", and the fee can be raised" : ""}.`);
+  }
+  if (schedule.next > 0) {
+    return item("transfer-fee", "Transfer fee", `0% now${scheduled}${authority}`, "warn", `There's no fee today, but a ${schedule.next / 100}% fee on every transfer, including sells, starts at epoch ${schedule.epoch}.`);
+  }
+  return fee.authority
+    ? item("transfer-fee", "Transfer fee", `0% now${authority}`, "warn", "There's no fee today, but the fee authority can add one to every transfer, including sells.")
+    : item("transfer-fee", "Transfer fee", "0%", "ok", "The fee is set to zero and no one can change it.");
+}
+
 function extensionItems(mint) {
   const ext = mint.extensions;
-  const items = [];
-  const fee = ext.transferFee;
-  if (!fee) items.push(item("transfer-fee", "Transfer fee", "None", "ok", "Transfers and sells aren't taxed by the token itself."));
-  else {
-    const bps = fee.newer.basisPoints;
-    const changes = fee.older.basisPoints !== bps ? ` (from ${fee.older.basisPoints / 100}% until epoch ${fee.newer.epoch})` : "";
-    const authority = fee.authority ? `; fee authority ${short(fee.authority)} can change it` : "";
-    if (bps === 0 && fee.older.basisPoints === 0) {
-      items.push(fee.authority
-        ? item("transfer-fee", "Transfer fee", `0% now${authority}`, "warn", "There's no fee today, but the fee authority can add one to every transfer, including sells.")
-        : item("transfer-fee", "Transfer fee", "0%", "ok", "The fee is set to zero and no one can change it."));
-    } else {
-      items.push(item("transfer-fee", "Transfer fee", `${bps / 100}%${changes}${authority}`, "warn", `Every transfer, including a sell, loses ${bps / 100}% of the tokens to the fee${fee.authority ? ", and the fee can be raised" : ""}.`));
-    }
-  }
+  const items = [transferFeeItem(ext.transferFee, mint.currentEpoch)];
   items.push(ext.transferHook?.programId
     ? item("transfer-hook", "Transfer hook", `Program ${short(ext.transferHook.programId)}`, "warn", "Every transfer runs this program, which can block transfers such as sells.")
     : item("transfer-hook", "Transfer hook", "None", "ok", "No extra program runs on transfers."));
@@ -354,9 +374,13 @@ function mechanisms(mint) {
   if (ext.pausable?.paused) found.push("transfers paused");
   else if (ext.pausable?.authority) found.push("pausable");
   if (ext.nonTransferable) found.push("non-transferable");
-  const bps = ext.transferFee?.newer.basisPoints ?? 0;
-  if (bps > 0) found.push(`transfer fee (${bps / 100}%)`);
-  else if (ext.transferFee?.authority) found.push("transfer fee authority (0% now)");
+  const schedule = transferFeeSchedule(ext.transferFee, mint.currentEpoch);
+  if (schedule) {
+    if (schedule.now === null) found.push(`transfer fee (up to ${Math.max(schedule.older, schedule.next) / 100}%)`);
+    else if (schedule.now > 0) found.push(`transfer fee (${schedule.now / 100}%)`);
+    if (schedule.now !== null && schedule.next > 0) found.push(`transfer fee scheduled (${schedule.next / 100}% from epoch ${schedule.epoch})`);
+    if (schedule.now === 0 && !schedule.next && ext.transferFee.authority) found.push("transfer fee authority (0% now)");
+  }
   return found;
 }
 
@@ -420,8 +444,27 @@ async function sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage })
   return item("sell-simulation", "Sell simulation", `Failed right now for ${holderText}: ${reason}`, "warn", "A real holder's small sell failed in a simulation just now (nothing was sent).");
 }
 
-async function recentSells({ mint, target, excludedOwners, creator, rpc }) {
-  const why = "Recent successful sells by other wallets show that selling has worked lately.";
+/** Whether `owner` received SOL (native, net of the fee it paid) or one of
+ *  `counterMints` (e.g. WSOL, USDC) in this transaction. */
+function receivedCounterValue(tx, owner, counterMints) {
+  const message = tx.transaction?.message || {};
+  const keys = [...(message.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry?.pubkey)), ...(tx.meta?.loadedAddresses?.writable || []), ...(tx.meta?.loadedAddresses?.readonly || [])];
+  const index = keys.indexOf(owner);
+  if (index >= 0 && Array.isArray(tx.meta?.preBalances) && Array.isArray(tx.meta?.postBalances)) {
+    const fee = index === 0 ? Number(tx.meta.fee || 0) : 0;
+    if (Number(tx.meta.postBalances[index]) + fee - Number(tx.meta.preBalances[index]) > 0) return true;
+  }
+  let delta = 0n;
+  for (const [balances, sign] of [[tx.meta?.preTokenBalances, -1n], [tx.meta?.postTokenBalances, 1n]]) {
+    for (const balance of balances || []) {
+      if (balance.owner === owner && counterMints.has(balance.mint)) delta += sign * BigInt(balance.uiTokenAmount?.amount || "0");
+    }
+  }
+  return delta > 0n;
+}
+
+async function recentSells({ mint, target, excludedOwners, creator, counterMints, rpc }) {
+  const why = "Recent successful sells (the wallet's tokens went out and SOL or the pool's other token came in) show that selling has worked lately.";
   if (!target) return unavailable("recent-sells", "Recent sells", why, "No pool or bonding curve found to read transactions from.");
   let transactions;
   try {
@@ -446,7 +489,7 @@ async function recentSells({ mint, target, excludedOwners, creator, rpc }) {
     }
     let sold = false;
     for (const [owner, delta] of deltas) {
-      if (delta < 0n && !excludedOwners.has(owner) && owner !== creator) {
+      if (delta < 0n && !excludedOwners.has(owner) && owner !== creator && receivedCounterValue(tx, owner, counterMints)) {
         sold = true;
         sellers.add(owner);
       }
@@ -551,13 +594,24 @@ export async function runXray(mintAddress, env, now = Date.now()) {
   const mint = mintAccount ? parseMint(mintAccount.owner, mintAccount.data) : null;
   if (!mint) return { status: 404, body: { code: "NOT_A_MINT", error: "This address isn't a Solana token mint.", usage }, ttl: CACHE_TTL_MS.partial };
   mint.address = mintAddress;
+  let epochUnavailable = false;
+  const scheduledFee = mint.extensions.transferFee;
+  if (scheduledFee && scheduledFee.older.basisPoints !== scheduledFee.newer.basisPoints) {
+    try {
+      const info = await rpc.call("getEpochInfo", [{ commitment: "confirmed" }]);
+      mint.currentEpoch = Number.isFinite(Number(info?.epoch)) ? BigInt(info.epoch) : null;
+    } catch {
+      mint.currentEpoch = null;
+    }
+    epochUnavailable = mint.currentEpoch === null;
+  }
 
   const metadata = metadataAccount && metadataAccount.owner === METADATA_PROGRAM_ID ? parseMetaplexMetadata(metadataAccount.data) : null;
   const curveOk = curveAccount && curveAccount.owner === PUMP_PROGRAM_ID ? decodeBondingCurve(curveAccount.data) : null;
   const curveCreator = curveOk && curveAccount.data.length >= CURVE_CREATOR_OFFSET + 32 ? nonZeroKey(curveAccount.data, CURVE_CREATOR_OFFSET) : null;
   const pair = pairResult.status === "fulfilled" ? pairResult.value : null;
   const signal = signalResult.status === "fulfilled" ? signalResult.value : null;
-  let partial = pairResult.status !== "fulfilled" || largestResult.status !== "fulfilled" || signal === null;
+  let partial = epochUnavailable || pairResult.status !== "fulfilled" || largestResult.status !== "fulfilled" || signal === null;
 
   // Holder token accounts (and the pool account) in one read, then owners.
   const largest = largestResult.status === "fulfilled" ? (largestResult.value?.value || []) : null;
@@ -574,7 +628,7 @@ export async function runXray(mintAddress, env, now = Date.now()) {
     }).filter(Boolean);
     ownerAccounts = rows.length ? await rpc.accounts(rows.map((row) => row.owner)) : [];
     const coinCreator = poolAccount?.owner === PUMPSWAP_PROGRAM_ID && poolAccount.data.length >= PUMPSWAP_COIN_CREATOR_OFFSET + 32 ? nonZeroKey(poolAccount.data, PUMPSWAP_COIN_CREATOR_OFFSET) : null;
-    const creator = curveCreator || coinCreator || (signal?.launched ? signal.creator : null);
+    const creator = curveCreator || coinCreator || (signal?.registered ? signal.creator : null);
     holders = labelHolders(rows, ownerAccounts, { curve: curvePda, pool: pair?.pairAddress, poolLabel: poolAccount && POOL_PROGRAMS[poolAccount.owner], creator });
     mint.creator = creator;
   } catch {
@@ -607,7 +661,15 @@ export async function runXray(mintAddress, env, now = Date.now()) {
       ? Promise.resolve(item("lp", "LP tokens", "Not applicable: liquidity is held by the pump.fun program until graduation", "info", "There are no LP tokens while a token is on the bonding curve."))
       : pair ? lpStatus({ poolAccount, rpc }) : Promise.resolve(unavailable("lp", "LP tokens", "LP tokens are the claim on the pool's liquidity.", "No trading pool was found.")),
     sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage }),
-    recentSells({ mint: mintAddress, target: onCurve ? curvePda : pair?.pairAddress, excludedOwners, creator: mint.creator, rpc }),
+    recentSells({
+      mint: mintAddress,
+      target: onCurve ? curvePda : pair?.pairAddress,
+      excludedOwners,
+      creator: mint.creator,
+      // What a seller receives: SOL, or the pool's other token.
+      counterMints: new Set([WRAPPED_SOL_MINT, ...(pair ? [pair.baseToken?.address, pair.quoteToken?.address].filter((address) => address && address !== mintAddress) : [])]),
+      rpc,
+    }),
   ]);
   holderItems.push(lp);
 

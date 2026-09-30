@@ -39,7 +39,7 @@ XRAY = {
     "generatedAt": "2026-09-30T12:00:00.000Z", "cacheSeconds": 300,
     "sections": [
         {"id": "facts", "title": "Hard facts", "items": [
-            item("signal-launch", "Launched on Signal", "Mint authority revoked at launch", "ok", "Signal launches revoke mint authority in the launch transaction, so the supply is fixed."),
+            item("signal-registered", "Registered on Signal", "Yes (mint authority revoked)", "ok", "Signal only lists tokens whose mint authority is revoked, so the supply can't grow."),
             item("mint-authority", "Mint authority", "Revoked", "ok", "No one can ever mint more of this token."),
             item("freeze-authority", "Freeze authority", "Active (2apB…YJjk)", "warn", "Whoever holds this key can freeze any holder's tokens so they can't be sold or moved."),
             item("metadata", "Metadata", "<img src=x onerror=window.__xss=1>", "info", "Shown as text, never as HTML."),
@@ -109,7 +109,7 @@ def run():
             check("sections are shown with their titles", all(t in text.lower() for t in ["hard facts", "holders and liquidity", "honeypot checks"]))
             check("each fact shows a ✅ or ⚠️ marker", page.eval_on_selector('[data-check="mint-authority"] .xray-marker', "e => e.textContent") == "✅" and page.eval_on_selector('[data-check="freeze-authority"] .xray-marker', "e => e.textContent") == "⚠️")
             check("each fact has its one-line why", page.eval_on_selector_all(".xray-item .xray-why", "els => els.length") == 8)
-            check("the Signal launch line is shown", "Launched on Signal: Mint authority revoked at launch" in text)
+            check("the Signal registry line is shown", "Registered on Signal: Yes (mint authority revoked)" in text)
             check("unavailable data says Unavailable, with the reason", "LP tokens: Unavailable" in text and "The pool account couldn't be read." in text)
             check("the sell check reads 'Succeeded right now', not a verdict", "Sell simulation: Succeeded right now" in text)
             check("no overall verdict words anywhere in the X-Ray", not BANNED.search(text), BANNED.search(text).group(0) if BANNED.search(text) else "")
