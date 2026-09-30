@@ -50,7 +50,7 @@ interface RouteDef {
 }
 
 const routes: RouteDef[] = [
-  { path: '', title: 'Home', element: <HomePage /> },
+  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js'] },
   {
     path: 'create',
     title: 'Create',
@@ -64,7 +64,7 @@ const routes: RouteDef[] = [
     path: 'token/example',
     title: 'Token',
     element: <TokenDetailPage />,
-    clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js'],
+    clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js', '/client/xray.js'],
     moduleScripts: ['/client/swap-execute.js?v=lighthouse-guard-1'],
   },
   { path: 'wallet/example', title: 'Wallet', element: <WalletDetailPage />, clientScripts: ['/client/wallet-detail.js'] },

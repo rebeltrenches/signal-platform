@@ -113,6 +113,8 @@ jobs:
           node apps/web/tests/turbo-upload.test.mjs
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
+      - name: Signal X-Ray tests (checks, honeypot mints, cache, rate limit)
+        run: node apps/web/tests/xray-function.test.mjs
       - name: Swap tamper check tests (Lighthouse guards allowed, anything else blocked)
         run: node apps/web/tests/swap-intent.test.mjs
       - name: Token market function tests (bonding curve, holders, logo, quota protection)
@@ -129,6 +131,7 @@ jobs:
           node --input-type=module --check < functions/compliance.js
           node --input-type=module --check < functions/ofac-sdn.js
           node --input-type=module --check < functions/api/register-token.js
+          node --input-type=module --check < functions/api/solana/xray.js
       - name: Wallet page regression test
         run: |
           python -m pip install playwright cryptography
@@ -147,6 +150,8 @@ jobs:
           python apps/web/tests/explore-new-tab.test.py
           python apps/web/tests/watchlist-registration-status.test.py
           python apps/web/tests/watchlist-sync.test.py
+      - name: Signal X-Ray page tests (front page box, Signal Check tab, mobile)
+        run: python apps/web/tests/xray-page.test.py
       - name: Safety boundary
         run: |
           echo "Wallet Intelligence verification completed against isolated CI resources."

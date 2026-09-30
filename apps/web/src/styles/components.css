@@ -612,3 +612,36 @@
 .terms-section { margin-top: 16px; }
 .terms-section h2 { font: var(--text-h2); margin-bottom: 8px; }
 .terms-section ul { padding-left: 18px; display: grid; gap: 6px; }
+
+/* Signal X-Ray (client/xray.js): facts with a marker and a "why". */
+.xray-home { margin-top: 8px; margin-bottom: 40px; }
+.xray-card { overflow-wrap: anywhere; }
+.xray-home-title { font: var(--text-h2, 700 1.5rem/1.25 var(--font-sans)); margin: 0 0 6px; }
+.xray-home-intro { color: var(--ink-dim); margin: 0 0 14px; }
+.xray-form-label { display: block; font: var(--text-small); color: var(--ink-dim); margin-bottom: 6px; }
+.xray-form-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.xray-form-row input { flex: 1 1 260px; min-width: 0; background: var(--bg-elevated); color: var(--ink); border: 1px solid var(--line-strong); border-radius: var(--radius-md); padding: 10px 12px; font: var(--text-body); }
+.xray-form-row input:focus { outline: none; box-shadow: var(--shadow-focus); border-color: var(--brand); }
+.xray-results:not(:empty) { margin-top: 16px; }
+.xray-status { color: var(--ink-dim); margin: 0; }
+.xray-status-error { color: var(--down); }
+.xray-header { margin-bottom: 8px; }
+.xray-title { margin: 0; font-size: 1.1rem; }
+.xray-mint { margin: 2px 0 0; color: var(--ink-faint); font: var(--text-small); word-break: break-all; }
+.xray-section { margin-top: 16px; }
+.xray-section-title { margin: 0 0 6px; font-size: 0.95rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.xray-list { list-style: none; margin: 0; padding: 0; }
+.xray-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-top: 1px solid var(--line); }
+.xray-marker { flex: 0 0 1.4em; text-align: center; line-height: 1.5; }
+.xray-body { flex: 1 1 auto; min-width: 0; }
+.xray-line { margin: 0; }
+.xray-label { color: var(--ink-dim); }
+.xray-value { color: var(--ink); font-weight: 600; }
+.xray-warn .xray-value { color: var(--gold); }
+.xray-unavailable .xray-value { color: var(--ink-faint); }
+.xray-why, .xray-reason { margin: 2px 0 0; color: var(--ink-faint); font: var(--text-small); }
+.xray-holders { margin-top: 8px; font: var(--text-small); color: var(--ink-dim); }
+.xray-holders summary { cursor: pointer; }
+.xray-holder-list { margin: 6px 0 0; padding-left: 1.4em; }
+.xray-holder-excluded { color: var(--ink-faint); }
+.xray-note { margin: 16px 0 0; color: var(--ink-faint); font: var(--text-small); }
