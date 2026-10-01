@@ -3,15 +3,21 @@ const HEADERS = { 'cache-control': 'no-store, max-age=0', 'x-content-type-option
 function reply(status, message, code) {
   return Response.json({ message, code }, { status, headers: HEADERS });
 }
+function botToken(env) {
+  return String(env.SIGNAL_SUPPORT_BOT_TOKEN || '').trim();
+}
+function validBotToken(env) {
+  return /^\d{5,20}:[A-Za-z0-9_-]{20,}$/.test(botToken(env));
+}
 function configured(env) {
-  return Boolean(env.SIGNAL_SUPPORT_BOT_TOKEN && /^-\d+$/.test(env.SIGNAL_SUPPORT_CHAT_ID || '') && env.SUPPORT_RATE_LIMITER);
+  return Boolean(validBotToken(env) && /^-\d+$/.test(env.SIGNAL_SUPPORT_CHAT_ID || '') && env.SUPPORT_RATE_LIMITER);
 }
 export function onRequestGet({ env }) {
-  return Response.json({ configured: configured(env), readiness: { botToken: Boolean(env.SIGNAL_SUPPORT_BOT_TOKEN), destination: /^-\d+$/.test(env.SIGNAL_SUPPORT_CHAT_ID || ''), rateLimiter: Boolean(env.SUPPORT_RATE_LIMITER) } }, { headers: HEADERS });
+  return Response.json({ configured: configured(env), readiness: { botToken: validBotToken(env), destination: /^-\d+$/.test(env.SIGNAL_SUPPORT_CHAT_ID || ''), rateLimiter: Boolean(env.SUPPORT_RATE_LIMITER) } }, { headers: HEADERS });
 }
 async function telegram(env, method, body) {
   // Never log the request URL: Telegram authenticates using a token in its path.
-  const response = await fetch(`https://api.telegram.org/bot${env.SIGNAL_SUPPORT_BOT_TOKEN}/${method}`, {
+  const response = await fetch(`https://api.telegram.org/bot${botToken(env)}/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body), signal: AbortSignal.timeout(12000), redirect: 'error',
   });

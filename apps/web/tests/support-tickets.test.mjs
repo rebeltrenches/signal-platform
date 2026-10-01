@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { onRequestGet, onRequestPost } from '../../../functions/api/support/tickets.js';
 import { readFileSync } from 'node:fs';
 
-const env = { SIGNAL_SUPPORT_BOT_TOKEN: 'test-only-token', SIGNAL_SUPPORT_CHAT_ID: '-1001234567', SUPPORT_RATE_LIMITER: { async limit() { return { success: true }; } } };
+const env = { SIGNAL_SUPPORT_BOT_TOKEN: '123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ_test_token', SIGNAL_SUPPORT_CHAT_ID: '-1001234567', SUPPORT_RATE_LIMITER: { async limit() { return { success: true }; } } };
 const valid = { category: 'website', contact: '@signaltester', subject: 'Mobile page issue', description: 'The page stops loading when I open a token.', consent: true, company: '', page: 'https://signal.example/explore?secret=do-not-send#session' };
 function request(body = valid, headers = {}) {
   return new Request('https://signal.example/api/support/tickets', { method: 'POST', headers: { origin: 'https://signal.example', 'content-type': 'application/json', 'cf-connecting-ip': '192.0.2.1', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) });
