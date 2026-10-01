@@ -12,6 +12,7 @@ const originalFetch = globalThis.fetch;
 let chat = { id: -1001234567, type: 'channel' };
 let delivery = { message_id: 42, chat: { id: -1001234567 } };
 globalThis.fetch = async (url, options) => {
+  assert.equal(options.redirect, 'manual');
   assert.match(url, /^https:\/\/api\.telegram\.org\/bot/);
   calls.push({ method: url.endsWith('getChat') ? 'getChat' : 'sendMessage', body: JSON.parse(options.body) });
   return Response.json({ ok: true, result: url.endsWith('getChat') ? chat : delivery });

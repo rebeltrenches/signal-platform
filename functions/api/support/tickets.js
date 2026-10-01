@@ -20,8 +20,13 @@ async function telegram(env, method, body) {
   let response;
   try { response = await fetch(`https://api.telegram.org/bot${botToken(env)}/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(12000), redirect: 'error',
+    body: JSON.stringify(body), signal: AbortSignal.timeout(12000), redirect: 'manual',
   }); } catch (error) { error.supportStage = 'transport'; throw error; }
+  if (response.status >= 300 && response.status < 400) {
+    const error = new Error('TELEGRAM_REDIRECT_REJECTED');
+    error.supportStage = 'transport';
+    throw error;
+  }
   let result;
   try { result = await response.json(); } catch (error) { error.supportStage = 'response'; throw error; }
   if (!response.ok || result.ok !== true) {
