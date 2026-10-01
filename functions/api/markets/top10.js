@@ -19,7 +19,7 @@ async function upstream(params, env) {
   const response = await fetch(`${BASE}/coins/markets?${new URLSearchParams(params)}`, {
     headers, signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error("Market provider unavailable");
+  if (!response.ok) throw new Error(`MARKET_PROVIDER_HTTP_${response.status}`);
   const data = await response.json();
   if (!Array.isArray(data) || !data.length) throw new Error("Invalid market response");
   return data;
@@ -74,9 +74,14 @@ export async function onRequestGet({ env = {}, now = Date.now() }) {
       return snapshot;
     })().finally(() => { pending = null; });
     return snapshotReply(await pending, now);
-  } catch {
+  } catch (error) {
+    const code = /^MARKET_PROVIDER_HTTP_\d+$/.test(error?.message || '') ? error.message
+      : error?.name === 'TimeoutError' ? 'MARKET_PROVIDER_TIMEOUT'
+      : error?.message === 'Invalid or stale market data' ? 'MARKET_PROVIDER_STALE'
+      : 'MARKET_PROVIDER_INVALID';
+    console.warn('[home-markets]', code);
     retryAfter = now + 60_000;
-    return usable(cached, now) ? snapshotReply(cached, now, true) : reply({ error: "Current prices are temporarily unavailable." }, 503);
+    return usable(cached, now) ? snapshotReply(cached, now, true) : reply({ error: "Current prices are temporarily unavailable.", code }, 503);
   }
 }
 
