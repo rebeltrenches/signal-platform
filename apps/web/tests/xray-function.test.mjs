@@ -472,6 +472,18 @@ await test("lines with a shortened address carry the full address (authorities, 
   assert.equal(find(body, "supply").addresses, undefined, "lines without an address have none");
 });
 
+await test("a holder owned by an unrecognised program: labelled 'program account (…)', with that program's full address", async () => {
+  const s = await scenario();
+  const program = key();
+  s.state.accounts[s.holderB].owner = program; // holderB is now an account of an unknown program
+  network(s.state);
+  const { body } = await run(s.mint);
+  const row = body.holders.find((holder) => holder.owner === s.holderB);
+  assert.equal(row.label, `program account (${xray.short(program)})`);
+  assert.equal(row.labelAddress, program);
+  assert.equal(body.holders.find((holder) => holder.owner === s.holderA).labelAddress, undefined);
+});
+
 await test("percentages are shown with two decimals", async () => {
   assert.equal(xray.percentOf(1n, 3n), 33.33);
   assert.equal(xray.percentOf(245_002n, 1_000_000n), 24.5);

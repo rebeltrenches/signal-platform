@@ -58,6 +58,7 @@ XRAY = {
     "holders": [
         {"owner": "Pool1111111111111111111111111111111111111111", "percent": 50, "label": "PumpSwap pool", "excluded": True},
         {"owner": "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg", "percent": 8.5, "label": None, "excluded": False},
+        {"owner": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", "percent": 2.25, "label": "program account (Prog…3333)", "labelAddress": "Prog3333333333333333333333333333333333333333", "excluded": False},
         {"owner": None, "percent": 3, "label": None, "excluded": False},
         {"owner": "Incomp1ete111111111111111111111111111111111", "percent": None, "label": None, "excluded": False},
     ],
@@ -120,8 +121,8 @@ def run():
             check("values are shown as text, never as HTML", "<img src=x" in text and page.evaluate("window.__xss") is None and page.query_selector("#xray-results img") is None)
             page.click(".xray-holders summary")
             rows = page.eval_on_selector_all(".xray-holder", "els => els.map(e => ({percent: e.querySelector('.xray-holder-percent')?.textContent, address: e.querySelector('.xray-address, .xray-holder-address')?.textContent, text: e.innerText}))")
-            check("every largest-holder row shows a percentage and a short address", len(rows) == 2 and all(r["percent"] and r["address"] for r in rows), str(rows))
-            check("percentages in the holder list have two decimals", [r["percent"] for r in rows] == ["50.00%", "8.50%"], str(rows))
+            check("every largest-holder row shows a percentage and a short address", len(rows) == 3 and all(r["percent"] and r["address"] for r in rows), str(rows))
+            check("percentages in the holder list have two decimals", [r["percent"] for r in rows] == ["50.00%", "8.50%", "2.25%"], str(rows))
             check("the pool row is labelled as not counted", "PumpSwap pool · not counted" in rows[0]["text"], rows[0]["text"])
             check("rows with a missing address or percentage are left out", "Incomp" not in xray_text(page, ".xray-holders"))
             home_text = text
@@ -151,6 +152,9 @@ def run():
             page.click(".xray-holders summary")
             holder_row = page.locator(".xray-holder", has_text="8.50%")
             check("largest-holder rows copy the full address and link to Solscan", holder_row.locator(".xray-address").get_attribute("data-address") == HOLDER and holder_row.locator(".xray-solscan").get_attribute("href") == f"https://solscan.io/account/{HOLDER}")
+            program_row = page.locator(".xray-holder", has_text="2.25%")
+            label_address = program_row.locator(".xray-holder-label .xray-address")
+            check("an address inside a holder label (program account) is copyable and links to Solscan", label_address.get_attribute("data-address") == "Prog3333333333333333333333333333333333333333" and program_row.locator(".xray-holder-label .xray-solscan").get_attribute("href") == "https://solscan.io/account/Prog3333333333333333333333333333333333333333")
             holder_row.locator(".xray-address").click()
             page.wait_for_timeout(200)
             check("tapping a holder copies its full address", page.evaluate("navigator.clipboard.readText()") == HOLDER)

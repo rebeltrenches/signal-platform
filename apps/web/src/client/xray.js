@@ -143,7 +143,9 @@
             FULL_ADDRESS.test(holder.owner) ? addressControl(holder.owner) : el('span', 'xray-holder-address', short(holder.owner)),
           );
           if (holder.label || holder.excluded) {
-            row.append(el('span', 'xray-holder-label', (holder.label || 'pool') + (holder.excluded ? ' · not counted' : '')));
+            const label = valueWithAddresses((holder.label || 'pool') + (holder.excluded ? ' · not counted' : ''), holder.labelAddress ? [holder.labelAddress] : []);
+            label.className = 'xray-holder-label';
+            row.append(label);
           }
           holders.append(row);
         }

@@ -418,15 +418,19 @@ function labelHolders(holderRows, ownerAccounts, context) {
   return holderRows.map((row, index) => {
     const ownerAccount = ownerAccounts[index];
     let label = null;
+    let labelAddress = null; // a full address shown shortened in the label
     let excluded = false;
     if (row.owner === INCINERATOR) label = "burn address";
     else if (row.owner === context.curve) { label = "pump.fun bonding curve"; excluded = true; }
     else if (row.owner === context.pool) { label = context.poolLabel || "liquidity pool"; excluded = true; }
     else if (KNOWN_POOL_AUTHORITIES[row.owner]) { label = KNOWN_POOL_AUTHORITIES[row.owner]; excluded = true; }
     else if (ownerAccount && POOL_PROGRAMS[ownerAccount.owner]) { label = POOL_PROGRAMS[ownerAccount.owner]; excluded = true; }
-    else if (ownerAccount && ownerAccount.owner !== SYSTEM_PROGRAM_ID) label = `program account (${short(ownerAccount.owner)})`;
+    else if (ownerAccount && ownerAccount.owner !== SYSTEM_PROGRAM_ID) {
+      label = `program account (${short(ownerAccount.owner)})`;
+      labelAddress = ownerAccount.owner;
+    }
     if (row.owner === context.creator) label = label ? `${label}, creator` : "creator";
-    return { ...row, label, excluded };
+    return { ...row, label, labelAddress, excluded };
   });
 }
 
@@ -817,7 +821,7 @@ export async function runXray(mintAddress, env, now = Date.now()) {
     program: mint.program,
     generatedAt: new Date(now).toISOString(),
     sections,
-    holders: holders.slice(0, 10).map((holder) => ({ owner: holder.owner, percent: holder.percent, label: holder.label, excluded: holder.excluded })),
+    holders: holders.slice(0, 10).map((holder) => ({ owner: holder.owner, percent: holder.percent, label: holder.label, ...(holder.labelAddress ? { labelAddress: holder.labelAddress } : {}), excluded: holder.excluded })),
     usage,
     note: "Facts, not a verdict. Conditions can change at any time.",
   };
