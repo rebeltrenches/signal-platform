@@ -101,6 +101,23 @@ export function HomePage() {
         </div>
       </section>
 
+      <section className="container home-markets" aria-labelledby="home-markets-title">
+        <link rel="stylesheet" href="/styles/home-markets.css?v=1" />
+        <div className="home-markets-heading">
+          <div>
+            <h2 id="home-markets-title">Market overview <span>Top 10</span></h2>
+            <p>By market cap · excludes stablecoins and wrapped duplicates</p>
+          </div>
+          <span className="home-markets-status" id="home-markets-status" role="status">Connecting…</span>
+        </div>
+        <ol className="home-markets-grid" id="home-markets-grid" aria-label="Top ten cryptocurrencies" aria-busy="true" />
+        <p className="home-markets-message" id="home-markets-message">Loading current prices…</p>
+        <div className="home-markets-footer">
+          <span>USD · 24h change · Display only</span>
+          <span>Data by <a href="https://www.coingecko.com/" target="_blank" rel="noopener noreferrer">CoinGecko</a> · Refreshes every minute</span>
+        </div>
+      </section>
+
       {/* Signal X-Ray: on-chain facts about any Solana token (client/xray.js). */}
       <section className="container xray-home" id="xray" aria-labelledby="xray-heading">
         <div className="card xray-card">

@@ -50,7 +50,7 @@ interface RouteDef {
 }
 
 const routes: RouteDef[] = [
-  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js'] },
+  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js', '/client/home-markets.js?v=4'] },
   {
     path: 'create',
     title: 'Create',
