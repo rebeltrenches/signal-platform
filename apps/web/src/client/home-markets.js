@@ -2,11 +2,12 @@
   const grid = document.getElementById('home-markets-grid');
   const status = document.getElementById('home-markets-status');
   const message = document.getElementById('home-markets-message');
+  const provider = document.getElementById('home-markets-provider');
   if (!grid || !status || !message) return;
   let snapshot = null;
   let failed = false;
   let loading = false;
-  const MAX_AGE = 300000;
+  const maxAge = (source) => source === 'CoinPaprika' ? 600000 : 300000;
   const usd = (price) => new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', minimumFractionDigits: 2,
     maximumFractionDigits: price < 1 ? 6 : price < 10 ? 4 : 2,
@@ -25,7 +26,7 @@
       const identity = node('div', 'home-market-identity');
       try {
         const url = new URL(coin.image);
-        if (url.protocol === 'https:' && ['coin-images.coingecko.com', 'assets.coingecko.com'].includes(url.hostname)) {
+        if (url.protocol === 'https:' && ['coin-images.coingecko.com', 'assets.coingecko.com', 'static.coinpaprika.com'].includes(url.hostname)) {
           const logo = node('img', 'home-market-logo');
           logo.src = url.href; logo.alt = ''; logo.width = 26; logo.height = 26;
           logo.loading = 'lazy'; logo.referrerPolicy = 'no-referrer';
@@ -44,18 +45,19 @@
       fragment.append(card);
     });
     grid.replaceChildren(fragment);
+    if (provider) { provider.textContent = snapshot.source; provider.href = snapshot.source === 'CoinPaprika' ? 'https://coinpaprika.com/' : 'https://www.coingecko.com/'; }
     updateAge();
   }
   function updateAge() {
     if (!snapshot) return;
     const age = Date.now() - Date.parse(snapshot.updatedAt);
-    if (age > MAX_AGE) {
+    if (age > maxAge(snapshot.source)) {
       grid.replaceChildren(); snapshot = null;
       message.hidden = false; message.textContent = 'Current prices are temporarily unavailable. Reconnecting automatically…';
       status.dataset.state = 'delayed'; status.textContent = 'Feed unavailable';
       return;
     }
-    const delayed = failed || snapshot.delayed || age > 120000;
+    const delayed = failed || snapshot.delayed || age > (snapshot.source === 'CoinPaprika' ? 360000 : 120000);
     status.dataset.state = delayed ? 'delayed' : 'fresh';
     const ago = age < 60000 ? 'just now' : `${Math.floor(age / 60000)}m ago`;
     status.textContent = delayed ? `Delayed · updated ${ago}` : `Updated ${ago}`;
@@ -69,8 +71,8 @@
       const response = await fetch('/api/markets/top10', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
       if (!response.ok) throw new Error('Market feed unavailable');
       const data = await response.json();
-      if (data.currency !== 'USD' || data.source !== 'CoinGecko' || !Array.isArray(data.coins) || data.coins.length !== 10 ||
-          !Number.isFinite(Date.parse(data.updatedAt)) || Date.now() - Date.parse(data.updatedAt) > MAX_AGE ||
+      if (data.currency !== 'USD' || !['CoinGecko', 'CoinPaprika'].includes(data.source) || !Array.isArray(data.coins) || data.coins.length !== 10 ||
+          !Number.isFinite(Date.parse(data.updatedAt)) || Date.now() - Date.parse(data.updatedAt) > maxAge(data.source) ||
           Date.parse(data.updatedAt) - Date.now() > 60000 ||
           data.coins.some((coin) => typeof coin.name !== 'string' || typeof coin.symbol !== 'string' ||
             !Number.isFinite(coin.price) || coin.price <= 0 || (coin.change24h !== null && !Number.isFinite(coin.change24h)))) throw new Error('Invalid market feed');

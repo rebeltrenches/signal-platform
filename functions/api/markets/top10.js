@@ -5,6 +5,8 @@ const MAX_AGE_MS = 300_000;
 let cached = null;
 let pending = null;
 let retryAfter = 0;
+let geckoRetryAfter = 0;
+let exclusions = null;
 
 function reply(body, status = 200) {
   return Response.json(body, { status, headers: {
@@ -17,7 +19,7 @@ async function upstream(params, env) {
   const headers = { accept: "application/json" };
   if (env.COINGECKO_DEMO_API_KEY) headers["x-cg-demo-api-key"] = env.COINGECKO_DEMO_API_KEY;
   const response = await fetch(`${BASE}/coins/markets?${new URLSearchParams(params)}`, {
-    headers, signal: AbortSignal.timeout(10_000),
+    headers, signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) throw new Error(`MARKET_PROVIDER_HTTP_${response.status}`);
   const data = await response.json();
@@ -25,7 +27,8 @@ async function upstream(params, env) {
   return data;
 }
 
-export function selectTopTen(markets, stablecoins, now = Date.now()) {
+export function selectTopTen(markets, stablecoins, now = Date.now(), source = "CoinGecko") {
+  const maxAge = source === "CoinPaprika" ? 600_000 : MAX_AGE_MS;
   const excluded = new Set(stablecoins.map((coin) => coin.id));
   const seen = new Set();
   // Null market_cap_rank is the provider's marker for non-native duplicates.
@@ -41,20 +44,51 @@ export function selectTopTen(markets, stablecoins, now = Date.now()) {
     const updated = Date.parse(coin.last_updated);
     if (typeof coin.id !== "string" || typeof coin.name !== "string" || typeof coin.symbol !== "string" ||
         !Number.isFinite(coin.current_price) || coin.current_price <= 0 || !Number.isFinite(coin.market_cap) || coin.market_cap <= 0 ||
-        !Number.isFinite(updated) || now - updated > MAX_AGE_MS || updated - now > 60_000) throw new Error("Invalid or stale market data");
+        !Number.isFinite(updated) || now - updated > maxAge || updated - now > 60_000) throw new Error("Invalid or stale market data");
     return { id: coin.id, name: coin.name, symbol: coin.symbol.toUpperCase(), image: coin.image,
       rank: index + 1, marketCapRank: coin.market_cap_rank, price: coin.current_price,
       change24h: Number.isFinite(coin.price_change_percentage_24h) ? coin.price_change_percentage_24h : null,
       updatedAt: new Date(updated).toISOString() };
   });
   return { coins, updatedAt: new Date(Math.min(...coins.map((coin) => Date.parse(coin.updatedAt)))).toISOString(),
-    fetchedAt: new Date(now).toISOString(), source: "CoinGecko", currency: "USD" };
+    fetchedAt: new Date(now).toISOString(), source, currency: "USD" };
 }
 
-function usable(snapshot, now) { return snapshot && now - Date.parse(snapshot.updatedAt) <= MAX_AGE_MS; }
+async function paprika(path) {
+  const response = await fetch(`https://api.coinpaprika.com/v1/${path}`, {
+    headers: { accept: "application/json" }, signal: AbortSignal.timeout(7_000),
+  });
+  if (!response.ok) throw new Error(`MARKET_PROVIDER_HTTP_${response.status}`);
+  return response.json();
+}
+
+async function paprikaSnapshot(now) {
+  const tags = ["stablecoin", "wrapped-token", "liquid-staking-tokens-lst"];
+  const excluded = exclusions && now - exclusions.at < 3_600_000
+    ? Promise.resolve(exclusions.coins)
+    : Promise.all(tags.map((tag) => paprika(`tags/${tag}?additional_fields=coins`))).then((results) => {
+      if (results.some((result, i) => result.id !== tags[i] || !Array.isArray(result.coins))) throw new Error("Invalid category response");
+      const coins = [...new Set(results.flatMap((result) => result.coins))].map((id) => ({ id }));
+      exclusions = { at: now, coins };
+      return coins;
+    });
+  const [tickers, excludedCoins] = await Promise.all([paprika("tickers?quotes=USD"), excluded]);
+  if (!Array.isArray(tickers) || !tickers.length) throw new Error("Invalid market response");
+  const markets = tickers.map((coin) => ({
+    id: coin.id, name: coin.name, symbol: coin.symbol, market_cap_rank: coin.rank,
+    current_price: coin.quotes?.USD?.price, market_cap: coin.quotes?.USD?.market_cap,
+    price_change_percentage_24h: coin.quotes?.USD?.percent_change_24h,
+    last_updated: coin.last_updated,
+    image: `https://static.coinpaprika.com/coin/${encodeURIComponent(coin.id)}/logo.png`,
+  }));
+  return selectTopTen(markets, excludedCoins, now, "CoinPaprika");
+}
+
+function usable(snapshot, now) { return snapshot && now - Date.parse(snapshot.updatedAt) <= (snapshot.source === "CoinPaprika" ? 600_000 : MAX_AGE_MS); }
 function snapshotReply(snapshot, now, failed = false) {
-  return reply({ ...snapshot, fresh: !failed && now - Date.parse(snapshot.updatedAt) <= FRESH_MS,
-    delayed: failed || now - Date.parse(snapshot.updatedAt) > FRESH_MS });
+  const freshAge = snapshot.source === "CoinPaprika" ? 360_000 : FRESH_MS;
+  return reply({ ...snapshot, fresh: !failed && now - Date.parse(snapshot.updatedAt) <= freshAge,
+    delayed: failed || now - Date.parse(snapshot.updatedAt) > freshAge });
 }
 
 export async function onRequestGet({ env = {}, now = Date.now() }) {
@@ -64,12 +98,22 @@ export async function onRequestGet({ env = {}, now = Date.now() }) {
   }
   try {
     if (!pending) pending = (async () => {
-      const params = { vs_currency: "usd", order: "market_cap_desc", per_page: "100", page: "1", sparkline: "false", include_rehypothecated: "false" };
-      const [markets, stablecoins] = await Promise.all([
-        upstream(params, env),
-        upstream({ ...params, category: "stablecoins", per_page: "250" }, env),
-      ]);
-      const snapshot = selectTopTen(markets, stablecoins, now);
+      let snapshot;
+      if (now >= geckoRetryAfter) {
+        try {
+          const params = { vs_currency: "usd", order: "market_cap_desc", per_page: "100", page: "1", sparkline: "false", include_rehypothecated: "false" };
+          const [markets, stablecoins] = await Promise.all([
+            upstream(params, env),
+            upstream({ ...params, category: "stablecoins", per_page: "250" }, env),
+          ]);
+          snapshot = selectTopTen(markets, stablecoins, now);
+        } catch (error) {
+          // Avoid repeatedly hitting a provider that rejects this server.
+          geckoRetryAfter = now + 600_000;
+          console.warn('[home-markets] primary provider unavailable', /^MARKET_PROVIDER_HTTP_\d+$/.test(error?.message || '') ? error.message : error?.name || 'Error');
+        }
+      }
+      if (!snapshot) snapshot = await paprikaSnapshot(now);
       cached = snapshot;
       return snapshot;
     })().finally(() => { pending = null; });
@@ -85,4 +129,4 @@ export async function onRequestGet({ env = {}, now = Date.now() }) {
   }
 }
 
-export function resetForTests() { cached = null; pending = null; retryAfter = 0; }
+export function resetForTests() { cached = null; pending = null; retryAfter = 0; geckoRetryAfter = 0; exclusions = null; }
