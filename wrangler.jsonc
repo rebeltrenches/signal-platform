@@ -22,6 +22,11 @@
   // to a per-instance limit when this binding isn't available.
   "ratelimits": [
     {
+      "name": "SUPPORT_RATE_LIMITER",
+      "namespace_id": "146454",
+      "simple": { "limit": 3, "period": 60 }
+    },
+    {
       "name": "TOKEN_MARKET_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 20, "period": 60 }

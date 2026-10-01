@@ -56,6 +56,14 @@ export function Header({ currentPath }: { currentPath: string }) {
         >
           TG
         </a>
+        {currentPath === '/' && (
+          <a href="/support" className="btn btn-ghost" aria-label="Signal Support" title="Log a support ticket"
+            style={{ width: 38, height: 38, padding: 0, flexShrink: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M4 13v-2a8 8 0 0116 0v2M4 12H3v6h4v-6H4zm16 0h1v6h-4v-6h3zm0 6v1a3 3 0 01-3 3h-3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </a>
+        )}
         <div id="wallet-connect-root">
           <button className="btn btn-ghost" id="wallet-connect-btn" type="button">
             Connect wallet
@@ -75,6 +83,7 @@ export function Header({ currentPath }: { currentPath: string }) {
         ))}
         <a href="https://x.com/SignalChainpad" target="_blank" rel="noopener noreferrer">Signal on X ↗</a>
         <a href="https://t.me/+1wKw0JsTmzkwZWE0" target="_blank" rel="noopener noreferrer">Join Telegram ↗</a>
+        {currentPath === '/' && <a href="/support">Support · Log a ticket</a>}
       </nav>
     </header>
   );

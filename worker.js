@@ -6,6 +6,7 @@ import { onRequestPost as solanaRpc } from "./functions/api/solana/rpc.js";
 import { onRequestGet as tokenMarket } from "./functions/api/solana/token-market.js";
 import { onRequestGet as xray } from "./functions/api/solana/xray.js";
 import { onRequestGet as topMarkets } from "./functions/api/markets/top10.js";
+import { onRequestPost as supportTicket, onRequestGet as supportStatus } from "./functions/api/support/tickets.js";
 import { onRequestGet as geo } from "./functions/api/geo.js";
 import { onRequestPost as walletScreen, onRequestGet as screeningStatus } from "./functions/api/wallet-screen.js";
 import { onRequestPost as registerToken } from "./functions/api/register-token.js";
@@ -13,6 +14,12 @@ import { onRequestPost as registerToken } from "./functions/api/register-token.j
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/support/tickets") {
+      if (request.method === "GET") return supportStatus({ env });
+      if (request.method === "POST") return supportTicket({ request, env });
+      return Response.json({ error: "Method not allowed" }, { status: 405, headers: { "cache-control": "no-store" } });
+    }
 
     if (url.pathname === "/api/markets/top10") {
       if (request.method !== "GET") {
