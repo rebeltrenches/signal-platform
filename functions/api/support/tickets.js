@@ -88,9 +88,10 @@ export async function onRequestPost({ request, env }) {
     return Response.json({ delivered: true, reference }, { status: 201, headers: HEADERS });
   } catch (error) {
     if (!sending) {
-      if (error.telegramCode === 401) return reply(503, 'The support bot connection needs to be corrected. No ticket was sent.', 'BOT_AUTH_FAILED');
+      if ([401, 404].includes(error.telegramCode)) return reply(503, 'The support bot connection needs to be corrected. No ticket was sent.', 'BOT_AUTH_FAILED');
       if ([400, 403].includes(error.telegramCode)) return reply(503, 'The support bot cannot access the team inbox. No ticket was sent.', 'BOT_DESTINATION_UNAVAILABLE');
-      return reply(503, 'Telegram could not be reached to verify the team inbox. No ticket was sent.', 'BOT_CONNECTION_UNAVAILABLE');
+      const reason = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'BOT_CONNECTION_TIMEOUT' : error instanceof SyntaxError ? 'BOT_INVALID_RESPONSE' : 'BOT_CONNECTION_UNAVAILABLE';
+      return reply(503, 'Telegram could not be reached to verify the team inbox. No ticket was sent.', reason);
     }
     return reply(502, 'We could not confirm delivery. Check with support before resending to avoid a duplicate.', 'DELIVERY_UNCONFIRMED');
   }

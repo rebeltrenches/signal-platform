@@ -83,7 +83,7 @@ try {
     assert.ok(!JSON.stringify(failure).includes('test-only-token'));
   });
   await check('bot authentication and inbox access failures stop before sending', async () => {
-    for (const [status, code] of [[401, 'BOT_AUTH_FAILED'], [400, 'BOT_DESTINATION_UNAVAILABLE'], [403, 'BOT_DESTINATION_UNAVAILABLE']]) {
+    for (const [status, code] of [[401, 'BOT_AUTH_FAILED'], [404, 'BOT_AUTH_FAILED'], [400, 'BOT_DESTINATION_UNAVAILABLE'], [403, 'BOT_DESTINATION_UNAVAILABLE']]) {
       let attempts = 0;
       globalThis.fetch = async url => {
         attempts++;
