@@ -18,10 +18,12 @@ no public username or active public usernames. Change the channel type in
 Telegram if needed before enabling delivery. Leave the main public community
 chat and the existing website Telegram link unchanged.
 
-Obtain the numeric ID using Telegram's official `getUpdates` API after a
-new channel post or the bot's membership update, with the token entered only
-in a trusted local setup tool, not in chat or a shared browser URL. Do not
-forward private team messages to third-party chat-ID bots.
+To obtain the numeric ID without handling the bot token, copy a message link
+from the private channel. In `https://t.me/c/<channel-id>/<message-id>`, prefix
+the channel ID with `-100` for the Bot API destination. The message link does
+not grant membership. Telegram's official `getUpdates` API is an alternative
+when used from a trusted local setup tool. Do not forward private team
+messages to third-party chat-ID bots.
 
 The `SUPPORT_RATE_LIMITER` binding is included in `wrangler.jsonc` with a
 dedicated namespace, three attempts per IP per minute per Cloudflare location.
@@ -44,6 +46,8 @@ User text is sent without Markdown/HTML parsing, with link previews disabled.
 
 ## Current state
 
-The bot was created and Post Messages permission configured by the user.
-The token, numeric destination ID and live delivery test still need configuration.
+The user created the bot, enabled Post Messages, made the team channel private,
+and reported saving both required Cloudflare secrets. Rebuild the preview after
+secret changes, then verify availability and actual Telegram delivery; saving
+secrets alone is not proof that the preview version has those bindings.
 Production publishing requires approval of this support feature.
