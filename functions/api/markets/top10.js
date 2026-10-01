@@ -11,6 +11,14 @@ let exclusions = null;
 // usdc-usdc vs usdc-usd-coin). These established stablecoin symbols cover
 // those aliases; current category membership still catches new stablecoins.
 const STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "USDS", "SUSD", "USDE", "SUSDE", "USD1", "PYUSD", "BUSD", "FRAX", "FDUSD", "USDD", "TUSD", "GUSD", "LUSD", "MIM", "USDF", "USDX", "USDP", "RLUSD", "CRVUSD", "USDC.E", "USDT.E"]);
+const WRAPPED_SYMBOLS = new Set(["WBTC", "CBBTC", "WETH", "WBETH", "BETH", "STETH", "WSTETH", "RETH", "CBETH", "WEETH", "EZETH", "RSETH", "WSOL", "WBNB", "WAVAX", "WMATIC", "WPOL"]);
+
+function excludedAsset(coin) {
+  const symbol = String(coin.symbol).toUpperCase();
+  return STABLE_SYMBOLS.has(symbol) || WRAPPED_SYMBOLS.has(symbol) ||
+    /\b(wrapped|bridged|staked|stablecoin)\b/i.test(coin.name || '') ||
+    /(?:^|\s)(?:[a-z]*USD[a-z0-9]*|[a-z]*EUR[a-z0-9]*)(?:\s|$)/i.test(coin.name || '');
+}
 
 function reply(body, status = 200) {
   return Response.json(body, { status, headers: {
@@ -80,13 +88,32 @@ async function paprikaSnapshot(now) {
   if (!Array.isArray(tickers) || !tickers.length) throw new Error("Invalid market response");
   const markets = tickers.map((coin) => ({
     id: coin.id, name: coin.name, symbol: coin.symbol,
-    market_cap_rank: STABLE_SYMBOLS.has(String(coin.symbol).toUpperCase()) || /\b(wrapped|bridged|staked)\b/i.test(coin.name || '') ? null : coin.rank,
+    market_cap_rank: excludedAsset(coin) ? null : coin.rank,
     current_price: coin.quotes?.USD?.price, market_cap: coin.quotes?.USD?.market_cap,
     price_change_percentage_24h: coin.quotes?.USD?.percent_change_24h,
     last_updated: coin.last_updated,
     image: `https://static.coinpaprika.com/coin/${encodeURIComponent(coin.id)}/logo.png`,
   }));
   return selectTopTen(markets, excludedCoins, now, "CoinPaprika");
+}
+
+async function coinLoreSnapshot(now) {
+  const response = await fetch("https://api.coinlore.net/api/tickers/?start=0&limit=100", {
+    headers: { accept: "application/json" }, signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`MARKET_PROVIDER_HTTP_${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data.data) || !data.data.length || !Number.isFinite(data.info?.time)) throw new Error("Invalid market response");
+  const updatedAt = new Date(data.info.time * 1000).toISOString();
+  const number = (value) => typeof value === 'number' || (typeof value === 'string' && value.trim()) ? Number(value) : null;
+  const markets = data.data.map((coin) => ({
+    id: String(coin.id), name: coin.name, symbol: coin.symbol,
+    market_cap_rank: excludedAsset(coin) ? null : number(coin.rank),
+    market_cap: number(coin.market_cap_usd), current_price: number(coin.price_usd),
+    price_change_percentage_24h: number(coin.percent_change_24h), last_updated: updatedAt,
+    image: `https://www.coinlore.com/img/${encodeURIComponent(coin.nameid)}.png`,
+  }));
+  return selectTopTen(markets, [], now, "CoinLore");
 }
 
 function usable(snapshot, now) { return snapshot && now - Date.parse(snapshot.updatedAt) <= (snapshot.source === "CoinPaprika" ? 600_000 : MAX_AGE_MS); }
@@ -118,7 +145,10 @@ export async function onRequestGet({ env = {}, now = Date.now() }) {
           console.warn('[home-markets] primary provider unavailable', /^MARKET_PROVIDER_HTTP_\d+$/.test(error?.message || '') ? error.message : error?.name || 'Error');
         }
       }
-      if (!snapshot) snapshot = await paprikaSnapshot(now);
+      if (!snapshot) {
+        try { snapshot = await coinLoreSnapshot(now); }
+        catch { snapshot = await paprikaSnapshot(now); }
+      }
       cached = snapshot;
       return snapshot;
     })().finally(() => { pending = null; });

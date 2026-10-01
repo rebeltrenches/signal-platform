@@ -61,6 +61,7 @@ await test('hosted primary 403 switches to correctly filtered secondary data and
   globalThis.fetch = async (url) => {
     calls.push(String(url));
     if (String(url).includes('coingecko')) return new Response('', { status: 403 });
+    if (String(url).includes('coinlore')) return new Response('', { status: 503 });
     if (String(url).includes('/tags/')) {
       const tag = new URL(url).pathname.split('/').pop();
       return Response.json({ id: tag, coins: tag === 'stablecoin' ? ['stable'] : tag === 'wrapped-token' ? ['wrapped'] : ['staked'] });
@@ -86,10 +87,26 @@ await test('secondary timestamps respect its 5 minute feed cadence but expire at
   assert.throws(() => api.selectTopTen(data,[coin('stable',3)],now,'CoinGecko'));
   assert.throws(() => api.selectTopTen(data,[coin('stable',3)],now + 300000,'CoinPaprika'));
 });
+await test('CoinLore public feed preserves quoted prices, source time and top-ten filters', async () => {
+  let paprikaCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('coingecko')) return new Response('', {status:403});
+    if (String(url).includes('coinpaprika')) { paprikaCalls++; return new Response('',{status:402}); }
+    const rows=[coin('btc',1,{symbol:'BTC'}),coin('eth',2,{symbol:'ETH'}),coin('usdt',3,{symbol:'USDT',name:'Tether'}),
+      coin('weth',4,{symbol:'WETH',name:'WETH'}),...Array.from({length:9},(_,i)=>coin(`other${i}`,i+5))];
+    return Response.json({info:{time:Math.floor(now/1000)},data:rows.map(c=>({id:c.id,name:c.name,nameid:c.id,symbol:c.symbol,
+      rank:c.market_cap_rank,price_usd:String(c.current_price),market_cap_usd:String(c.market_cap),percent_change_24h:null}))});
+  };
+  const response=await get();const data=await response.json();
+  assert.equal(response.status,200);assert.equal(data.source,'CoinLore');assert.equal(data.coins.length,10);
+  assert.equal(data.coins[0].price,1.23456);assert.equal(data.coins[0].change24h,null);
+  assert.equal(data.updatedAt,new Date(Math.floor(now/1000)*1000).toISOString());
+  assert.ok(!data.coins.some(c=>['USDT','WETH'].includes(c.symbol)));assert.equal(paprikaCalls,0);
+});
 await test('homepage includes display once; other pages never load its script or CSS', async () => {
   const html = await readFile('apps/web/dist/index.html', 'utf8');
   assert.equal((html.match(/id="home-markets-grid"/g) || []).length, 1);
-  assert.ok(html.includes('/client/home-markets.js?v=2'));
+  assert.ok(html.includes('/client/home-markets.js?v=3'));
   for (const path of ['create', 'explore', 'dashboard', 'security', 'community', 'token/example']) {
     const page = await readFile(`apps/web/dist/${path}/index.html`, 'utf8');
     assert.ok(!page.includes('home-markets'));

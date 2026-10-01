@@ -26,7 +26,7 @@
       const identity = node('div', 'home-market-identity');
       try {
         const url = new URL(coin.image);
-        if (url.protocol === 'https:' && ['coin-images.coingecko.com', 'assets.coingecko.com', 'static.coinpaprika.com'].includes(url.hostname)) {
+        if (url.protocol === 'https:' && ['coin-images.coingecko.com', 'assets.coingecko.com', 'static.coinpaprika.com', 'www.coinlore.com'].includes(url.hostname)) {
           const logo = node('img', 'home-market-logo');
           logo.src = url.href; logo.alt = ''; logo.width = 26; logo.height = 26;
           logo.loading = 'lazy'; logo.referrerPolicy = 'no-referrer';
@@ -45,7 +45,7 @@
       fragment.append(card);
     });
     grid.replaceChildren(fragment);
-    if (provider) { provider.textContent = snapshot.source; provider.href = snapshot.source === 'CoinPaprika' ? 'https://coinpaprika.com/' : 'https://www.coingecko.com/'; }
+    if (provider) { provider.textContent = snapshot.source; provider.href = snapshot.source === 'CoinPaprika' ? 'https://coinpaprika.com/' : snapshot.source === 'CoinLore' ? 'https://www.coinlore.com/' : 'https://www.coingecko.com/'; }
     updateAge();
   }
   function updateAge() {
@@ -68,10 +68,10 @@
     if (loading || document.hidden) return;
     loading = true;
     try {
-      const response = await fetch('/api/markets/top10', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
+      const response = await fetch('/api/markets/top10', { cache: 'no-store', signal: AbortSignal.timeout(40000) });
       if (!response.ok) throw new Error('Market feed unavailable');
       const data = await response.json();
-      if (data.currency !== 'USD' || !['CoinGecko', 'CoinPaprika'].includes(data.source) || !Array.isArray(data.coins) || data.coins.length !== 10 ||
+      if (data.currency !== 'USD' || !['CoinGecko', 'CoinPaprika', 'CoinLore'].includes(data.source) || !Array.isArray(data.coins) || data.coins.length !== 10 ||
           !Number.isFinite(Date.parse(data.updatedAt)) || Date.now() - Date.parse(data.updatedAt) > maxAge(data.source) ||
           Date.parse(data.updatedAt) - Date.now() > 60000 ||
           data.coins.some((coin) => typeof coin.name !== 'string' || typeof coin.symbol !== 'string' ||
