@@ -93,6 +93,12 @@ export async function onRequestPost({ request, env }) {
     if (!Number.isInteger(sent.message_id) || String(sent.chat?.id) !== env.SIGNAL_SUPPORT_CHAT_ID) throw new Error('INVALID_RECEIPT');
     return Response.json({ delivered: true, reference }, { status: 201, headers: HEADERS });
   } catch (error) {
+    // Log only bounded classifications, never errors, URLs, tokens or ticket text.
+    console.error('signal_support_delivery_failure', JSON.stringify({
+      stage: sending ? 'send' : 'verify',
+      kind: ['TypeError', 'SyntaxError', 'TimeoutError', 'AbortError', 'Error'].includes(error.name) ? error.name : 'Other',
+      telegramStatus: Number.isInteger(error.telegramCode) ? error.telegramCode : null,
+    }));
     if (!sending) {
       if ([401, 404].includes(error.telegramCode)) return reply(503, 'The support bot connection needs to be corrected. No ticket was sent.', 'BOT_AUTH_FAILED');
       if ([400, 403].includes(error.telegramCode)) return reply(503, 'The support bot cannot access the team inbox. No ticket was sent.', 'BOT_DESTINATION_UNAVAILABLE');
