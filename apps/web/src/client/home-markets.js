@@ -7,7 +7,7 @@
   let snapshot = null;
   let failed = false;
   let loading = false;
-  const maxAge = (source) => source === 'CoinPaprika' ? 600000 : 300000;
+  const maxAge = (source) => ['CoinPaprika', 'CoinLore'].includes(source) ? 600000 : 300000;
   const usd = (price) => new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', minimumFractionDigits: 2,
     maximumFractionDigits: price < 1 ? 6 : price < 10 ? 4 : 2,
@@ -57,7 +57,7 @@
       status.dataset.state = 'delayed'; status.textContent = 'Feed unavailable';
       return;
     }
-    const delayed = failed || snapshot.delayed || age > (snapshot.source === 'CoinPaprika' ? 360000 : 120000);
+    const delayed = failed || snapshot.delayed || age > (['CoinPaprika', 'CoinLore'].includes(snapshot.source) ? 360000 : 120000);
     status.dataset.state = delayed ? 'delayed' : 'fresh';
     const ago = age < 60000 ? 'just now' : `${Math.floor(age / 60000)}m ago`;
     status.textContent = delayed ? `Delayed · updated ${ago}` : `Updated ${ago}`;

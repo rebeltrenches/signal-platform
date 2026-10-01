@@ -40,7 +40,7 @@ async function upstream(params, env) {
 }
 
 export function selectTopTen(markets, stablecoins, now = Date.now(), source = "CoinGecko") {
-  const maxAge = source === "CoinPaprika" ? 600_000 : MAX_AGE_MS;
+  const maxAge = ["CoinPaprika", "CoinLore"].includes(source) ? 600_000 : MAX_AGE_MS;
   const excluded = new Set(stablecoins.map((coin) => coin.id));
   const seen = new Set();
   // Null market_cap_rank is the provider's marker for non-native duplicates.
@@ -116,9 +116,9 @@ async function coinLoreSnapshot(now) {
   return selectTopTen(markets, [], now, "CoinLore");
 }
 
-function usable(snapshot, now) { return snapshot && now - Date.parse(snapshot.updatedAt) <= (snapshot.source === "CoinPaprika" ? 600_000 : MAX_AGE_MS); }
+function usable(snapshot, now) { return snapshot && now - Date.parse(snapshot.updatedAt) <= (["CoinPaprika", "CoinLore"].includes(snapshot.source) ? 600_000 : MAX_AGE_MS); }
 function snapshotReply(snapshot, now, failed = false) {
-  const freshAge = snapshot.source === "CoinPaprika" ? 360_000 : FRESH_MS;
+  const freshAge = ["CoinPaprika", "CoinLore"].includes(snapshot.source) ? 360_000 : FRESH_MS;
   return reply({ ...snapshot, fresh: !failed && now - Date.parse(snapshot.updatedAt) <= freshAge,
     delayed: failed || now - Date.parse(snapshot.updatedAt) > freshAge });
 }

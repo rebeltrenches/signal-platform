@@ -84,8 +84,10 @@ await test('hosted primary 403 switches to correctly filtered secondary data and
 await test('secondary timestamps respect its 5 minute feed cadence but expire at 10 minutes', () => {
   const data = markets.map(c => ({...c,last_updated:new Date(now - 301000).toISOString()}));
   assert.equal(api.selectTopTen(data,[coin('stable',3)],now,'CoinPaprika').coins.length,10);
+  assert.equal(api.selectTopTen(data,[coin('stable',3)],now,'CoinLore').coins.length,10);
   assert.throws(() => api.selectTopTen(data,[coin('stable',3)],now,'CoinGecko'));
   assert.throws(() => api.selectTopTen(data,[coin('stable',3)],now + 300000,'CoinPaprika'));
+  assert.throws(() => api.selectTopTen(data,[coin('stable',3)],now + 300000,'CoinLore'));
 });
 await test('CoinLore public feed preserves quoted prices, source time and top-ten filters', async () => {
   let paprikaCalls = 0;
@@ -106,7 +108,7 @@ await test('CoinLore public feed preserves quoted prices, source time and top-te
 await test('homepage includes display once; other pages never load its script or CSS', async () => {
   const html = await readFile('apps/web/dist/index.html', 'utf8');
   assert.equal((html.match(/id="home-markets-grid"/g) || []).length, 1);
-  assert.ok(html.includes('/client/home-markets.js?v=3'));
+  assert.ok(html.includes('/client/home-markets.js?v=4'));
   for (const path of ['create', 'explore', 'dashboard', 'security', 'community', 'token/example']) {
     const page = await readFile(`apps/web/dist/${path}/index.html`, 'utf8');
     assert.ok(!page.includes('home-markets'));
