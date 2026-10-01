@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Shell } from '../src/layout/Shell.js';
 import { HomePage } from '../src/pages/HomePage.js';
+import { SupportPage } from '../src/pages/SupportPage.js';
 import { CreatePage } from '../src/pages/CreatePage.js';
 import { ExplorePage } from '../src/pages/ExplorePage.js';
 import { TokenDetailPage } from '../src/pages/TokenDetailPage.js';
@@ -50,6 +51,7 @@ interface RouteDef {
 }
 
 const routes: RouteDef[] = [
+  { path: 'support', title: 'Support', element: <SupportPage />, clientScripts: ['/client/support.js?v=1'] },
   { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js', '/client/home-markets.js?v=4'] },
   {
     path: 'create',
