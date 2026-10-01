@@ -43,7 +43,7 @@ interface RouteDef {
 }
 
 const routes: RouteDef[] = [
-  { path: '', title: 'Home', element: <HomePage /> },
+  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/home-markets.js?v=4'] },
   {
     path: 'create',
     title: 'Create',
