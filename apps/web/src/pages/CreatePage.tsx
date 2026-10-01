@@ -50,7 +50,7 @@ export function CreatePage() {
                 <span className="chain-dot" style={{ background: `var(--chain-${c.chain})` }} />
                 <span className="name">{c.displayName}</span>
                 <span className="tax-note">
-                  {c.taxSupported ? `${totalPct} creator trading fee planned for Signal-routed trades` : 'Discovery live — token creation and trading planned'}
+                  {c.taxSupported ? `${totalPct} Signal trading fee on Signal-routed buys` : 'Discovery live — token creation and trading planned'}
                 </span>
               </button>
             );
@@ -147,21 +147,21 @@ export function CreatePage() {
         </div>
 
         <div className="field">
-          <label>Creator trading fee</label>
+          <label>Signal trading fee</label>
           <div id="tax-display">
             <div className="tax-box">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ font: 'var(--text-h2)' }}>{totalPct}</span>
-                <span className="hint" style={{ textTransform: 'none' }}>Creator trading fee — fixed, not adjustable per launch</span>
+                <span className="hint" style={{ textTransform: 'none' }}>Signal trading fee on Signal-routed buys — fixed</span>
               </div>
-              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Token creator</span><span className="v">100% of the creator trading fee</span></div>
-              <div className="review-row"><span className="k">SIGNAL platform share</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of creator trading fee</span></div>
-              <div className="review-row"><span className="k">Payout asset</span><span className="v">SOL</span></div>
+              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Signal platform wallet</span><span className="v">100% of the Signal trading fee</span></div>
+              <div className="review-row"><span className="k">Token creator</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of the Signal trading fee</span></div>
+              <div className="review-row"><span className="k">Fee asset</span><span className="v">SOL</span></div>
               <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
               <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
-                The {totalPct} creator trading fee belongs to you, the token creator, and is designed to be
-                paid in SOL rather than withheld in your project token. SIGNAL's separate launch fee is 0.001 SOL.
-                The creator-fee SOL trading path is being completed before it is enabled.
+                The {totalPct} Signal trading fee applies only to eligible Solana buys executed through Signal and is paid
+                in SOL to the Signal platform wallet. It is not a token transfer tax and does not apply to wallet-to-wallet
+                transfers or trades completed on an external market. Signal's separate launch fee is 0.001 SOL.
               </p>
             </div>
           </div>
@@ -187,8 +187,8 @@ export function CreatePage() {
           <div className="review-row"><span className="k">Metadata account</span><span className="v">≈0.0137 SOL (0.0037 SOL rent + Metaplex's 0.01 SOL protocol fee)</span></div>
           <div className="review-row"><span className="k">Total supply</span><span className="v" id="rv-supply">—</span></div>
           <div className="review-row"><span className="k">Decimals</span><span className="v" id="rv-decimals">—</span></div>
-          <div className="review-row"><span className="k">Creator trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
-          <div className="review-row"><span className="k">Creator fee payout</span><span className="v">SOL</span></div>
+          <div className="review-row"><span className="k">Signal trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
+          <div className="review-row"><span className="k">Trading fee recipient</span><span className="v">Signal platform wallet</span></div>
           <div className="review-row"><span className="k">SIGNAL launch fee</span><span className="v">0.001 SOL</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" id="rv-holder-reward">—</span></div>
           <div className="review-row"><span className="k">Creator wallet</span><span className="v" id="rv-creator-wallet-live" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>Not connected</span></div>

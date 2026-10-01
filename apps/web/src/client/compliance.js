@@ -18,12 +18,12 @@
   // Each point the visitor confirms, in plain words (see /terms).
   const POINTS = [
     'I am 18 or older.',
-    'I understand nothing on Signal is financial advice.',
-    'I understand meme coins are extremely risky and can go to zero; I could lose everything I put in.',
-    'I understand Signal is non-custodial: it never holds my funds or keys.',
-    'I am responsible for my own wallet and every transaction I approve.',
-    "I am not in a region where Signal is unavailable, and I'm not using a VPN or proxy to get around that.",
-    'I am not a sanctioned person and not acting for one.',
+    'I understand that nothing on Signal is financial advice.',
+    'I understand that crypto assets, including meme coins, are extremely risky and can lose all or substantially all of their value.',
+    'I understand that Signal is non-custodial and does not hold my private keys or control my wallet.',
+    'I am responsible for my wallet and every transaction I approve.',
+    'I am not located in a jurisdiction where Signal is unavailable, and I am not using a VPN or proxy to circumvent geographic restrictions.',
+    'I am not a sanctioned person and I am not using Signal on behalf of a sanctioned person or entity.',
   ];
 
   let geoPromise = null;
@@ -109,7 +109,7 @@
         const regional = el('div', { className: 'terms-regional' },
           el('strong', { textContent: `Important for ${geo.name || geo.country}` }),
           el('p', { textContent: geo.warning }),
-          item(`I have read this warning for ${geo.name || geo.country} and accept it.`));
+          item(`I have read and understood this notice for ${geo.name || geo.country}.`));
         regional.querySelector('label').setAttribute('data-regional', geo.country);
         list.append(regional);
       }
@@ -121,7 +121,7 @@
         el('h2', { textContent: 'Before you connect a wallet', id: 'terms-title' }),
         el('p', { className: 'hint', textContent: 'Please confirm each point. ' },
           el('a', { href: '/terms', target: '_blank', rel: 'noopener', textContent: 'Read the full terms and risks' }),
-          ' (draft pending legal review).'),
+          '.'),
         list,
         el('div', { className: 'terms-actions' }, cancel, accept));
       dialog.setAttribute('aria-modal', 'true');

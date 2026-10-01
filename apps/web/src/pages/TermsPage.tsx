@@ -43,9 +43,9 @@ export function TermsPage({ restrictions }: { restrictions: Restrictions }) {
           <li>You must be <strong>18 or older</strong>.</li>
           <li>
             You must not be in a region where Signal is unavailable: {blocked.join(', ')}, and the regions of{' '}
-            {regions.join(', ')}. Hong Kong, Macau and Taiwan are not restricted.
+            {regions.join(', ')}. Under the current configuration, Hong Kong, Macau and Taiwan are not in Signal's blocked list.
           </li>
-          <li>You must not be a sanctioned person, or act for one.</li>
+          <li>You must not be a sanctioned person, or use Signal on behalf of a sanctioned person or entity.</li>
           <li>
             Don't use a VPN or proxy to get around these limits. We check location from your internet connection, which can be
             wrong or bypassed, so these rules are also yours to follow.
@@ -62,32 +62,34 @@ export function TermsPage({ restrictions }: { restrictions: Restrictions }) {
       </section>
 
       <section className="tax-box terms-section">
-        <h2>Meme coins are extremely risky</h2>
+        <h2>Crypto assets, including meme coins, are extremely risky</h2>
         <p>
-          Meme coins can lose all their value, very quickly, and many do. Prices can swing wildly, liquidity can disappear, and
-          scams are common. <strong>Only use money you can afford to lose completely.</strong>
+          Crypto assets can lose all or substantially all of their value, sometimes very quickly. Prices can move sharply,
+          liquidity can disappear, smart contracts and trading venues can fail or be exploited, and fraud or misleading project
+          claims can occur. Only use funds you can afford to lose.
         </p>
       </section>
 
       <section className="tax-box terms-section">
         <h2>Signal never holds your funds</h2>
         <p>
-          Signal is non-custodial. Your wallet (such as Phantom) holds your keys and funds; Signal never does, and can't move
-          them. Every transaction is one you approve in your own wallet.
+          Signal is non-custodial. Your wallet (such as Phantom) holds your keys and funds; Signal does not hold your private
+          keys and cannot move your funds without a transaction you approve in your own wallet.
         </p>
       </section>
 
       <section className="tax-box terms-section">
         <h2>You're responsible for your wallet and transactions</h2>
         <p>
-          You're responsible for keeping your wallet and recovery phrase safe, for checking every transaction before you approve
-          it, and for any taxes. Transactions on a blockchain can't be reversed.
+          You're responsible for keeping your wallet and recovery phrase safe, checking every transaction before you approve it,
+          and understanding any tax or legal obligations that apply to you. Confirmed blockchain transactions generally cannot be
+          reversed by Signal.
         </p>
       </section>
 
       <section className="tax-box terms-section">
-        <h2>Extra warnings for some regions</h2>
-        <p>If you're in one of these places, you'll be asked to read and accept its warning as well:</p>
+        <h2>Extra notices for some regions</h2>
+        <p>If you're in one of these places, you'll be asked to read and acknowledge its notice as well:</p>
         {regulated.map((entry) => (
           <div key={entry.name} className="review-row" style={{ display: 'block' }}>
             <strong>{entry.name}</strong>
