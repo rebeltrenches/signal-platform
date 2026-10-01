@@ -8,8 +8,12 @@ public inbox, automated replies or status tracking are included in this version.
 ## Required configuration
 
 In Cloudflare Worker `signal-platform`, Settings → Runtime variables and secrets:
-select **Previews Base** for preview testing. Build variables and secrets are a
-separate section and do not configure the running support endpoint. Use the
+This project currently uses legacy version previews from Workers Builds. Set
+these bindings under **Production** runtime secrets, then rebuild the feature
+branch to create a new version carrying them. This does not publish the support
+feature. Previews Base applies to the newer isolated Worker Previews workflow;
+it did not provide these bindings to the legacy version preview.
+Build variables and secrets are separate from runtime configuration. Use the
 exact names below (SUPPORT includes the O).
 
 - Secret `SIGNAL_SUPPORT_BOT_TOKEN`: token from BotFather for `@SignalChainpadSupportBot`.
@@ -50,8 +54,9 @@ User text is sent without Markdown/HTML parsing, with link previews disabled.
 ## Current state
 
 The user created the bot, enabled Post Messages, made the team channel private,
-and saved both encrypted secrets under Previews Base, correcting the destination
-binding name to SIGNAL_SUPPORT_CHAT_ID. Rebuild the preview after
+and corrected the destination binding name to SIGNAL_SUPPORT_CHAT_ID.
+The user has now also saved both secrets under Production runtime settings
+for the legacy version-preview deployment. Rebuild the preview after
 secret changes, then verify availability and actual Telegram delivery; saving
 secrets alone is not proof that the preview version has those bindings.
 Production publishing requires approval of this support feature.
