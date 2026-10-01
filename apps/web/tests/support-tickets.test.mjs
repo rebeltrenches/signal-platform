@@ -77,8 +77,35 @@ try {
     assert.equal((await response.json()).delivered, undefined);
     globalThis.fetch = async () => { throw Error('test-only-token'); };
     response = await onRequestPost({ request: request(), env });
+    assert.equal(response.status, 503);
+    const failure = await response.json();
+    assert.equal(failure.code, 'BOT_CONNECTION_UNAVAILABLE');
+    assert.ok(!JSON.stringify(failure).includes('test-only-token'));
+  });
+  await check('bot authentication and inbox access failures stop before sending', async () => {
+    for (const [status, code] of [[401, 'BOT_AUTH_FAILED'], [400, 'BOT_DESTINATION_UNAVAILABLE'], [403, 'BOT_DESTINATION_UNAVAILABLE']]) {
+      let attempts = 0;
+      globalThis.fetch = async url => {
+        attempts++;
+        assert.ok(url.endsWith('getChat'));
+        return Response.json({ ok: false, error_code: status, description: 'test-only-token' }, { status });
+      };
+      const response = await onRequestPost({ request: request(), env });
+      assert.equal(response.status, 503);
+      const body = await response.json();
+      assert.equal(body.code, code);
+      assert.ok(!JSON.stringify(body).includes('test-only-token'));
+      assert.equal(attempts, 1);
+    }
+  });
+  await check('send timeout remains unconfirmed to prevent duplicate retries', async () => {
+    globalThis.fetch = async url => {
+      if (url.endsWith('getChat')) return Response.json({ ok: true, result: chat });
+      throw Error('timeout');
+    };
+    const response = await onRequestPost({ request: request(), env });
     assert.equal(response.status, 502);
-    assert.ok(!(await response.text()).includes('test-only-token'));
+    assert.equal((await response.json()).code, 'DELIVERY_UNCONFIRMED');
   });
   await check('new route loads support assets; all non-home pages unchanged', async () => {
     const home = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');

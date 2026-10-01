@@ -16,7 +16,11 @@ async function telegram(env, method, body) {
     body: JSON.stringify(body), signal: AbortSignal.timeout(12000), redirect: 'error',
   });
   const result = await response.json();
-  if (!response.ok || result.ok !== true) throw new Error('TELEGRAM_UNAVAILABLE');
+  if (!response.ok || result.ok !== true) {
+    const error = new Error('TELEGRAM_UNAVAILABLE');
+    error.telegramCode = Number(result.error_code || response.status);
+    throw error;
+  }
   return result.result;
 }
 async function boundedJson(request) {
@@ -70,6 +74,7 @@ export async function onRequestPost({ request, env }) {
   }
   if (/\b\d{8,12}:[A-Za-z0-9_-]{30,}\b/.test(body.description + body.subject)) return reply(400, 'Remove bot tokens or other secrets before submitting.', 'SECRET_DETECTED');
   const reference = 'SIG-' + crypto.randomUUID().replaceAll('-', '').slice(0, 16).toUpperCase();
+  let sending = false;
   try {
     const chat = await telegram(env, 'getChat', { chat_id: env.SIGNAL_SUPPORT_CHAT_ID });
     // Do not deliver personal ticket details into a public channel/supergroup.
@@ -77,10 +82,16 @@ export async function onRequestPost({ request, env }) {
       return reply(503, 'Ticket delivery is temporarily unavailable.', 'SUPPORT_UNAVAILABLE');
     }
     const text = `${reference}\nNew Signal support ticket\n\nIssue: ${body.category}\nContact: ${contact}\nSubject: ${body.subject.trim()}\n${page ? `Page: ${page}\n` : ''}\n${body.description.trim()}`;
+    sending = true;
     const sent = await telegram(env, 'sendMessage', { chat_id: env.SIGNAL_SUPPORT_CHAT_ID, text, link_preview_options: { is_disabled: true }, protect_content: true });
     if (!Number.isInteger(sent.message_id) || String(sent.chat?.id) !== env.SIGNAL_SUPPORT_CHAT_ID) throw new Error('INVALID_RECEIPT');
     return Response.json({ delivered: true, reference }, { status: 201, headers: HEADERS });
-  } catch {
+  } catch (error) {
+    if (!sending) {
+      if (error.telegramCode === 401) return reply(503, 'The support bot connection needs to be corrected. No ticket was sent.', 'BOT_AUTH_FAILED');
+      if ([400, 403].includes(error.telegramCode)) return reply(503, 'The support bot cannot access the team inbox. No ticket was sent.', 'BOT_DESTINATION_UNAVAILABLE');
+      return reply(503, 'Telegram could not be reached to verify the team inbox. No ticket was sent.', 'BOT_CONNECTION_UNAVAILABLE');
+    }
     return reply(502, 'We could not confirm delivery. Check with support before resending to avoid a duplicate.', 'DELIVERY_UNCONFIRMED');
   }
 }
