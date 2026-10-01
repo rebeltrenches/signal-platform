@@ -454,6 +454,36 @@ await test("PumpSwap LP where wallets hold a real share of the issued LP: ⚠️
   assert.equal(find(body, "lp").status, "warn");
 });
 
+await test("lines with a shortened address carry the full address (authorities, creator, LP wallet, simulated holder)", async () => {
+  const mintAuthority = key();
+  const freezeAuthority = key();
+  const lpWallet = key();
+  const s = await scenario({ graduated: true, mintData: mintBytes({ mintAuthority, freezeAuthority }), lpIssued: 1_000_000n, lpSupply: 400_000n, lpHolders: [[lpWallet, 400_000n]] });
+  network(s.state);
+  const { body } = await run(s.mint);
+  assert.deepEqual(find(body, "mint-authority").addresses, [mintAuthority]);
+  assert.deepEqual(find(body, "freeze-authority").addresses, [freezeAuthority]);
+  assert.deepEqual(find(body, "creator-holding").addresses, [s.creator]);
+  assert.deepEqual(find(body, "lp").addresses, [lpWallet]);
+  assert.deepEqual(find(body, "sell-simulation").addresses, [s.holderA]);
+  for (const entry of body.sections.flatMap((section) => section.items)) {
+    for (const address of entry.addresses || []) assert.ok(entry.value.includes(xray.short(address)), `${entry.id} shows ${address} shortened`);
+  }
+  assert.equal(find(body, "supply").addresses, undefined, "lines without an address have none");
+});
+
+await test("a holder owned by an unrecognised program: labelled 'program account (…)', with that program's full address", async () => {
+  const s = await scenario();
+  const program = key();
+  s.state.accounts[s.holderB].owner = program; // holderB is now an account of an unknown program
+  network(s.state);
+  const { body } = await run(s.mint);
+  const row = body.holders.find((holder) => holder.owner === s.holderB);
+  assert.equal(row.label, `program account (${xray.short(program)})`);
+  assert.equal(row.labelAddress, program);
+  assert.equal(body.holders.find((holder) => holder.owner === s.holderA).labelAddress, undefined);
+});
+
 await test("percentages are shown with two decimals", async () => {
   assert.equal(xray.percentOf(1n, 3n), 33.33);
   assert.equal(xray.percentOf(245_002n, 1_000_000n), 24.5);

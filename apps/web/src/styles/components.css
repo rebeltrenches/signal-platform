@@ -655,3 +655,11 @@
 .sell-link { text-decoration: none; color: var(--ink); white-space: nowrap; }
 .sell-link:hover { border-color: var(--brand); color: var(--ink); }
 .sell-note { margin: -6px 0 14px; text-transform: none; font: var(--text-small); color: var(--ink-dim); }
+
+/* X-Ray addresses: tap to copy the full address, plus a Solscan link. */
+.xray-address-wrap { white-space: nowrap; }
+.xray-address { font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: inherit; background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: 6px; padding: 1px 6px; cursor: copy; min-height: 24px; }
+.xray-address:hover, .xray-address:focus-visible { border-color: var(--brand); outline: none; }
+.xray-address-copied { color: var(--up); border-color: var(--up); }
+.xray-solscan { font: var(--text-small); color: var(--brand); text-decoration: none; white-space: nowrap; }
+.xray-solscan:hover { text-decoration: underline; }
