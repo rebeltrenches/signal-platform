@@ -7,6 +7,10 @@ let pending = null;
 let retryAfter = 0;
 let geckoRetryAfter = 0;
 let exclusions = null;
+// CoinPaprika's category list omits some legacy ticker IDs (for example
+// usdc-usdc vs usdc-usd-coin). These established stablecoin symbols cover
+// those aliases; current category membership still catches new stablecoins.
+const STABLE_SYMBOLS = new Set(["USDT", "USDC", "DAI", "USDS", "SUSD", "USDE", "SUSDE", "USD1", "PYUSD", "BUSD", "FRAX", "FDUSD", "USDD", "TUSD", "GUSD", "LUSD", "MIM", "USDF", "USDX", "USDP", "RLUSD", "CRVUSD", "USDC.E", "USDT.E"]);
 
 function reply(body, status = 200) {
   return Response.json(body, { status, headers: {
@@ -56,7 +60,7 @@ export function selectTopTen(markets, stablecoins, now = Date.now(), source = "C
 
 async function paprika(path) {
   const response = await fetch(`https://api.coinpaprika.com/v1/${path}`, {
-    headers: { accept: "application/json" }, signal: AbortSignal.timeout(7_000),
+    headers: { accept: "application/json" }, signal: AbortSignal.timeout(15_000),
   });
   if (!response.ok) throw new Error(`MARKET_PROVIDER_HTTP_${response.status}`);
   return response.json();
@@ -75,7 +79,8 @@ async function paprikaSnapshot(now) {
   const [tickers, excludedCoins] = await Promise.all([paprika("tickers?quotes=USD"), excluded]);
   if (!Array.isArray(tickers) || !tickers.length) throw new Error("Invalid market response");
   const markets = tickers.map((coin) => ({
-    id: coin.id, name: coin.name, symbol: coin.symbol, market_cap_rank: coin.rank,
+    id: coin.id, name: coin.name, symbol: coin.symbol,
+    market_cap_rank: STABLE_SYMBOLS.has(String(coin.symbol).toUpperCase()) || /\b(wrapped|bridged|staked)\b/i.test(coin.name || '') ? null : coin.rank,
     current_price: coin.quotes?.USD?.price, market_cap: coin.quotes?.USD?.market_cap,
     price_change_percentage_24h: coin.quotes?.USD?.percent_change_24h,
     last_updated: coin.last_updated,

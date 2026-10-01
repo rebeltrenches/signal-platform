@@ -68,7 +68,7 @@
     if (loading || document.hidden) return;
     loading = true;
     try {
-      const response = await fetch('/api/markets/top10', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+      const response = await fetch('/api/markets/top10', { cache: 'no-store', signal: AbortSignal.timeout(25000) });
       if (!response.ok) throw new Error('Market feed unavailable');
       const data = await response.json();
       if (data.currency !== 'USD' || !['CoinGecko', 'CoinPaprika'].includes(data.source) || !Array.isArray(data.coins) || data.coins.length !== 10 ||

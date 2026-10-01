@@ -65,13 +65,17 @@ await test('hosted primary 403 switches to correctly filtered secondary data and
       const tag = new URL(url).pathname.split('/').pop();
       return Response.json({ id: tag, coins: tag === 'stablecoin' ? ['stable'] : tag === 'wrapped-token' ? ['wrapped'] : ['staked'] });
     }
-    const all = [...markets.filter(c => c.id !== 'wrapped'), coin('wrapped', 4), coin('staked', 4)];
+    const all = [...markets.filter(c => c.id !== 'wrapped'), coin('wrapped', 4), coin('staked', 4),
+      coin('usdt-tether', 3, { symbol:'USDT', name:'Tether' }),
+      coin('usdc-usd-coin', 4, { symbol:'USDC', name:'USDC' }),
+      coin('legacy-wbtc', 5, { symbol:'WBTC', name:'Wrapped Bitcoin' })];
     return Response.json(all.map(c => ({ id:c.id, name:c.name, symbol:c.symbol, rank:c.market_cap_rank,
       last_updated:c.last_updated, quotes:{ USD:{ price:c.current_price, market_cap:c.market_cap, percent_change_24h:c.price_change_percentage_24h } } })));
   };
   const response = await get(); const data = await response.json();
   assert.equal(response.status, 200); assert.equal(data.source, 'CoinPaprika'); assert.equal(data.coins.length, 10);
   assert.ok(!data.coins.some(c => ['stable','wrapped','staked'].includes(c.id)));
+  assert.ok(!data.coins.some(c => ['USDT','USDC','WBTC'].includes(c.symbol)));
   await get(now + 61000);
   assert.equal(calls.filter(u => u.includes('coingecko')).length, 2);
   assert.equal(calls.filter(u => u.includes('/tags/')).length, 3);
