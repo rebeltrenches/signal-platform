@@ -20,6 +20,79 @@
     return address && address.length > 10 ? address.slice(0, 4) + '…' + address.slice(-4) : address || '';
   }
 
+  const FULL_ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+  /** Copies text to the clipboard (with a fallback for older browsers). */
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise((resolve, reject) => {
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.append(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      ok ? resolve() : reject(new Error('copy failed'));
+    });
+  }
+
+  /** A shortened address that copies the full one when tapped (full address
+   *  on hover), followed by a "Solscan ↗" link to its account page. */
+  function addressControl(address) {
+    const wrap = el('span', 'xray-address-wrap');
+    const button = el('button', 'xray-address', short(address));
+    button.type = 'button';
+    button.title = address;
+    button.dataset.address = address;
+    button.setAttribute('aria-label', 'Copy address ' + address);
+    button.addEventListener('click', () => {
+      copyText(address).then(() => {
+        button.textContent = 'Copied';
+        button.classList.add('xray-address-copied');
+        clearTimeout(button.copiedTimer);
+        button.copiedTimer = setTimeout(() => {
+          button.textContent = short(address);
+          button.classList.remove('xray-address-copied');
+        }, 1500);
+      }).catch(() => {
+        button.textContent = "Couldn't copy";
+        setTimeout(() => { button.textContent = short(address); }, 1500);
+      });
+    });
+    const solscan = el('a', 'xray-solscan', 'Solscan \u2197');
+    solscan.href = 'https://solscan.io/account/' + encodeURIComponent(address);
+    solscan.target = '_blank';
+    solscan.rel = 'noopener noreferrer';
+    solscan.setAttribute('aria-label', 'View ' + address + ' on Solscan');
+    wrap.append(button, ' ', solscan);
+    return wrap;
+  }
+
+  /** A line's value, with each of its shortened addresses made usable. */
+  function valueWithAddresses(value, addresses) {
+    const span = el('span', 'xray-value');
+    const usable = (addresses || []).filter((address) => typeof address === 'string' && FULL_ADDRESS.test(address));
+    let rest = String(value);
+    while (rest) {
+      let next = null;
+      for (const address of usable) {
+        const index = rest.indexOf(short(address));
+        if (index >= 0 && (!next || index < next.index)) next = { index, address };
+      }
+      if (!next) {
+        span.append(rest);
+        break;
+      }
+      if (next.index > 0) span.append(rest.slice(0, next.index));
+      span.append(addressControl(next.address));
+      rest = rest.slice(next.index + short(next.address).length);
+    }
+    return span;
+  }
+
   function status(container, text, kind) {
     container.replaceChildren(el('p', 'xray-status' + (kind ? ' xray-status-' + kind : ''), text));
   }
@@ -45,7 +118,7 @@
         marker.setAttribute('aria-label', MARKER_TEXT[entry.status] || 'Fact');
         const body = el('div', 'xray-body');
         const line = el('p', 'xray-line');
-        line.append(el('span', 'xray-label', entry.label + ': '), el('span', 'xray-value', entry.value));
+        line.append(el('span', 'xray-label', entry.label + ': '), valueWithAddresses(entry.value, entry.addresses));
         body.append(line);
         if (entry.reason) body.append(el('p', 'xray-reason', entry.reason));
         body.append(el('p', 'xray-why', entry.why));
@@ -67,12 +140,11 @@
           const row = el('li', 'xray-holder' + (holder.excluded ? ' xray-holder-excluded' : ''));
           row.append(
             el('span', 'xray-holder-percent', holder.percent.toFixed(2) + '%'),
-            el('span', 'xray-holder-address', short(holder.owner)),
+            FULL_ADDRESS.test(holder.owner) ? addressControl(holder.owner) : el('span', 'xray-holder-address', short(holder.owner)),
           );
           if (holder.label || holder.excluded) {
             row.append(el('span', 'xray-holder-label', (holder.label || 'pool') + (holder.excluded ? ' · not counted' : '')));
           }
-          row.title = holder.owner;
           holders.append(row);
         }
         details.append(holders);

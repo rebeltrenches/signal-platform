@@ -189,7 +189,9 @@ function formatUnits(amount, decimals) {
   const fraction = decimals ? (amount % scale).toString().padStart(decimals, "0").replace(/0+$/, "") : "";
   return `${whole.toLocaleString("en-US")}${fraction ? `.${fraction.slice(0, 4)}` : ""}`;
 }
-const short = (address) => (address && address.length > 10 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address);
+/** The short form shown in X-Ray lines; items carry the full addresses in
+ *  `addresses` so the site can copy them and link them to Solscan. */
+export const short = (address) => (address && address.length > 10 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address);
 const item = (id, label, value, status, why, extra = {}) => ({ id, label, value, status, why, ...extra });
 const unavailable = (id, label, why, reason) => item(id, label, "Unavailable", "unavailable", why, reason ? { reason } : {});
 
@@ -461,7 +463,7 @@ async function sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage })
   }
   const err = simulation?.value?.err;
   const holderText = `a holder (${short(candidate.owner)}) selling ${formatUnits(amount, mint.decimals)} tokens`;
-  if (!err) return item("sell-simulation", "Sell simulation", `Succeeded right now for ${holderText}`, "ok", why);
+  if (!err) return item("sell-simulation", "Sell simulation", `Succeeded right now for ${holderText}`, "ok", why, { addresses: [candidate.owner] });
   const logs = (simulation?.value?.logs || []).join("\n");
   const reason = /insufficient lamports|insufficient funds for fee/i.test(logs) ? null
     : /frozen/i.test(logs) || JSON.stringify(err).includes('"Custom":17') ? "a token account is frozen"
@@ -469,7 +471,7 @@ async function sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage })
         : /hook/i.test(logs) ? "the transfer hook rejected it"
           : "the transaction failed";
   if (!reason) return unavailable("sell-simulation", "Sell simulation", why, "The simulated holder couldn't pay the network fees.");
-  return item("sell-simulation", "Sell simulation", `Failed right now for ${holderText}: ${reason}`, "warn", "A real holder's small sell failed in a simulation just now (nothing was sent).");
+  return item("sell-simulation", "Sell simulation", `Failed right now for ${holderText}: ${reason}`, "warn", "A real holder's small sell failed in a simulation just now (nothing was sent).", { addresses: [candidate.owner] });
 }
 
 /** Whether `owner` received SOL (native, net of the fee it paid) or one of
@@ -637,7 +639,7 @@ async function lpStatus({ poolAccount, rpc }) {
       const largestText = biggestWallet ? ` (largest ${short(biggestWallet.owner)})` : "";
       return item("lp", "LP tokens", `${burnedText}${walletPercent}% held by wallets${of}${largestText}${unlistedText}`, small ? "ok" : "warn", small
         ? "Almost all LP tokens are burned; the wallets holding the rest can only withdraw their small share of the liquidity."
-        : `A wallet holding LP tokens can withdraw that share of the liquidity at any time${issued === null ? " (LP burned earlier can't be counted for this pool type)" : ""}.`);
+        : `A wallet holding LP tokens can withdraw that share of the liquidity at any time${issued === null ? " (LP burned earlier can't be counted for this pool type)" : ""}.`, biggestWallet ? { addresses: [biggestWallet.owner] } : {});
     }
     if (program === 0n) return item("lp", "LP tokens", `${percentOf(allBurned, base)}% burned`, "ok", "Burned LP tokens can't be redeemed, so this liquidity can't be withdrawn.");
     return item("lp", "LP tokens", `${burnedText}${percentOf(program, base)}% held by programs${of} (e.g. a locker or the pool)`, "info", "LP held by a program is only as locked as that program's rules; check the lock's terms and end date.");
@@ -796,17 +798,25 @@ export async function runXray(mintAddress, env, now = Date.now()) {
   if ([...honeypotItems, lp].some((entry) => entry.status === "unavailable" && entry.id !== "dex-sells")) partial = true;
 
   const t22 = mint.extensions.tokenMetadata;
+  const sections = [
+    { id: "facts", title: "Hard facts", items: factItems(mint, metadata, signal) },
+    { id: "holders", title: "Holders and liquidity", items: holderItems },
+    { id: "honeypot", title: "Honeypot checks", items: honeypotItems },
+  ];
+  const ext = mint.extensions;
+  const known = [mint.mintAuthority, mint.freezeAuthority, metadata?.updateAuthority, t22?.updateAuthority, ext.transferFee?.authority, ext.transferHook?.programId, ext.permanentDelegate, ext.pausable?.authority, mint.creator, ...holders.map((holder) => holder.owner)].filter(Boolean);
+  for (const entry of sections.flatMap((section) => section.items)) {
+    const found = new Set(entry.addresses || []);
+    for (const address of known) if (entry.value.includes(short(address))) found.add(address);
+    if (found.size) entry.addresses = [...found];
+  }
   const body = {
     mint: mintAddress,
     name: metadata?.name || t22?.name || null,
     symbol: metadata?.symbol || t22?.symbol || null,
     program: mint.program,
     generatedAt: new Date(now).toISOString(),
-    sections: [
-      { id: "facts", title: "Hard facts", items: factItems(mint, metadata, signal) },
-      { id: "holders", title: "Holders and liquidity", items: holderItems },
-      { id: "honeypot", title: "Honeypot checks", items: honeypotItems },
-    ],
+    sections,
     holders: holders.slice(0, 10).map((holder) => ({ owner: holder.owner, percent: holder.percent, label: holder.label, excluded: holder.excluded })),
     usage,
     note: "Facts, not a verdict. Conditions can change at any time.",
