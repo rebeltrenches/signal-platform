@@ -31,7 +31,7 @@ messages to third-party chat-ID bots.
 The `SUPPORT_RATE_LIMITER` binding is included in `wrangler.jsonc` with a
 dedicated namespace, three attempts per IP per minute per Cloudflare location.
 Preview and production secrets must be configured for the intended environment.
-Support fails closed without configuration. GET availability exposes only a boolean.
+Support fails closed without configuration. GET availability exposes only readiness booleans, never secret values.
 
 ## Validation
 

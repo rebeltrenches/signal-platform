@@ -20,8 +20,8 @@ let count = 0;
 async function check(name, fn) { calls = []; await fn(); console.log('ok', name); count++; }
 try {
   await check('availability exposes no token or destination; missing config disabled', async () => {
-    assert.deepEqual(await onRequestGet({ env }).json(), { configured: true });
-    assert.deepEqual(await onRequestGet({ env: {} }).json(), { configured: false });
+    assert.deepEqual(await onRequestGet({ env }).json(), { configured: true, readiness: { botToken: true, destination: true, rateLimiter: true } });
+    assert.deepEqual(await onRequestGet({ env: {} }).json(), { configured: false, readiness: { botToken: false, destination: false, rateLimiter: false } });
     assert.equal((await onRequestPost({ request: request(), env: {} })).status, 503);
     assert.equal(calls.length, 0);
   });
