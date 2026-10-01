@@ -114,7 +114,7 @@ export function HomePage() {
         <p className="home-markets-message" id="home-markets-message">Loading current prices…</p>
         <div className="home-markets-footer">
           <span>USD · 24h change · Display only</span>
-          <span>Data by <a href="https://www.coingecko.com/" target="_blank" rel="noopener noreferrer">CoinGecko</a> · Refreshes every minute</span>
+          <span>Data by <a id="home-markets-provider" href="https://www.coingecko.com/" target="_blank" rel="noopener noreferrer">CoinGecko</a> · Checks every minute</span>
         </div>
       </section>
 
