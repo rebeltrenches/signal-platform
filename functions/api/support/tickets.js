@@ -1,7 +1,7 @@
 const CATEGORIES = new Set(['wallet', 'launch', 'trade', 'data', 'website', 'other']);
 const HEADERS = { 'cache-control': 'no-store, max-age=0', 'x-content-type-options': 'nosniff' };
-function reply(status, message, code) {
-  return Response.json({ message, code }, { status, headers: HEADERS });
+function reply(status, message, code, diagnostic) {
+  return Response.json({ message, code, ...(diagnostic ? { diagnostic } : {}) }, { status, headers: HEADERS });
 }
 function botToken(env) {
   return String(env.SIGNAL_SUPPORT_BOT_TOKEN || '').trim();
@@ -17,11 +17,13 @@ export function onRequestGet({ env }) {
 }
 async function telegram(env, method, body) {
   // Never log the request URL: Telegram authenticates using a token in its path.
-  const response = await fetch(`https://api.telegram.org/bot${botToken(env)}/${method}`, {
+  let response;
+  try { response = await fetch(`https://api.telegram.org/bot${botToken(env)}/${method}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body), signal: AbortSignal.timeout(12000), redirect: 'error',
-  });
-  const result = await response.json();
+  }); } catch (error) { error.supportStage = 'transport'; throw error; }
+  let result;
+  try { result = await response.json(); } catch (error) { error.supportStage = 'response'; throw error; }
   if (!response.ok || result.ok !== true) {
     const error = new Error('TELEGRAM_UNAVAILABLE');
     error.telegramCode = Number(result.error_code || response.status);
@@ -103,7 +105,12 @@ export async function onRequestPost({ request, env }) {
       if ([401, 404].includes(error.telegramCode)) return reply(503, 'The support bot connection needs to be corrected. No ticket was sent.', 'BOT_AUTH_FAILED');
       if ([400, 403].includes(error.telegramCode)) return reply(503, 'The support bot cannot access the team inbox. No ticket was sent.', 'BOT_DESTINATION_UNAVAILABLE');
       const reason = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'BOT_CONNECTION_TIMEOUT' : error instanceof SyntaxError ? 'BOT_INVALID_RESPONSE' : 'BOT_CONNECTION_UNAVAILABLE';
-      return reply(503, 'Telegram could not be reached to verify the team inbox. No ticket was sent.', reason);
+      return reply(503, 'Telegram could not be reached to verify the team inbox. No ticket was sent.', reason, {
+        stage: ['transport', 'response'].includes(error.supportStage) ? error.supportStage : 'verify',
+        kind: ['TypeError', 'SyntaxError', 'TimeoutError', 'AbortError', 'Error'].includes(error.name) ? error.name : 'Other',
+        status: Number.isInteger(error.telegramCode) ? error.telegramCode : null,
+        category: ['redirect', 'url', 'timeout', 'network', 'ssl', 'dns', 'unsupported', 'not implemented'].find(word => String(error.message).toLowerCase().includes(word)) || 'other',
+      });
     }
     return reply(502, 'We could not confirm delivery. Check with support before resending to avoid a duplicate.', 'DELIVERY_UNCONFIRMED');
   }
