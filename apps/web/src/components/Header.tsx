@@ -19,7 +19,7 @@ const NAV_ITEMS = [
  */
 export function Header({ currentPath }: { currentPath: string }) {
   return (
-    <header className="topbar">
+    <header className={currentPath === '/' ? 'topbar topbar-home' : 'topbar'}>
       <div className="container topbar-inner">
         <a href="/" className="brand">
           <span className="brand-mark" aria-hidden="true">

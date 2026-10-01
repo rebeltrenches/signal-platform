@@ -663,3 +663,12 @@
 .xray-address-copied { color: var(--up); border-color: var(--up); }
 .xray-solscan { font: var(--text-small); color: var(--brand); text-decoration: none; white-space: nowrap; }
 .xray-solscan:hover { text-decoration: underline; }
+
+/* Keep the home support link and menu within narrow phone headers. */
+@media (max-width: 480px) {
+  .topbar-home .topbar-inner { gap: 6px; padding-inline: 16px; }
+  .topbar-home .header-social { display: none; }
+  .topbar-home .brand, .topbar-home .nav-mobile-toggle { flex-shrink: 0; }
+  .topbar-home #wallet-connect-root { min-width: 0; margin-left: auto; }
+  .topbar-home #wallet-connect-btn { padding-inline: 12px; font-size: 12px; }
+}
