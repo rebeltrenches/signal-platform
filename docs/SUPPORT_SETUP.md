@@ -55,8 +55,9 @@ User text is sent without Markdown/HTML parsing, with link previews disabled.
 
 The user created the bot, enabled Post Messages, made the team channel private,
 and corrected the destination binding name to SIGNAL_SUPPORT_CHAT_ID.
-The user has now also saved both secrets under Production runtime settings
-for the legacy version-preview deployment. Rebuild the preview after
+The user has now saved the bot token and the correctly spelled destination
+secret under Production runtime settings for the legacy version-preview
+deployment. The earlier misspelled destination binding is unused. Rebuild after
 secret changes, then verify availability and actual Telegram delivery; saving
 secrets alone is not proof that the preview version has those bindings.
 Production publishing requires approval of this support feature.
