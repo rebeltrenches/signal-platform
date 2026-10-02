@@ -146,7 +146,10 @@
 
     fetch(apiPath(`/api/v1/tokens/solana/${encodeURIComponent(address)}`))
       .then((res) => {
-        badge.textContent = res.ok ? 'Launched on Signal: Yes' : 'Launched on Signal: No';
+        // Registration is a weaker fact than verified bonding-curve provenance.
+        // Never overwrite the on-chain curve result if that module already set it.
+        if (badge.dataset.signalCurve === 'true') return;
+        badge.textContent = res.ok ? 'Registered on Signal: Yes' : 'Registered on Signal: No';
       })
       .catch(() => {
         // Lookup failed (no backend reachable) — leave the honest
