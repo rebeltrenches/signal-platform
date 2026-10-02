@@ -207,12 +207,21 @@ class CurveLaunchFlow {
   }
 
   async connect() {
+    // Use Signal's shared wallet connector so the curve launch gets the same
+    // desktop + mobile Phantom behavior as the rest of the site. In
+    // particular, mobile browsers need the Phantom universal-link handoff
+    // rather than a direct provider.connect() call.
+    const sharedConnect = window.signalWalletConnect;
+    let address = window.launchpadWallet?.address || null;
+    if (!address && typeof sharedConnect === "function") {
+      address = await sharedConnect();
+    }
     const provider = window.phantom?.solana || window.solana;
-    if (!provider?.isPhantom) throw new Error("Phantom not found.");
-    await compliance("connect");
-    const response = await provider.connect();
+    if (!address || !provider?.isPhantom || !provider.publicKey) {
+      throw new Error("Wallet connection was not completed.");
+    }
     this.wallet = provider;
-    return response.publicKey;
+    return new web3.PublicKey(address);
   }
 
   async buildTransaction(payer, instructions) {
