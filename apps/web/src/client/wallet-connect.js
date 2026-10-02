@@ -63,27 +63,35 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
     const compliance = window.signalCompliance;
     if (!compliance) {
       btn.textContent = 'Reload to connect';
-      return;
+      return null;
     }
-    if (!(await compliance.beforeConnect())) return;
+    if (!(await compliance.beforeConnect())) return null;
     const provider = phantomProvider();
     if (!provider?.isPhantom) {
       if (isMobileDevice()) {
         const target = encodeURIComponent(window.location.href);
         const ref = encodeURIComponent(window.location.origin);
         window.location.href = `https://phantom.app/ul/browse/${target}?ref=${ref}`;
-        return;
+        return null;
       }
       btn.textContent = 'Phantom not found';
-      return;
+      return null;
     }
     try {
       const resp = await provider.connect();
-      acceptConnection(resp);
+      if (!acceptConnection(resp)) return null;
+      return window.launchpadWallet.address;
     } catch (err) {
       btn.textContent = 'Connect wallet';
+      return null;
     }
   }
+
+  // Shared entry point for page-specific flows (for example the bonding-curve
+  // launch panel). This preserves the same mobile Phantom deep-link, terms
+  // acknowledgement and connection state instead of each feature inventing
+  // a second wallet-connect implementation.
+  window.signalWalletConnect = connect;
 
   btn.addEventListener('click', connect);
 
