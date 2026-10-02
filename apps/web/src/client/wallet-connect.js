@@ -144,7 +144,7 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   document.addEventListener('click', (e) => {
     const target = e.target;
     if (target instanceof HTMLElement && target.matches('[data-action="connect-from-dashboard"]')) {
-      connect();
+      connect().catch(() => {});
     }
   });
 })();
