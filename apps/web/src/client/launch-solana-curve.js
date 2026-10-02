@@ -228,7 +228,7 @@ class CurveLaunchFlow {
     return tx;
   }
 
-  async signSubmit(tx, step, extraSigners = []) {
+  async signSubmit(tx, step, extraSigners = [], beforeSubmit = null) {
     this.setStep(step, "simulating");
     const simulation = await this.connection.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: false });
     if (simulation.value.err) throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
@@ -242,6 +242,10 @@ class CurveLaunchFlow {
       const recheck = await this.connection.simulateTransaction(signed, { sigVerify: false, replaceRecentBlockhash: false });
       if (recheck.value.err) throw new Error(`Final signed transaction failed simulation: ${JSON.stringify(recheck.value.err)}`);
     }
+    // Persist recovery state after the wallet has approved the exact transaction
+    // but before it is submitted. If the tab closes or confirmation times out,
+    // the mint address is still available to finish curve initialization safely.
+    if (beforeSubmit) beforeSubmit();
     const signature = await this.connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, maxRetries: 5 });
     this.setStep(step, "confirming", signature);
     for (let i = 0; i < 60; i += 1) {
@@ -319,7 +323,7 @@ class CurveLaunchFlow {
     return uri;
   }
 
-  async createMint(payer, decimals, metadata) {
+  async createMint(payer, decimals, metadata, onReadyToSubmit = null) {
     this.mintKeypair = web3.Keypair.generate();
     const mint = this.mintKeypair.publicKey;
     const rent = await this.connection.getMinimumBalanceForRentExemption(splToken.MINT_SIZE);
@@ -329,7 +333,7 @@ class CurveLaunchFlow {
       createMetadataInstruction(web3, { mint, mintAuthority: payer, payer, name: metadata.name, symbol: metadata.symbol, uri: metadata.uri }),
     ]);
     tx.partialSign(this.mintKeypair);
-    await this.signSubmit(tx, "mint", [this.mintKeypair]);
+    await this.signSubmit(tx, "mint", [this.mintKeypair], () => onReadyToSubmit?.(mint));
     return mint;
   }
 
@@ -599,21 +603,31 @@ function mountPendingRecovery() {
         logoBytes,
         logoType: logoCheck.contentType,
       });
-      const mint = await flow.createMint(creator, decimals, { name: nameCheck.value, symbol: symbolCheck.value, uri: metadataUri });
-      const pending = {
-        stage: "curve",
-        mint: mint.toBase58(),
-        name: nameCheck.value,
-        symbol: symbolCheck.value,
-        supply: String(wizard.supply).trim(),
-        rawSupply: rawSupply.toString(),
+      let pending = null;
+      const mint = await flow.createMint(
+        creator,
         decimals,
-        metadataUri,
-        creatorAddress: creator.toBase58(),
-        createdAt: new Date().toISOString(),
-      };
+        { name: nameCheck.value, symbol: symbolCheck.value, uri: metadataUri },
+        (preparedMint) => {
+          pending = {
+            stage: "mint",
+            mint: preparedMint.toBase58(),
+            name: nameCheck.value,
+            symbol: symbolCheck.value,
+            supply: String(wizard.supply).trim(),
+            rawSupply: rawSupply.toString(),
+            decimals,
+            metadataUri,
+            creatorAddress: creator.toBase58(),
+            createdAt: new Date().toISOString(),
+          };
+          savePending(pending);
+        },
+      );
+      if (!pending) throw new Error("Mint recovery state was not prepared before submission.");
+      pending.stage = "curve";
       savePending(pending);
-      flow.logText(`Mint created: ${pending.mint}. No tokens have been sent to the creator wallet.`);
+      flow.logText(`Mint created: ${mint.toBase58()}. No tokens have been sent to the creator wallet.`);
 
       const { curve, vault } = await flow.initializeCurve(creator, mint, rawSupply, decimals);
       pending.stage = "listing";
