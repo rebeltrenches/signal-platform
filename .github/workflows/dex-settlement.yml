@@ -78,8 +78,10 @@ jobs:
           grep -q "new PublicKey(SIGNAL_PLATFORM_WALLET_ADDRESS)" packages/blockchain/src/solana/SolanaAdapter.ts
           grep -q "HKpjLnQ7TZpxDxD77LK4AkyorsDPNLTQWH95Cs9o6ryg" packages/config/src/platform-wallet.ts
           grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS" packages/blockchain/src/solana/SolanaAdapter.ts
-          ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana.js
-          grep -q "SIGNAL_LAUNCH_FEE_LAMPORTS = 1_000_000" apps/web/src/client/launch-solana.js
+          test ! -e apps/web/src/client/launch-solana.js
+          ! grep -q "TOKEN_2022_PROGRAM_ID" apps/web/src/client/launch-solana-curve.js
+          grep -q "const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;" programs/signal-bonding-curve/src/lib.rs
+          grep -q "const SIGNAL_FEE_BPS: u128 = 100;" programs/signal-bonding-curve/src/lib.rs
           grep -q "totalBps: 100" packages/types/src/index.ts
           grep -q "LAUNCH_PRICE_LAMPORTS = 100_000_000n" packages/types/src/index.ts
       - name: BUY transaction assembly tests
