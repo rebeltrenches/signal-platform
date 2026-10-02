@@ -37,7 +37,7 @@ await test("the build generates /client/platform-wallet.js from the config", asy
   assert.match(await read("apps/web/dist/client/platform-wallet.js"), new RegExp(`export const SIGNAL_PLATFORM_WALLET_ADDRESS = "${TREASURY}";`));
 });
 await test("the launch fee (browser) reads it", async () => {
-  const source = await read("apps/web/src/client/launch-solana.js");
+  const source = await read("apps/web/src/client/launch-solana-curve.js");
   assert.match(source, /import \{ SIGNAL_PLATFORM_WALLET_ADDRESS \} from "\.\/platform-wallet\.js";/);
   assert.match(source, /const SIGNAL_PLATFORM_WALLET = new web3\.PublicKey\(SIGNAL_PLATFORM_WALLET_ADDRESS\);/);
   assert.match(source, /toPubkey: SIGNAL_PLATFORM_WALLET,/);
