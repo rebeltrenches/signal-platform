@@ -22,6 +22,9 @@ mustContain('Immutable Signal launch metadata is missing or owned by an unexpect
 mustContain('await this.verifyMetadata(mint, { name: expected.name, symbol: expected.symbol, uri: expected.metadataUri });', 'immutable metadata binding');
 mustContain('const verified = await flow.verifyRecoveredLaunch(mint, {', 'listing path always invokes verifier');
 mustContain('pending.stage === "listing" ? "Verify and finish listing"', 'listing recovery is explicitly verification-gated');
+mustContain('if (beforeSubmit) beforeSubmit();', 'recovery state hook runs before transaction submission');
+mustContain('stage: "mint"', 'mint recovery stage is persisted before submission');
+mustContain('savePending(pending);', 'pending launch is stored for recovery');
 
 const listingIndex = source.indexOf('status.textContent = "On-chain curve, custody and immutable metadata verified. Finishing Signal listing…";');
 const verifyIndex = source.lastIndexOf('const verified = await flow.verifyRecoveredLaunch', listingIndex);
@@ -54,6 +57,7 @@ if (existsSync(new URL('../dist/client/launch-solana.js', import.meta.url))) {
 
 console.log('✓ recovered mint, curve, creator, supply, authorities and vault are re-verified');
 console.log('✓ immutable metadata is re-verified and missing metadata fails closed');
+console.log('✓ mint address is persisted after wallet approval and before network submission');
 console.log('✓ listing recovery cannot run before on-chain verification');
 console.log('✓ failed/cancelled Raydium graduation remains retryable without a page reload');
 console.log('✓ legacy full-supply creator launcher is absent from source and public build');
