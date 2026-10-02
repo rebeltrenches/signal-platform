@@ -448,7 +448,8 @@ async function sellSimulation({ mint, holders, ownerAccounts, env, rpc, usage })
     if (ata === holder.tokenAccount) candidate = holder;
   }
   if (!candidate) return unavailable("sell-simulation", "Sell simulation", why, "No suitable holder to simulate with (one holding the token in a normal wallet with SOL for fees).");
-  const amount = candidate.amount / 100n > 0n ? candidate.amount / 100n : candidate.amount;
+  const candidateAmount = BigInt(candidate.amount);
+  const amount = candidateAmount / 100n > 0n ? candidateAmount / 100n : candidateAmount;
   usage.jupiterRequests += 1;
   let order;
   try {
