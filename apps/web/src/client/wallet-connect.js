@@ -57,7 +57,20 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
     return true;
   }
 
-  async function connect() {
+  // Serialize interactive connect attempts and wait for any silent restore.
+  // Phantom can return a generic "Unexpected error" if two connect requests
+  // overlap, which the Create/curve page used to trigger.
+  let restoring = null;
+  let interactiveConnect = null;
+
+  async function connectOnce() {
+    if (window.launchpadWallet.address) return window.launchpadWallet.address;
+
+    if (restoring) {
+      try { await restoring; } catch { /* silent restore failure is normal */ }
+      if (window.launchpadWallet.address) return window.launchpadWallet.address;
+    }
+
     // Blocked regions can't connect, and everyone accepts the terms first
     // (compliance.js; the terms version is re-asked when it changes).
     const compliance = window.signalCompliance;
@@ -87,6 +100,13 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
     }
   }
 
+  function connect() {
+    if (!interactiveConnect) {
+      interactiveConnect = connectOnce().finally(() => { interactiveConnect = null; });
+    }
+    return interactiveConnect;
+  }
+
   // Shared entry point for page-specific flows (for example the bonding-curve
   // launch panel). This preserves the same mobile Phantom deep-link, terms
   // acknowledgement and connection state instead of each feature inventing
@@ -114,7 +134,6 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   // onlyIfTrusted flag never opens a permission prompt; it simply restores
   // the existing trusted session after a reload or page navigation.
   // Called from several events; concurrent calls share one attempt.
-  let restoring = null;
   function restoreTrustedConnection() {
     if (!restoring) restoring = attemptRestore().finally(() => { restoring = null; });
     return restoring;
