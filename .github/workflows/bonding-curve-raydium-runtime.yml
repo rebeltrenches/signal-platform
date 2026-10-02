@@ -1,0 +1,122 @@
+name: Raydium graduation runtime
+
+on:
+  push:
+    branches:
+      - pf-style-bonding-curve
+    paths:
+      - 'programs/signal-bonding-curve/**'
+      - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-reverse-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-leftovers-runtime.mjs'
+      - 'apps/web/tests/raydium-config-audit.mjs'
+      - '.github/workflows/bonding-curve-raydium-runtime.yml'
+  pull_request:
+    paths:
+      - 'programs/signal-bonding-curve/**'
+      - 'apps/web/src/client/trade-router.js'
+      - 'apps/web/tests/bonding-curve-completion-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-reverse-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-recovery-runtime.mjs'
+      - 'apps/web/tests/bonding-curve-raydium-leftovers-runtime.mjs'
+      - 'apps/web/tests/raydium-config-audit.mjs'
+      - '.github/workflows/bonding-curve-raydium-runtime.yml'
+  workflow_dispatch:
+
+jobs:
+  raydium-graduation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install official Agave / Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Build Signal bonding-curve SBF
+        working-directory: programs/signal-bonding-curve
+        run: cargo build-sbf
+      - name: Start local validator with official Raydium Mainnet fixtures
+        run: |
+          solana-keygen new --no-bip39-passphrase --silent --force -o /tmp/signal-raydium-payer.json
+          solana-keygen new --no-bip39-passphrase --silent --force -o /tmp/signal-raydium-program.json
+          PROGRAM_ID="$(solana-keygen pubkey /tmp/signal-raydium-program.json)"
+          echo "SIGNAL_RUNTIME_PROGRAM_ID=$PROGRAM_ID" >> "$GITHUB_ENV"
+          echo "SIGNAL_RUNTIME_PAYER=/tmp/signal-raydium-payer.json" >> "$GITHUB_ENV"
+          solana-test-validator \
+            --reset \
+            --quiet \
+            --url https://api.mainnet-beta.solana.com \
+            --clone-upgradeable-program CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C \
+            --clone D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2 \
+            --clone DNXgeM9EiiaAbaWvwjHj9fQQLAX5ZsfHyvmYUNRAdNC8 \
+            --clone So11111111111111111111111111111111111111112 \
+            --bpf-program "$PROGRAM_ID" programs/signal-bonding-curve/target/deploy/signal_bonding_curve.so \
+            >/tmp/signal-raydium-validator.log 2>&1 &
+          echo $! >/tmp/signal-raydium-validator.pid
+          for attempt in $(seq 1 60); do
+            if solana cluster-version --url http://127.0.0.1:8899 >/dev/null 2>&1; then break; fi
+            if ! kill -0 "$(cat /tmp/signal-raydium-validator.pid)" 2>/dev/null; then
+              cat /tmp/signal-raydium-validator.log
+              exit 1
+            fi
+            sleep 1
+          done
+          solana cluster-version --url http://127.0.0.1:8899
+          solana airdrop 20 --keypair /tmp/signal-raydium-payer.json --url http://127.0.0.1:8899
+      - name: Audit cloned Raydium AMM fee configuration
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/raydium-config-audit.mjs
+      - name: Complete first Signal bonding curve locally
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-completion-runtime.mjs
+      - name: CPI first completed curve into cloned Raydium CPMM atomically
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-runtime.mjs
+      - name: Trade the graduated Raydium market in reverse
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-reverse-runtime.mjs
+      - name: Complete second Signal bonding curve for recovery test
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-completion-runtime.mjs
+      - name: Interrupt then resume Raydium graduation
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-recovery-runtime.mjs
+      - name: Audit every graduated curve for migration leftovers
+        working-directory: apps/web
+        env:
+          SIGNAL_RUNTIME_RPC: http://127.0.0.1:8899
+        run: node tests/bonding-curve-raydium-leftovers-runtime.mjs
+      - name: Show validator log on failure
+        if: failure()
+        run: tail -n 500 /tmp/signal-raydium-validator.log || true
+      - name: Stop local validator
+        if: always()
+        run: |
+          if [ -f /tmp/signal-raydium-validator.pid ]; then kill "$(cat /tmp/signal-raydium-validator.pid)" 2>/dev/null || true; fi

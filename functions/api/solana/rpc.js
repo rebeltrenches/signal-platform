@@ -1,8 +1,15 @@
+import { transactionRefusal } from "../../solana-transaction-screen.js";
+
 const FALLBACK_RPC_URLS = ["https://solana-rpc.publicnode.com", "https://api.mainnet-beta.solana.com"];
 // getMinimumBalanceForRentExemption, sendTransaction and getAccountInfo
 // (reading a new mint back to verify its supply lock) are needed by the
 // token launch flow (launch-solana.js); the rest are shared with swaps.
 const ALLOWED_METHODS = new Set([
+  "getBalance",
+  "getMultipleAccounts",
+  "getProgramAccounts",
+  "getTokenAccountBalance",
+  "getTokenAccountsByOwner",
   "getAccountInfo",
   "simulateTransaction",
   "getSignatureStatuses",
@@ -30,6 +37,14 @@ export async function onRequestPost({ request, env }) {
   }
   if (body?.jsonrpc !== "2.0" || !ALLOWED_METHODS.has(body?.method) || !Array.isArray(body?.params)) {
     return json(403, { error: "Solana RPC method is not allowed", code: "RPC_METHOD_NOT_ALLOWED" });
+  }
+
+  if (body.method === "sendTransaction") {
+    if (body.params[1]?.encoding !== "base64") {
+      return json(400, { code: "INVALID_TRANSACTION_ENCODING", error: "Transaction submission requires base64 encoding." });
+    }
+    const refusal = await transactionRefusal(request, env, body.params[0], "submit transactions");
+    if (refusal) return refusal;
   }
 
   const urls = [];

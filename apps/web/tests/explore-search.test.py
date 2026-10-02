@@ -3,7 +3,7 @@
 Real, end-to-end browser test: registers real tokens via the actual
 API (a real subprocess), then confirms searching in the browser
 actually filters to the matching one. Also verifies the small
-TokenDetailPage.tsx fix (real "Launched on Signal" check) while a real
+registration badge and the absence of a verified curve-launch claim while a real
 server and real registered tokens are already set up, since it's
 directly related and cheap to check here.
 
@@ -120,7 +120,7 @@ def run():
             # real API), then AFTER registering a real token at that exact
             # literal address (a real 201, then a real 200 lookup).
             page.goto(f"http://localhost:{STATIC_PORT}/token/example/", wait_until="domcontentloaded")
-            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Launched on Signal: No')")
+            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Registered on Signal: No')")
             badge_text_before = page.inner_text("#signal-launch-badge")
             check("before 'example' is registered anywhere, the real lookup honestly shows 'No'", "No" in badge_text_before, badge_text_before)
 
@@ -128,9 +128,13 @@ def run():
             check("setup: a real token registered at the literal address 'example'", status_example == 201, str(status_example))
 
             page.reload(wait_until="domcontentloaded")
-            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Launched on Signal: Yes')")
+            page.wait_for_function("document.getElementById('signal-launch-badge').textContent.includes('Registered on Signal: Yes')")
             badge_text_after = page.inner_text("#signal-launch-badge")
-            check("after registering it for real, the SAME page now honestly shows 'Yes'", "Yes" in badge_text_after, badge_text_after)
+            check("registration shows only the registration claim", badge_text_after == "Registered on Signal: Yes", badge_text_after)
+            check("registration alone never claims a verified Signal curve launch",
+                  "Launched on Signal" not in badge_text_after and
+                  page.get_attribute("#signal-launch-badge", "data-signal-curve") != "true",
+                  badge_text_after)
 
             browser.close()
     finally:

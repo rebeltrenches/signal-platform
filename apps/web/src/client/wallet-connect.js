@@ -57,33 +57,61 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
     return true;
   }
 
-  async function connect() {
+  // Serialize interactive connect attempts and wait for any silent restore.
+  // Phantom can return a generic "Unexpected error" if two connect requests
+  // overlap, which the Create/curve page used to trigger.
+  let restoring = null;
+  let interactiveConnect = null;
+
+  async function connectOnce() {
+    if (window.launchpadWallet.address) return window.launchpadWallet.address;
+
+    if (restoring) {
+      try { await restoring; } catch { /* silent restore failure is normal */ }
+      if (window.launchpadWallet.address) return window.launchpadWallet.address;
+    }
+
     // Blocked regions can't connect, and everyone accepts the terms first
     // (compliance.js; the terms version is re-asked when it changes).
     const compliance = window.signalCompliance;
     if (!compliance) {
       btn.textContent = 'Reload to connect';
-      return;
+      return null;
     }
-    if (!(await compliance.beforeConnect())) return;
+    if (!(await compliance.beforeConnect())) return null;
     const provider = phantomProvider();
     if (!provider?.isPhantom) {
       if (isMobileDevice()) {
         const target = encodeURIComponent(window.location.href);
         const ref = encodeURIComponent(window.location.origin);
         window.location.href = `https://phantom.app/ul/browse/${target}?ref=${ref}`;
-        return;
+        return null;
       }
       btn.textContent = 'Phantom not found';
-      return;
+      return null;
     }
     try {
       const resp = await provider.connect();
-      acceptConnection(resp);
+      if (!acceptConnection(resp)) return null;
+      return window.launchpadWallet.address;
     } catch (err) {
       btn.textContent = 'Connect wallet';
+      return null;
     }
   }
+
+  function connect() {
+    if (!interactiveConnect) {
+      interactiveConnect = connectOnce().finally(() => { interactiveConnect = null; });
+    }
+    return interactiveConnect;
+  }
+
+  // Shared entry point for page-specific flows (for example the bonding-curve
+  // launch panel). This preserves the same mobile Phantom deep-link, terms
+  // acknowledgement and connection state instead of each feature inventing
+  // a second wallet-connect implementation.
+  window.signalWalletConnect = connect;
 
   btn.addEventListener('click', connect);
 
@@ -106,7 +134,6 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   // onlyIfTrusted flag never opens a permission prompt; it simply restores
   // the existing trusted session after a reload or page navigation.
   // Called from several events; concurrent calls share one attempt.
-  let restoring = null;
   function restoreTrustedConnection() {
     if (!restoring) restoring = attemptRestore().finally(() => { restoring = null; });
     return restoring;
@@ -136,7 +163,7 @@ window.launchpadWallet = window.launchpadWallet || { address: null };
   document.addEventListener('click', (e) => {
     const target = e.target;
     if (target instanceof HTMLElement && target.matches('[data-action="connect-from-dashboard"]')) {
-      connect();
+      connect().catch(() => {});
     }
   });
 })();

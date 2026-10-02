@@ -36,11 +36,14 @@ await test("the old fee wallet is gone except from decision history", () => {
 await test("the build generates /client/platform-wallet.js from the config", async () => {
   assert.match(await read("apps/web/dist/client/platform-wallet.js"), new RegExp(`export const SIGNAL_PLATFORM_WALLET_ADDRESS = "${TREASURY}";`));
 });
-await test("the launch fee (browser) reads it", async () => {
-  const source = await read("apps/web/src/client/launch-solana.js");
+await test("the curve launch passes the configured platform wallet to the on-chain fee path", async () => {
+  const source = await read("apps/web/src/client/launch-solana-curve.js");
   assert.match(source, /import \{ SIGNAL_PLATFORM_WALLET_ADDRESS \} from "\.\/platform-wallet\.js";/);
-  assert.match(source, /const SIGNAL_PLATFORM_WALLET = new web3\.PublicKey\(SIGNAL_PLATFORM_WALLET_ADDRESS\);/);
-  assert.match(source, /toPubkey: SIGNAL_PLATFORM_WALLET,/);
+  assert.match(source, /const PLATFORM_WALLET = new web3\.PublicKey\(SIGNAL_PLATFORM_WALLET_ADDRESS\);/);
+  assert.match(source, /\{ pubkey: PLATFORM_WALLET, isSigner: false, isWritable: true \}/);
+  const program = await read("programs/signal-bonding-curve/src/lib.rs");
+  assert.match(program, /const LAUNCH_FEE_LAMPORTS: u64 = 1_000_000;/);
+  assert.match(program, /system_instruction::transfer\(creator\.key, platform_wallet\.key, LAUNCH_FEE_LAMPORTS\)/);
 });
 await test("the swap fee (browser) reads it", async () => {
   const source = await read("apps/web/src/client/swap-execute.js");

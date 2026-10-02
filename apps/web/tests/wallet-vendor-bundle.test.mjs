@@ -27,8 +27,8 @@ await test("no client script imports code from an http(s) URL", async () => {
     assert.doesNotMatch(source, /esm\.sh/, `${file} mentions esm.sh`);
   }
 });
-await test("launch and swap code import the local bundles", async () => {
-  const launch = await readFile(`${CLIENT}/launch-solana.js`, "utf8");
+await test("curve launch and swap code import the local bundles", async () => {
+  const launch = await readFile(`${CLIENT}/launch-solana-curve.js`, "utf8");
   const swap = await readFile(`${CLIENT}/swap-execute.js`, "utf8");
   assert.match(launch, /import \* as web3 from "\.\/vendor\/solana-web3\.js";/);
   assert.match(launch, /import \* as splToken from "\.\/vendor\/spl-token\.js";/);

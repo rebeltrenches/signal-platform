@@ -1,9 +1,9 @@
 import React from 'react';
 import { CHAIN_CONFIGS } from '@launchpad/config';
-import { DEFAULT_TAX_CONFIG, PROTOCOL_MAX_TAX_BPS } from '@launchpad/types';
+import { DEFAULT_TAX_CONFIG } from '@launchpad/types';
 import { bpsToDisplay } from '@launchpad/utils';
 
-const LAUNCH_CHAINS = ['solana', 'base', 'bnb']; // mainnet entries only for the picker; devnet is a toggle, not a separate tile
+const LAUNCH_CHAINS = ['solana', 'base', 'bnb'];
 const errorStyle = { color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' } as const;
 
 export function CreatePage() {
@@ -13,15 +13,13 @@ export function CreatePage() {
     <div className="container-narrow" style={{ paddingTop: 36, paddingBottom: 80 }}>
       <div className="page-head" style={{ display: 'block', paddingTop: 0 }}>
         <h1>Create a token</h1>
-        <p>Create a real Solana Mainnet token from your own wallet. Base and BNB token creation is planned, not live.</p>
+        <p>
+          Launch a Solana token into Signal's on-chain bonding curve. The creator does not automatically receive the supply;
+          the program-owned curve holds it for public price discovery.
+        </p>
       </div>
 
-      {/* Deliberately OUTSIDE the wizard-step hidden system: a mint
-          created in step 1 whose supply-mint failed must be recoverable
-          the moment this page loads, regardless of which wizard step
-          the person happens to land on — not buried behind three
-          "Next" clicks. Populated by launch-solana.js; empty and inert
-          otherwise. */}
+      {/* Always visible so an interrupted mint -> curve initialization can be recovered. */}
       <div id="pending-launch-notice" hidden></div>
 
       <div className="stepper" id="stepper">
@@ -31,7 +29,6 @@ export function CreatePage() {
         <div className="seg" data-seg="3"></div>
       </div>
 
-      {/* ---- Step 0: Chain ---- */}
       <section className="wizard-step" data-step="0">
         <div className="step-label"><span className="current">Step 1 of 4</span><span>Chain</span></div>
         <h2 style={{ font: 'var(--text-h2)', marginBottom: 16 }}>Which chain are you launching on?</h2>
@@ -50,23 +47,13 @@ export function CreatePage() {
                 <span className="chain-dot" style={{ background: `var(--chain-${c.chain})` }} />
                 <span className="name">{c.displayName}</span>
                 <span className="tax-note">
-                  {c.taxSupported ? `${totalPct} creator trading fee planned for Signal-routed trades` : 'Discovery live — token creation and trading planned'}
+                  {c.taxSupported ? `${totalPct} Signal trading fee on Signal curve trades` : 'Discovery live — token creation and trading planned'}
                 </span>
               </button>
             );
           })}
         </div>
 
-        {/* Optional, informational only — never gates "Continue". Base
-            and BNB adapters aren't implemented yet (adapterImplemented:
-            false in packages/config), so completing this wizard still
-            can't produce a real launch on either chain regardless of
-            wallet connection. This exists so a person can verify they
-            have a compatible EVM wallet ahead of that work landing, not
-            to imply it already has. Hidden by default; shown per-chain
-            by evm-wallet.js reacting to the existing chain-selection
-            clicks above — wizard.js's own validation/navigation logic
-            is untouched. */}
         <div id="evm-connect-base" className="card" style={{ marginTop: 16, padding: 16 }} hidden>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <p style={{ margin: 0, color: 'var(--ink-dim)', font: 'var(--text-small)' }}>
@@ -90,12 +77,10 @@ export function CreatePage() {
         </div>
       </section>
 
-      {/* ---- Step 1: Token info ---- */}
       <section className="wizard-step" data-step="1" hidden>
         <div className="step-label"><span className="current">Step 2 of 4</span><span>Token info</span></div>
         <p className="hint" style={{ textTransform: 'none', marginBottom: 16 }}>
-          The name, symbol, logo and description become your token's permanent on-chain metadata. They can never be
-          changed after launch.
+          The name, symbol, logo and description become permanent on-chain metadata and cannot be changed after launch.
         </p>
         <div className="field">
           <label htmlFor="tk-name">Token name</label>
@@ -128,7 +113,6 @@ export function CreatePage() {
         </div>
       </section>
 
-      {/* ---- Step 2: Configuration ---- */}
       <section className="wizard-step" data-step="2" hidden>
         <div className="step-label"><span className="current">Step 3 of 4</span><span>Configuration</span></div>
         <div className="field-row">
@@ -139,7 +123,6 @@ export function CreatePage() {
           </div>
           <div className="field">
             <label htmlFor="tk-decimals">Decimals</label>
-            {/* Deliberately empty: decimals are permanent, so the creator types them. */}
             <input className="input" id="tk-decimals" inputMode="numeric" aria-describedby="tk-decimals-hint tk-decimals-error" />
             <div id="tk-decimals-hint" className="hint">Most Solana tokens use 6 or 9.</div>
             <p id="tk-decimals-error" className="hint" style={{ color: 'var(--down)', textTransform: 'none', minHeight: '1.2em' }}></p>
@@ -147,21 +130,34 @@ export function CreatePage() {
         </div>
 
         <div className="field">
-          <label>Creator trading fee</label>
+          <label>Bonding curve</label>
+          <div className="tax-box">
+            <div className="review-row"><span className="k">Curve sale inventory</span><span className="v">79.31% of total supply</span></div>
+            <div className="review-row"><span className="k">Graduation liquidity reserve</span><span className="v">20.69% of total supply</span></div>
+            <div className="review-row"><span className="k">Creator automatic allocation</span><span className="v">0%</span></div>
+            <div className="review-row"><span className="k">Starting virtual SOL reserve</span><span className="v">30 SOL</span></div>
+            <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
+              The entire supply is held by the Signal bonding-curve program. Buyers move the price along a constant-product
+              curve. The creator receives tokens only by buying from the same curve as everyone else.
+            </p>
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Signal trading fee</label>
           <div id="tax-display">
             <div className="tax-box">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <span style={{ font: 'var(--text-h2)' }}>{totalPct}</span>
-                <span className="hint" style={{ textTransform: 'none' }}>Creator trading fee — fixed, not adjustable per launch</span>
+                <span className="hint" style={{ textTransform: 'none' }}>fixed on Signal bonding-curve buys and sells</span>
               </div>
-              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Token creator</span><span className="v">100% of the creator trading fee</span></div>
-              <div className="review-row"><span className="k">SIGNAL platform share</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of creator trading fee</span></div>
-              <div className="review-row"><span className="k">Payout asset</span><span className="v">SOL</span></div>
+              <div className="review-row" style={{ marginTop: 10 }}><span className="k">Signal platform wallet</span><span className="v">100% of the Signal trading fee</span></div>
+              <div className="review-row"><span className="k">Token creator</span><span className="v" style={{ color: 'var(--ink-faint)' }}>0% of the Signal trading fee</span></div>
+              <div className="review-row"><span className="k">Fee asset</span><span className="v">SOL</span></div>
               <div className="review-row"><span className="k">Holder rewards</span><span className="v" style={{ color: 'var(--ink-faint)' }}>None</span></div>
               <p className="hint" style={{ marginTop: 12, textTransform: 'none' }}>
-                The {totalPct} creator trading fee belongs to you, the token creator, and is designed to be
-                paid in SOL rather than withheld in your project token. SIGNAL's separate launch fee is 0.001 SOL.
-                The creator-fee SOL trading path is being completed before it is enabled.
+                The {totalPct} Signal fee is settled in SOL by the bonding-curve program. It is not a token transfer tax.
+                Signal's separate current launch charge is 0.001 SOL.
               </p>
             </div>
           </div>
@@ -173,7 +169,6 @@ export function CreatePage() {
         </div>
       </section>
 
-      {/* ---- Step 3: Review ---- */}
       <section className="wizard-step" data-step="3" hidden>
         <div className="step-label"><span className="current">Step 4 of 4</span><span>Review</span></div>
         <div className="card" id="review-summary">
@@ -183,38 +178,34 @@ export function CreatePage() {
           <div className="review-row"><span className="k">Symbol</span><span className="v" id="rv-symbol">—</span></div>
           <div className="review-row"><span className="k">Description</span><span className="v" id="rv-description">—</span></div>
           <div className="review-row"><span className="k">Token metadata</span><span className="v">Permanent — can never be changed</span></div>
-          <div className="review-row"><span className="k">Logo + metadata storage</span><span className="v">Arweave via ArDrive Turbo — free; if free storage is refused, you see the SOL cost and approve it first</span></div>
-          <div className="review-row"><span className="k">Metadata account</span><span className="v">≈0.0137 SOL (0.0037 SOL rent + Metaplex's 0.01 SOL protocol fee)</span></div>
+          <div className="review-row"><span className="k">Logo + metadata storage</span><span className="v">Arweave via ArDrive Turbo</span></div>
           <div className="review-row"><span className="k">Total supply</span><span className="v" id="rv-supply">—</span></div>
           <div className="review-row"><span className="k">Decimals</span><span className="v" id="rv-decimals">—</span></div>
-          <div className="review-row"><span className="k">Creator trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
-          <div className="review-row"><span className="k">Creator fee payout</span><span className="v">SOL</span></div>
+          <div className="review-row"><span className="k">Launch model</span><span className="v">On-chain constant-product bonding curve</span></div>
+          <div className="review-row"><span className="k">Curve inventory</span><span className="v">79.31%</span></div>
+          <div className="review-row"><span className="k">Reserved for graduation liquidity</span><span className="v">20.69%</span></div>
+          <div className="review-row"><span className="k">Automatic creator tokens</span><span className="v">0%</span></div>
+          <div className="review-row"><span className="k">Signal trading fee</span><span className="v" id="rv-creator-fee">—</span></div>
+          <div className="review-row"><span className="k">Trading fee recipient</span><span className="v">Signal platform wallet</span></div>
           <div className="review-row"><span className="k">SIGNAL launch fee</span><span className="v">0.001 SOL</span></div>
           <div className="review-row"><span className="k">Holder rewards</span><span className="v" id="rv-holder-reward">—</span></div>
           <div className="review-row"><span className="k">Creator wallet</span><span className="v" id="rv-creator-wallet-live" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>Not connected</span></div>
         </div>
 
-        {/* EVM chains: no real adapter exists — honest, not a fake flow */}
         <div className="empty-state" id="launch-evm-notice" style={{ marginTop: 20, textAlign: 'left', padding: 20 }} hidden>
           <strong style={{ color: 'var(--ink-dim)' }}>Not available on this chain yet.</strong>
-          <p style={{ marginTop: 6 }}>
-            Base and BNB Chain token creation is not live yet. Solana is the currently supported
-            deployment chain — select it in Step 1 to continue with a real Mainnet launch.
-          </p>
+          <p style={{ marginTop: 6 }}>Base and BNB Chain token creation is not live yet. Select Solana to use the live bonding-curve launch path.</p>
         </div>
 
-        {/* Solana: the real flow */}
         <div id="launch-mainnet-panel">
           <div className="tax-box" style={{ marginTop: 20, borderColor: 'var(--down)' }}>
             <p style={{ color: 'var(--down)', fontWeight: 700, marginBottom: 8 }}>
-              This creates a REAL token on Solana Mainnet using REAL SOL. This cannot be undone.
+              This creates a REAL token and REAL bonding curve on Solana Mainnet using REAL SOL. It cannot be undone.
             </p>
             <p className="hint" style={{ textTransform: 'none', marginBottom: 14 }}>
-              Devnet is not offered — Mainnet is the only target. You'll be shown each transaction
-              before signing, and every signature below is real and checkable on{' '}
-              <a href="https://explorer.solana.com" target="_blank" style={{ color: 'var(--brand)' }}>Solana Explorer</a>.
-              Network cost (rent + fees) is calculated live from the chain when you connect — typically
-              a small fraction of one SOL, paid from your own wallet.
+              The full supply is placed under the Signal bonding-curve program, not in the creator wallet. 79.31% is available
+              through the curve and 20.69% stays reserved in the same program-owned vault for graduation liquidity. The creator
+              starts with 0 tokens automatically and can buy from the curve like any other wallet.
             </p>
 
             <div className="wallet-box" style={{ marginBottom: 14 }}>
@@ -227,15 +218,13 @@ export function CreatePage() {
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--ink-dim)', marginBottom: 10, cursor: 'pointer' }}>
               <input type="checkbox" id="metadataAck" style={{ marginTop: 3 }} />
-              I've checked the logo, name, symbol and description above. They're stored permanently on Arweave and
-              on-chain, and can never be changed. Your wallet signs each file (a message, not a transaction).
+              I've checked the logo, name, symbol and description. The metadata becomes permanent after launch.
             </label>
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: 'var(--ink-dim)', marginBottom: 14, cursor: 'pointer' }}>
               <input type="checkbox" id="mainnetAck" style={{ marginTop: 3 }} />
-              I understand this sends a real Solana Mainnet transaction using real SOL from my connected
-              wallet, and that it cannot be reversed. The full supply is minted to my wallet and then
-              locked: no more tokens can ever be minted.
+              I understand the supply is minted to the program-owned bonding-curve vault, not to my wallet; I receive no
+              automatic token allocation; and each transaction shown in Phantom is irreversible once confirmed.
             </label>
 
             <button type="button" className="btn btn-brand btn-block" id="mainnetLaunchBtn" disabled>
@@ -244,10 +233,10 @@ export function CreatePage() {
 
             <div id="launch-steps" style={{ marginTop: 16, display: 'none' }}>
               <div className="review-row" data-launch-step="upload"><span className="k">1. Store logo + metadata on Arweave</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="mint"><span className="k">2. Create mint + token metadata + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="supply"><span className="k">3. Mint total supply + revoke mint authority</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="lock"><span className="k">4. Verify supply locked on-chain</span><span className="v" data-state>Not started</span></div>
-              <div className="review-row" data-launch-step="meta"><span className="k">5. Verify token metadata on-chain</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="mint"><span className="k">2. Create mint + immutable metadata</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="curve"><span className="k">3. Mint full supply to curve vault + revoke mint authority + initialize curve + 0.001 SOL SIGNAL launch fee</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="lock"><span className="k">4. Verify program custody, supply and authorities on-chain</span><span className="v" data-state>Not started</span></div>
+              <div className="review-row" data-launch-step="meta"><span className="k">5. Verify immutable token metadata</span><span className="v" data-state>Not started</span></div>
             </div>
             <div id="launch-result" style={{ marginTop: 12, fontSize: '0.8125rem', color: 'var(--ink-dim)', wordBreak: 'break-all', lineHeight: 1.8 }}></div>
           </div>
@@ -258,13 +247,11 @@ export function CreatePage() {
         </div>
       </section>
 
-      {/* Outside the wizard steps: always available. launch-solana.js wires it. */}
       <details id="list-existing" className="tax-box" style={{ marginTop: 28 }}>
         <summary style={{ cursor: 'pointer', fontWeight: 700 }}>List an existing token</summary>
         <p className="hint" style={{ textTransform: 'none', margin: '8px 0 14px' }}>
-          Already launched a token from your wallet but it isn't listed on Signal? Enter its mint address. Signal checks
-          on-chain that your connected wallet created it and that its mint authority is revoked, and your wallet signs a
-          sign-in message (no transaction, no SOL).
+          Already launched elsewhere? You can list the token for discovery. Listing an existing token does not make it a Signal
+          bonding-curve launch and does not move its supply into Signal custody.
         </p>
         <div className="field">
           <label htmlFor="le-mint">Mint address</label>
