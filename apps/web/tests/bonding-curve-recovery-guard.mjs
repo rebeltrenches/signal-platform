@@ -1,4 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../src/client/launch-solana-curve.js', import.meta.url), 'utf8');
 const tradeRouter = readFileSync(new URL('../src/client/trade-router.js', import.meta.url), 'utf8');
@@ -25,6 +27,59 @@ mustContain('pending.stage === "listing" ? "Verify and finish listing"', 'listin
 mustContain('if (beforeSubmit) beforeSubmit();', 'recovery state hook runs before transaction submission');
 mustContain('stage: "mint"', 'mint recovery stage is persisted before submission');
 mustContain('savePending(pending);', 'pending launch is stored for recovery');
+
+// Exercise the actual storage function and submission method. Storage failure
+// must stop network submission, and a confirmation failure must leave only
+// public mint/metadata recovery data available, never mint key material.
+const savePendingSource = source.slice(source.indexOf('function savePending('), source.indexOf('function clearPending('));
+const signSubmitSource = source.slice(source.indexOf('  async signSubmit('), source.indexOf('  async payForStorage('));
+function recoveryHarness(storage) {
+  return runInNewContext(`${savePendingSource}
+    class Flow { ${signSubmitSource} }
+    ({ savePending, Flow });`, {
+    localStorage: storage, PENDING_KEY: 'pending', web3: {},
+    launchTransactionDifference: () => null,
+    finalizeSignedTransaction: () => false,
+    sleep: async () => {},
+    explorerTx: (signature) => signature,
+  });
+}
+const pendingMint = { stage: 'mint', mint: 'public-mint-address', creatorAddress: 'public-wallet-address', metadataUri: 'ar://metadata', rawSupply: '100000000' };
+const events = [];
+let stored = null;
+const { savePending, Flow } = recoveryHarness({
+  setItem: (_key, value) => { events.push('persist'); stored = value; },
+  getItem: () => stored,
+});
+const signed = { compileMessage: () => ({}), serialize: () => new Uint8Array() };
+function flowFor(Type) {
+  const flow = new Type();
+  flow.setStep = () => {};
+  flow.logLink = () => {};
+  flow.wallet = { signTransaction: async () => { events.push('approve'); return signed; } };
+  flow.connection = {
+    simulateTransaction: async () => ({ value: { err: null } }),
+    sendRawTransaction: async () => { events.push('submit'); return 'signature'; },
+    getSignatureStatus: async () => ({ value: null }),
+  };
+  return flow;
+}
+const tx = { compileMessage: () => ({}), serializeMessage: () => new Uint8Array() };
+await assert.rejects(flowFor(Flow).signSubmit(tx, 'mint', [], () => savePending(pendingMint)), /confirmation is not visible/);
+assert.deepEqual(events, ['approve', 'persist', 'submit']);
+assert.deepEqual(JSON.parse(stored), pendingMint);
+assert.equal(/secretKey|privateKey/.test(stored), false);
+for (const storage of [
+  { setItem: () => { throw new Error('quota exceeded'); }, getItem: () => null },
+  { setItem: () => {}, getItem: () => null },
+  { setItem: () => {}, getItem: () => { throw new Error('storage unavailable'); } },
+]) {
+  events.length = 0;
+  const harness = recoveryHarness(storage);
+  await assert.rejects(flowFor(harness.Flow).signSubmit(tx, 'mint', [], () => harness.savePending(pendingMint)), /Could not save launch recovery data/);
+  assert.deepEqual(events, ['approve']);
+}
+console.log('✓ recovery persistence failure prevents mint submission; confirmation timeout preserves public recovery data');
 
 const listingIndex = source.indexOf('status.textContent = "On-chain curve, custody and immutable metadata verified. Finishing Signal listing…";');
 const verifyIndex = source.lastIndexOf('const verified = await flow.verifyRecoveredLaunch', listingIndex);

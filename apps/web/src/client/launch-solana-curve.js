@@ -68,7 +68,13 @@ function readPending() {
   try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "null"); } catch { return null; }
 }
 function savePending(value) {
-  try { localStorage.setItem(PENDING_KEY, JSON.stringify(value)); } catch { /* recovery is best-effort */ }
+  try {
+    const serialized = JSON.stringify(value);
+    localStorage.setItem(PENDING_KEY, serialized);
+    if (localStorage.getItem(PENDING_KEY) !== serialized) throw new Error("Recovery data was not stored.");
+  } catch {
+    throw new Error("Could not save launch recovery data. Enable browser storage before continuing.");
+  }
 }
 function clearPending(mint) {
   try { if (readPending()?.mint === mint) localStorage.removeItem(PENDING_KEY); } catch { /* no-op */ }
