@@ -3,6 +3,16 @@
   "installCommand": "cd ../.. && npx --yes pnpm@9.15.9 install --filter @launchpad/web... --no-frozen-lockfile",
   "buildCommand": "cd ../.. && npx --yes pnpm@9.15.9 --filter @launchpad/web build",
   "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/token/:mint((?!example(?:/|$))[^/]+)",
+      "destination": "/token/example/index.html"
+    },
+    {
+      "source": "/token/:mint((?!example(?:/|$))[^/]+)/",
+      "destination": "/token/example/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/dashboard",
