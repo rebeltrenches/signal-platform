@@ -28,7 +28,9 @@ globalThis.fetch = async () => { calls++; return Response.json({ jsonrpc: "2.0",
 const send = { jsonrpc: "2.0", method: "sendTransaction", params: ["AAAA", { encoding: "base64" }] };
 for (const [headers, expected, code] of [
   [{ "x-vercel-ip-country": "IR" }, 451, "REGION_BLOCKED"],
-  [{ "cf-ipcountry": "DE" }, 503, "REGION_UNAVAILABLE"],
+  // Vercel ignores Cloudflare-only geo headers. With no Vercel country header,
+  // the invalid transaction is rejected before any upstream RPC call.
+  [{ "cf-ipcountry": "DE" }, 400, "INVALID_SIGNED_TRANSACTION"],
   [{ "x-vercel-ip-country": "DE" }, 400, "INVALID_SIGNED_TRANSACTION"],
 ]) {
   r = await call("/api/solana/rpc", { method: "POST", headers, body: send, route: rpc });
