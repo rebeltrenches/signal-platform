@@ -17,7 +17,7 @@ try {
  ]) {
   const r = await worker.fetch(req(path,method,body),env);
   assert.equal(r.status,200); assert.equal(r.headers.get('cache-control'),'no-store, max-age=0');
-  const call=calls.at(-1); assert.equal(call.url,env.SIGNAL_API_ORIGIN+path); assert.equal(call.options.method,method);
+  const call=calls.at(-1); assert.equal(call.url,env.SIGNAL_API_ORIGIN+path); assert.equal(call.options.method,method); assert.equal(call.options.redirect,'manual');
   assert.equal(call.options.headers.get('authorization'),'Bearer session');
   assert.equal(call.options.headers.get('cookie'),null); assert.equal(call.options.headers.get('x-signal-edge-secret'),null);
  }
@@ -32,5 +32,9 @@ try {
  globalThis.fetch=async()=>new Response('private upstream error',{status:500});
  const failed=await worker.fetch(req('/api/v1/chat/main/messages'),env);
  assert.equal(failed.status,503); assert.ok(!(await failed.text()).includes('private upstream'));
+ for (const status of [301,302,303,307,308]) {
+  let redirects=0; globalThis.fetch=async (_url,options)=>{redirects++; assert.equal(options.redirect,'manual'); return new Response('{}',{status,headers:{'content-type':'application/json',location:'https://untrusted.example'}});};
+  assert.equal((await worker.fetch(req('/api/v1/chat/main/messages'),env)).status,503); assert.equal(redirects,1);
+ }
  console.log('Chat proxy routing, auth forwarding, privacy, limits and failure handling passed.');
 } finally { globalThis.fetch=original; }

@@ -36,7 +36,11 @@ export async function profileApiProxy({ request, env }) {
   }
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await fetch(new URL(url.pathname + url.search, upstream.origin), { method: request.method, headers: forwarded, ...(body ? { body } : {}), redirect: 'error', signal: controller.signal });
+    const response = await fetch(new URL(url.pathname + url.search, upstream.origin), { method: request.method, headers: forwarded, ...(body ? { body } : {}), redirect: 'manual', signal: controller.signal });
+    // Workers rejects redirect: 'error'; manual mode prevents credential forwarding.
+    if (response.status >= 300 && response.status < 400) {
+      return Response.json({ message: 'Profiles is temporarily unavailable. Please try again.' }, { status: 503, headers });
+    }
     if (!(response.headers.get('content-type') || '').includes('application/json') || response.status >= 500) return Response.json({ message: 'Profiles are temporarily unavailable. Please try again.' }, { status: 503, headers });
     if (response.status === 404) {
       const payload = await response.json();
