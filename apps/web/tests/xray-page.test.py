@@ -1,4 +1,4 @@
-"""Signal X-Ray on the site: the front page's "X-Ray any token" box and the
+"""Signal X-Ray on the site: the front page's "X-Ray Coin & Wallet Scanner" box and the
 token page's Signal Check tab (apps/web/src/client/xray.js), against a
 stubbed /api/xray answer in the server's real shape.
 
@@ -102,15 +102,15 @@ def run():
             page = browser.new_page(viewport={"width": 1280, "height": 900})
             requests = stub_xray(page)
             page.goto(f"http://localhost:{PORT}/", wait_until="domcontentloaded")
-            check("the front page has the 'X-Ray any token' box", page.is_visible("#xray-form") and "X-Ray any token" in page.inner_text("#xray-heading"))
+            check("the front page has the 'X-Ray Coin & Wallet Scanner' box", page.is_visible("#xray-form") and "X-Ray Coin & Wallet Scanner" in page.inner_text("#xray-heading"))
             page.fill("#xray-mint", "not a mint")
             page.click("#xray-form button[type=submit]")
-            check("an invalid address is refused without a request", "Enter a Solana token mint address" in page.inner_text("#xray-results") and not requests)
+            check("an invalid address is refused without a request", "Enter a Solana coin or wallet address" in page.inner_text("#xray-results") and not requests)
             page.fill("#xray-mint", MINT)
             page.click("#xray-form button[type=submit]")
             page.wait_for_selector("#xray-results .xray-item")
             text = xray_text(page, "#xray-results")
-            check("it asks the server for that mint", requests and requests[0].endswith(f"/api/xray?mint={MINT}"), str(requests))
+            check("it asks the server for that mint", requests and requests[0].endswith(f"/api/xray?address={MINT}"), str(requests))
             check("sections are shown with their titles", all(t in text.lower() for t in ["hard facts", "holders and liquidity", "honeypot checks"]))
             check("each fact shows a ✅ or ⚠️ marker", page.eval_on_selector('[data-check="mint-authority"] .xray-marker', "e => e.textContent") == "✅" and page.eval_on_selector('[data-check="freeze-authority"] .xray-marker', "e => e.textContent") == "⚠️")
             check("each fact has its one-line why", page.eval_on_selector_all(".xray-item .xray-why", "els => els.length") == 8)
@@ -241,3 +241,4 @@ if __name__ == "__main__":
     ok = run()
     print(f"\n{sum(results)} passed, {len(results) - sum(results)} failed.")
     sys.exit(0 if ok else 1)
+

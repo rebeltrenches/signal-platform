@@ -121,13 +121,13 @@ export function HomePage() {
       {/* Signal X-Ray: on-chain facts about any Solana token (client/xray.js). */}
       <section className="container xray-home" id="xray" aria-labelledby="xray-heading">
         <div className="card xray-card">
-          <h2 id="xray-heading" className="xray-home-title">X-Ray any token</h2>
+          <h2 id="xray-heading" className="xray-home-title">X-Ray Coin &amp; Wallet Scanner</h2>
           <p className="xray-home-intro">
-            Paste a Solana token mint address to see its on-chain facts: authorities, Token-2022 extensions, holders,
-            liquidity and a simulated sell. Facts, not a verdict.
+            Paste a Solana coin or wallet address. Coins show authorities, holders, liquidity and a simulated sell.
+            Wallets show balances, holdings, recent history and a transfer bubble map. Read-only. Facts, not a verdict.
           </p>
           <form id="xray-form" className="xray-form" noValidate>
-            <label htmlFor="xray-mint" className="xray-form-label">Token mint address</label>
+            <label htmlFor="xray-mint" className="xray-form-label">Solana coin or wallet address</label>
             <div className="xray-form-row">
               <input id="xray-mint" name="mint" type="text" inputMode="text" autoComplete="off" spellCheck={false} placeholder="e.g. 3mwz…f4Ar" maxLength={44} />
               <button type="submit" className="btn btn-brand">X-Ray</button>
@@ -230,3 +230,4 @@ export function HomePage() {
     </>
   );
 }
+
