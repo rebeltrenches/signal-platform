@@ -12,10 +12,10 @@ export async function chatApiProxy({ request, env }) {
   const bodyLimit = 5_000;
   if (!allowed.includes(request.method)) return Response.json({ message: 'Method not allowed.' }, { status: 405, headers });
   const origin = env.SIGNAL_API_ORIGIN || env.SIGNAL_API_BASE_URL;
-  if (!origin) return Response.json({ message: 'Chat is not available on this deployment yet.' }, { status: 503, headers });
+  if (!origin) { console.error('chat_proxy_failure', { reason: 'missing_api_origin' }); return Response.json({ message: 'Chat is not available on this deployment yet.' }, { status: 503, headers }); }
   let upstream;
-  try { upstream = new URL(origin); } catch { return Response.json({ message: 'Chat is temporarily unavailable.' }, { status: 503, headers }); }
-  if (upstream.protocol !== 'https:' || upstream.username || upstream.password) return Response.json({ message: 'Chat is temporarily unavailable.' }, { status: 503, headers });
+  try { upstream = new URL(origin); } catch { console.error('chat_proxy_failure', { reason: 'invalid_api_origin' }); return Response.json({ message: 'Chat is temporarily unavailable.' }, { status: 503, headers }); }
+  if (upstream.protocol !== 'https:' || upstream.username || upstream.password) { console.error('chat_proxy_failure', { reason: 'unsafe_api_origin' }); return Response.json({ message: 'Chat is temporarily unavailable.' }, { status: 503, headers }); }
   const forwarded = new Headers({ accept: 'application/json' });
   if (request.headers.get('authorization')) forwarded.set('authorization', request.headers.get('authorization'));
   const ip = request.headers.get('cf-connecting-ip');
@@ -37,7 +37,10 @@ export async function chatApiProxy({ request, env }) {
   const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 55_000);
   try {
     const response = await fetch(new URL(url.pathname + url.search, upstream.origin), { method: request.method, headers: forwarded, ...(body ? { body } : {}), redirect: 'error', signal: controller.signal });
-    if (!(response.headers.get('content-type') || '').includes('application/json') || response.status >= 500) return Response.json({ message: 'Chat is temporarily unavailable. Please try again.' }, { status: 503, headers });
+    if (!(response.headers.get('content-type') || '').includes('application/json') || response.status >= 500) {
+      console.error('chat_proxy_failure', { reason: response.status >= 500 ? 'upstream_server_error' : 'upstream_non_json', status: response.status });
+      return Response.json({ message: 'Chat is temporarily unavailable. Please try again.' }, { status: 503, headers });
+    }
     if (response.status === 404) {
       const payload = await response.json();
       // Old API routers identify an unimplemented route by its path.
@@ -45,6 +48,9 @@ export async function chatApiProxy({ request, env }) {
       return Response.json(payload, { status: 404, headers });
     }
     return new Response(await response.arrayBuffer(), { status: response.status, headers: { ...headers, 'content-type': 'application/json' } });
-  } catch { return Response.json({ message: 'Chat is temporarily unavailable. Please try again.' }, { status: 503, headers }); }
+  } catch (error) {
+    // No request headers, URLs, upstream bodies or visitor data are logged.
+    console.error('chat_proxy_failure', { reason: controller.signal.aborted ? 'upstream_timeout' : 'upstream_fetch_failed', errorName: ['TypeError', 'AbortError', 'NetworkError', 'SyntaxError'].includes(error?.name) ? error.name : 'Error' });
+    return Response.json({ message: 'Chat is temporarily unavailable. Please try again.' }, { status: 503, headers }); }
   finally { clearTimeout(timeout); }
 }
