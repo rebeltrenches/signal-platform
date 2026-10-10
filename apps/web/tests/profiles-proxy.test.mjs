@@ -9,6 +9,7 @@ try {
   globalThis.fetch = async (url, options) => { calls.push({ url: String(url), options }); return Response.json({ profile: { username: 'test' } }); };
   let r = await worker.fetch(request('/api/v1/profiles/test', 'GET', undefined, { authorization: 'Bearer test', cookie: 'private', 'x-signal-edge-secret': 'visitor' }), env);
   assert.equal(r.status, 200); assert.equal(r.headers.get('cache-control'), 'no-store, max-age=0');
+  assert.equal(calls[0].options.redirect, 'manual');
   assert.equal(calls[0].url, 'https://api.signal.example/api/v1/profiles/test');
   assert.equal(calls[0].options.headers.get('authorization'), 'Bearer test');
   assert.equal(calls[0].options.headers.get('cookie'), null);
@@ -29,6 +30,10 @@ try {
   r = await profileApiProxy({ request: request('/api/v1/profiles/test'), env }); assert.equal(r.status, 404);
   globalThis.fetch = async () => new Response('<html>server error</html>', { status: 500 });
   r = await profileApiProxy({ request: request('/api/v1/profiles/me'), env }); assert.equal(r.status, 503);
+  for (const status of [301,302,303,307,308]) {
+    let count=0; globalThis.fetch=async (_url,options)=>{count++; assert.equal(options.redirect,'manual'); return new Response('{}',{status,headers:{'content-type':'application/json',location:'https://untrusted.example'}});};
+    assert.equal((await profileApiProxy({request:request('/api/v1/profiles/me'),env})).status,503); assert.equal(count,1);
+  }
   let assetUrl;
   r = await worker.fetch(request('/u/test_user'), { ASSETS: { fetch(req) { assetUrl = req.url; return new Response('Profile shell'); } } });
   assert.equal(assetUrl, 'https://preview.example/u/example/'); assert.equal(r.headers.get('cache-control'), 'no-store, max-age=0');
