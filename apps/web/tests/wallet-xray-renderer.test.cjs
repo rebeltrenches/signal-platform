@@ -49,5 +49,7 @@ function byClass(cls) { return all().find(n => (n.className || n.attrs.class || 
   assert.match(byClass('xray-wallet-map').textContent, /sent 4 SOL · received 6 SOL/);
   assert.equal(all().filter(n => n.tag === 'button' && n.textContent === 'Load more history').length, 0);
   assert.match(container.textContent, /2 readable transactions from 2 checked/);
+  assert.match(container.textContent, /History checked: 2 of 2 transactions in loaded pages/);
+  assert.match(container.textContent, /SOL transfer connections: 1 observed accounts/);
   console.log('Wallet renderer checks passed: $10 boundary, unknown-price grouping, collapsed sections, search, keyboard bubbles, copying and paginated history aggregation.');
 })().catch(e => { console.error(e); process.exitCode = 1; });

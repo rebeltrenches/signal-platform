@@ -324,7 +324,14 @@
             peers.set(peer.address, prev ? { ...peer, sentSol: addSol(prev.sentSol, peer.sentSol), receivedSol: addSol(prev.receivedSol, peer.receivedSol), signatures: [...new Set([...prev.signatures, ...peer.signatures])], transfers: [...prev.transfers, ...peer.transfers] } : peer);
           }
           merged.connections = [...peers.values()];
-          merged.sections = data.sections.filter(section => section.id !== 'activity');
+          const previousItems = data.sections.find(section => section.id === 'activity')?.items || [];
+          const activity = previousItems.filter(item => !['history-coverage', 'connections', 'observed-funding'].includes(item.id));
+          const fact = (id, label, value, why) => ({ id, label, value, why, status: 'info' });
+          activity.unshift(fact('history-coverage', 'History checked', merged.history.loaded + ' of ' + merged.history.listed + ' transactions in loaded pages' + (merged.history.hasMore ? '; older history exists' : ''), 'Only loaded pages are checked; unreadable transactions and pruned history may leave gaps.'));
+          activity.push(fact('connections', 'SOL transfer connections', String(merged.connections.length) + ' observed accounts', 'Only explicit successful SOL transfers create links. A transfer does not prove shared ownership.'));
+          const inbound = merged.transactions.flatMap(tx => (tx.transfers || []).filter(transfer => transfer.destination === data.address).map(transfer => ({ ...transfer, blockTime: tx.blockTime }))).filter(transfer => Number.isFinite(transfer.blockTime)).sort((a, b) => a.blockTime - b.blockTime)[0];
+          if (inbound) activity.push({ ...fact('observed-funding', 'Earliest SOL sender in checked sample', inbound.source, "This is a transfer observed in loaded history, not necessarily the wallet's original funding source."), addresses: [inbound.source], signature: inbound.signature });
+          merged.sections = [...data.sections.filter(section => section.id !== 'activity'), { id: 'activity', title: 'Activity and connections', items: activity }];
           render(container, merged);
         } catch { more.disabled = false; more.textContent = 'Could not load history — tap to retry'; }
       }); history.append(more);
