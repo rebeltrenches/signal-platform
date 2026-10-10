@@ -15,6 +15,10 @@ import http from 'node:http';
 import { createServer } from '../../src/server.js';
 import { registerToken } from '../../src/tokens/tokenStore.js';
 
+import { __setProfileRepositoryForTests } from '../../src/profiles/profileStore.js';
+import { MemoryProfileRepository } from '../../src/profiles/MemoryProfileRepository.js';
+__setProfileRepositoryForTests(new MemoryProfileRepository());
+
 const PORT = Number(process.env.PORT ?? 4000);
 const api = createServer();
 

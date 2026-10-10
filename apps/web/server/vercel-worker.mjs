@@ -32,6 +32,7 @@ export default async function handler(req, res) {
     const ip = headers.get("x-real-ip");
     if (ip) headers.set("cf-connecting-ip", ip);
     const method = req.method || "GET";
+    const bodyLimit = String(req.url || "").split("?")[0] === "/api/v1/profiles/me" ? 230_000 : 32_000;
     let body;
     if (method !== "GET" && method !== "HEAD") {
       if (req.body !== undefined) {
@@ -42,12 +43,12 @@ export default async function handler(req, res) {
         for await (const chunk of req) {
           const bytes = Buffer.from(chunk);
           length += bytes.length;
-          if (length > 32_000) return tooLarge(res);
+          if (length > bodyLimit) return tooLarge(res);
           chunks.push(bytes);
         }
         body = Buffer.concat(chunks).toString("utf8");
       }
-      if (Buffer.byteLength(body || "") > 32_000) return tooLarge(res);
+      if (Buffer.byteLength(body || "") > bodyLimit) return tooLarge(res);
       headers.set("content-length", String(Buffer.byteLength(body || "")));
     }
     const request = new Request(new URL(req.url, "https://signal-preview.invalid"), { method, headers, ...(body !== undefined ? { body } : {}) });

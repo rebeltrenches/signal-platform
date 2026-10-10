@@ -20,6 +20,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Shell } from '../src/layout/Shell.js';
+import { ProfilePage } from '../src/pages/ProfilePage.js';
 import { HomePage } from '../src/pages/HomePage.js';
 import { SupportPage } from '../src/pages/SupportPage.js';
 import { CreatePage } from '../src/pages/CreatePage.js';
@@ -51,6 +52,8 @@ interface RouteDef {
 }
 
 const routes: RouteDef[] = [
+  { path: 'profile', title: 'My profile', element: <ProfilePage />, clientScripts: ['/client/auth-client.js', '/client/profile.js?v=1'] },
+  { path: 'u/example', title: 'Profile', element: <ProfilePage publicView />, clientScripts: ['/client/profile.js?v=1'] },
   { path: 'support', title: 'Support', element: <SupportPage />, clientScripts: ['/client/support.js?v=1'] },
   { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js?v=wallet-enhancements-2', '/client/home-markets.js?v=4'] },
   {

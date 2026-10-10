@@ -1,3 +1,4 @@
+import { profileApiProxy } from './functions/api/profiles-proxy.js';
 import { onRequestPost as portfolio } from "./functions/api/solana/portfolio.js";
 import { onRequestPost as swapQuote } from "./functions/api/solana/swap-quote.js";
 import { onRequestPost as swapBuild } from "./functions/api/solana/swap-build.js";
@@ -14,6 +15,10 @@ import { onRequestPost as registerToken } from "./functions/api/register-token.j
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (/^\/api\/v1\/profiles\/(me|[a-zA-Z][a-zA-Z0-9_]{2,23})$/.test(url.pathname) || ["/api/v1/auth/challenge", "/api/v1/auth/session"].includes(url.pathname)) {
+      return profileApiProxy({ request, env });
+    }
 
     if (url.pathname === "/api/support/tickets") {
       if (request.method === "GET") return supportStatus({ env });
@@ -126,6 +131,14 @@ export default {
     if (url.pathname.startsWith("/token/") && url.pathname !== "/token/example") {
       const shellUrl = new URL("/token/example/", request.url);
       return env.ASSETS.fetch(new Request(shellUrl, request));
+    }
+
+    if (/^\/u\/[a-zA-Z][a-zA-Z0-9_]{2,23}\/?$/.test(url.pathname)) {
+      const shellUrl = new URL("/u/example/", request.url);
+      const response = await env.ASSETS.fetch(new Request(shellUrl, request));
+      const headers = new Headers(response.headers);
+      headers.set("cache-control", "no-store, max-age=0");
+      return new Response(response.body, { status: response.status, headers });
     }
 
     return env.ASSETS.fetch(request);
