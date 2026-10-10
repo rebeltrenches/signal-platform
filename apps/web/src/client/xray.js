@@ -315,7 +315,7 @@
         more.disabled = true; more.textContent = 'Loading older history…';
         try {
           const response = await fetch('/api/xray?address=' + encodeURIComponent(data.address) + '&before=' + encodeURIComponent(data.history.nextCursor), { signal: AbortSignal.timeout(90_000) });
-          const older = await response.json(); if (!response.ok || older.kind !== 'wallet') throw new Error('History unavailable');
+          const older = await response.json(); if (!response.ok || older.kind !== 'wallet' || !older.history?.available) throw new Error('History unavailable');
           if (!container.contains(root)) return;
           const merged = { ...data, history: { ...older.history, listed: data.history.listed + older.history.listed, loaded: data.history.loaded + older.history.loaded }, transactions: [...data.transactions, ...older.transactions].filter((tx, i, all) => all.findIndex(t => t.signature === tx.signature) === i) };
           const peers = new Map();

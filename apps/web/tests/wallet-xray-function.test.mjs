@@ -60,4 +60,18 @@ await test('names and logos remain available even when no liquid price exists', 
   network({ prices: [{ chainId: 'solana', baseToken: { address: mint, name: 'Named token', symbol: 'NAME' }, info: { imageUrl: 'https://example.com/logo.png' }, priceUsd: '1', liquidity: { usd: 0 } }] });
   const { body } = await run(); assert.equal(body.tokens[0].name, 'Named token'); assert.equal(body.tokens[0].usdValue, null); assert.equal(body.tokens[0].image, 'https://example.com/logo.png');
 });
+await test('price batching covers holdings beyond 29 and retains successful batches', async () => {
+  network(); const baseFetch = globalThis.fetch; const pricedMint = key(35); let requests = 0;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('dexscreener')) {
+      const mints = String(url).split('/').at(-1).split(','); assert.ok(mints.length <= 30); requests++;
+      if (requests === 1) throw new Error('first price batch unavailable');
+      return Response.json([{ chainId: 'solana', baseToken: { address: pricedMint, name: 'Later holding' }, priceUsd: '2', liquidity: { usd: 100 } }]);
+    }
+    const { method, params } = JSON.parse(init.body);
+    if (method === 'getTokenAccountsByOwner') return Response.json({ result: { value: params[1].programId === TOKEN ? Array.from({ length: 35 }, (_, i) => ({ account: { data: { parsed: { info: { mint: key(i + 5), state: 'initialized', tokenAmount: { amount: '100', decimals: 0 } } } } } })) : [] } });
+    return baseFetch(url, init);
+  };
+  const { body } = await run(); assert.equal(requests, 2); assert.equal(body.tokens.find(t => t.mint === pricedMint).usdValue, 200); assert.equal(body.valuation.pricedTokens, 1);
+});
 console.log(count + ' wallet scanner tests passed');
