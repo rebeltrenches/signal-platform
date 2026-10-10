@@ -685,3 +685,15 @@ details.xray-wallet-row { display: block; }
 .xray-map-peer { fill: #203a52; stroke: #8bbfef; stroke-width: 2; }
 .xray-map-center { fill: #203f35; stroke: #74ddb0; stroke-width: 2; }
 .xray-map-label { fill: #dce5f2; font-size: 12px; font-family: inherit; }
+
+/* Wallet scanner controls and accessible bubble actions. */
+.xray-holdings-controls { display:flex; flex-wrap:wrap; gap:.75rem; margin:1rem 0; }
+.xray-holdings-controls input,.xray-holdings-controls select { background:var(--bg,#141322); color:inherit; border:1px solid var(--border,#45415d); border-radius:10px; padding:.75rem; min-width:0; max-width:100%; }
+.xray-holdings-search { flex:1 1 230px; }
+.xray-holdings-group { margin:.75rem 0; padding:.75rem; border:1px solid var(--border,#45415d); border-radius:12px; }
+.xray-holdings-group > summary { cursor:pointer; padding:.5rem 0; font-weight:600; }
+.xray-token-logo { width:32px; height:32px; border-radius:50%; object-fit:cover; }
+.xray-map-peer,.xray-map-label[role=button] { cursor:pointer; }
+.xray-map-peer:focus { outline:none; stroke:#fff; stroke-width:4; }
+.xray-map-panel { border:1px solid var(--border,#45415d); padding:1rem; border-radius:12px; overflow-wrap:anywhere; }
+.xray-holdings-group .xray-address,.xray-map-panel .xray-address { min-height:44px; }

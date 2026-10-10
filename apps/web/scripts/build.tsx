@@ -52,7 +52,7 @@ interface RouteDef {
 
 const routes: RouteDef[] = [
   { path: 'support', title: 'Support', element: <SupportPage />, clientScripts: ['/client/support.js?v=1'] },
-  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js', '/client/home-markets.js?v=4'] },
+  { path: '', title: 'Home', element: <HomePage />, clientScripts: ['/client/xray.js?v=wallet-enhancements-2', '/client/home-markets.js?v=4'] },
   {
     path: 'create',
     title: 'Create',
@@ -68,7 +68,7 @@ const routes: RouteDef[] = [
     path: 'token/example',
     title: 'Token',
     element: <TokenDetailPage />,
-    clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js', '/client/xray.js', '/client/sell-link.js'],
+    clientScripts: ['/client/logo-image.js', '/client/token-detail.js', '/client/auth-client.js', '/client/chat.js', '/client/xray.js?v=wallet-enhancements-2', '/client/sell-link.js'],
     // Prove Signal curve provenance on-chain and route active curves through
     // the curve program. Graduated/external tokens fall back to the existing swap flow.
     moduleScripts: ['/client/curve-provenance.js', '/client/trade-router.js'],

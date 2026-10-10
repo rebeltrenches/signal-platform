@@ -114,7 +114,10 @@ jobs:
       - name: Cloudflare portfolio function regression test
         run: node apps/web/tests/cloudflare-portfolio-function.test.mjs
       - name: Signal X-Ray tests (checks, honeypot mints, cache, rate limit)
-        run: node apps/web/tests/xray-function.test.mjs
+        run: |
+          node apps/web/tests/xray-function.test.mjs
+          node apps/web/tests/wallet-xray-function.test.mjs
+          node apps/web/tests/wallet-xray-renderer.test.cjs
       - name: Swap tamper check tests (Lighthouse guards allowed, anything else blocked)
         run: node apps/web/tests/swap-intent.test.mjs
       - name: Token market function tests (bonding curve, holders, logo, quota protection)

@@ -42,10 +42,14 @@ with sync_playwright() as p:
     assert 'Available SOL: 2.5 SOL' in page.inner_text('#xray-results')
     assert page.locator('.xray-map-peer').count() == 1
     assert page.locator('a[href*="solscan.io/tx/"]').count() >= 4
+    page.get_by_text('Price unavailable (1)', exact=True).click()
     assert '9007199.254741' in page.inner_text('#xray-results')
     assert page.locator('.xray-wallet-map svg').bounding_box()['width'] <= 390
     assert page.locator('#xray-results[aria-busy]').count() == 0
     assert page.get_by_role('link', name='Report an error').get_attribute('href') == '/support'
+    page.locator('.xray-map-peer').click()
+    assert data['connections'][0]['address'] in page.inner_text('.xray-map-panel')
+    assert page.locator('.xray-map-panel .xray-address').get_attribute('data-address') == data['connections'][0]['address']
     page.get_by_role('button', name='X-Ray coin').click()
     page.wait_for_selector('.xray-wallet-map svg')
     assert '?mint=' in requests[-1]

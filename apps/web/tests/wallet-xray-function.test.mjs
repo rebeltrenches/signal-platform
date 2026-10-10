@@ -13,6 +13,7 @@ function network(options = {}) {
   globalThis.fetch = async (url, init) => {
     if (String(url).includes('dexscreener')) return Response.json(options.prices || []);
     const { method, params } = JSON.parse(init.body); calls.push(method);
+    if (options.onCall) options.onCall(method, params);
     if (options.fail?.includes(method) || (options.partialTokens && method === 'getTokenAccountsByOwner' && params[1].programId !== TOKEN)) throw new Error('offline');
     let result;
     if (method === 'getAccountInfo') result = { value: options.account === undefined ? { owner: SYSTEM, data: ['', 'base64'], executable: false } : options.account };
@@ -42,4 +43,21 @@ await test('detection outages return 502 rather than misclassifying', async () =
 await test('prices apply only to base tokens on Solana with positive liquidity', async () => { network({ prices: [{ chainId: 'solana', baseToken: { address: mint, name: 'Test', symbol: 'TEST' }, priceUsd: '1', liquidity: { usd: 10000 } }, { chainId: 'solana', baseToken: { address: mint }, priceUsd: '999', liquidity: { usd: 0 } }] }); const { body } = await run(); assert.equal(body.tokens[0].usdValue, Number(body.tokens[0].amount)); assert.match(body.sections[0].items.find(x => x.id === 'portfolio-value').value, /partial/); });
 await test('invalid addresses do not call upstreams', async () => { const calls = network(); const res = await onRequestGet({ request: new Request('https://signal.test/api/xray?address=invalid'), env: {} }); assert.equal(res.status, 400); assert.equal(calls.length, 0); });
 await test('unified address results use cache and do not collide with legacy mints', async () => { const calls = network(); const req = new Request('https://signal.test/api/xray?address=' + wallet); const first = await onRequestGet({ request: req, env: {}, now: 1700000100000 }); const body = await first.json(); assert.equal(body.kind, 'wallet'); const total = calls.length; assert.equal((await onRequestGet({ request: req, env: {}, now: 1700000101000 })).status, 200); assert.equal(calls.length, total); writeFileSync('/tmp/wallet-xray-fixture.json', JSON.stringify(body)); });
+await test('history cursor reaches RPC and next cursor is last checked signature', async () => {
+  let observed;
+  network({ signatures: Array.from({ length: 21 }, (_, i) => ({ signature: String(i) })), onCall: (method, params) => { if (method === 'getSignaturesForAddress') observed = params[1].before; } });
+  const { body } = await runAddressXray(wallet, {}, 1700000100000, () => {}, 'previous');
+  assert.equal(observed, 'previous'); assert.equal(body.history.nextCursor, '19');
+});
+await test('invalid history cursor does not call upstream', async () => {
+  const calls = network(); const res = await onRequestGet({ request: new Request('https://signal.test/api/xray?address=' + wallet + '&before=invalid'), env: {} });
+  assert.equal(res.status, 400); assert.equal(calls.length, 0);
+});
+await test('valuation distinguishes unknown prices and transfer dates are included', async () => {
+  network(); const { body } = await run(); assert.equal(body.valuation.knownUsd, null); assert.equal(body.valuation.unpricedTokens, 1); assert.equal(body.connections[0].transfers[0].blockTime, 1700000000);
+});
+await test('names and logos remain available even when no liquid price exists', async () => {
+  network({ prices: [{ chainId: 'solana', baseToken: { address: mint, name: 'Named token', symbol: 'NAME' }, info: { imageUrl: 'https://example.com/logo.png' }, priceUsd: '1', liquidity: { usd: 0 } }] });
+  const { body } = await run(); assert.equal(body.tokens[0].name, 'Named token'); assert.equal(body.tokens[0].usdValue, null); assert.equal(body.tokens[0].image, 'https://example.com/logo.png');
+});
 console.log(count + ' wallet scanner tests passed');

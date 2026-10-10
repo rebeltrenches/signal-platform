@@ -59,7 +59,7 @@ export function transactionFacts(tx, signature, address) {
   };
 }
 
-export async function runAddressXray(address, env, now, runTokenXray) {
+export async function runAddressXray(address, env, now, runTokenXray, before = null) {
   const usage = { rpcCalls: 0, rpcByMethod: {}, priceRequests: 0 };
   const deadline = Date.now() + 60_000;
   const urls = [...new Set([...(typeof env?.SOLANA_RPC_URL === "string" && env.SOLANA_RPC_URL.startsWith("https://") ? [env.SOLANA_RPC_URL] : []), ...FALLBACKS])];
@@ -138,24 +138,34 @@ export async function runAddressXray(address, env, now, runTokenXray) {
   let pricedSol = null;
   try {
     usage.priceRequests++;
-    const mints = ["So11111111111111111111111111111111111111112", ...tokens.slice(0, 29).map((token) => token.mint)];
-    const response = await fetch("https://api.dexscreener.com/tokens/v1/solana/" + mints.join(","), { signal: AbortSignal.timeout(5_000) });
-    if (!response.ok) throw new Error("Price source unavailable");
-    const pairs = await response.json();
-    if (!Array.isArray(pairs)) throw new Error("Invalid prices");
+    const mints = ["So11111111111111111111111111111111111111112", ...tokens.slice(0, 149).map((token) => token.mint)];
+    const pairs = [];
+    for (let offset = 0; offset < mints.length; offset += 30) {
+      if (offset) usage.priceRequests++;
+      try {
+        const response = await fetch("https://api.dexscreener.com/tokens/v1/solana/" + mints.slice(offset, offset + 30).join(","), { signal: AbortSignal.timeout(5_000) });
+        if (!response.ok) continue;
+        const batch = await response.json();
+        if (Array.isArray(batch)) pairs.push(...batch);
+      } catch { /* keep successful batches when another batch is unavailable */ }
+    }
+    for (const token of tokens) {
+      const pair = pairs.find(pair => pair.chainId === "solana" && pair.baseToken?.address === token.mint);
+      if (pair) { token.name = pair.baseToken.name; token.symbol = pair.baseToken.symbol; token.image = pair.info?.imageUrl; }
+    }
     const prices = new Map();
     for (const pair of pairs) {
       const price = Number(pair.priceUsd), liquidity = Number(pair.liquidity?.usd);
       if (pair.chainId !== "solana" || !Number.isFinite(price) || price <= 0 || !Number.isFinite(liquidity) || liquidity <= 0) continue;
       const mint = pair.baseToken?.address;
-      if (!prices.has(mint) || liquidity > prices.get(mint).liquidity) prices.set(mint, { price, liquidity, name: pair.baseToken.name, symbol: pair.baseToken.symbol });
+      if (!prices.has(mint) || liquidity > prices.get(mint).liquidity) prices.set(mint, { price, liquidity, name: pair.baseToken.name, symbol: pair.baseToken.symbol, image: pair.info?.imageUrl });
     }
     const solPrice = prices.get(mints[0]);
     if (solPrice && balanceSol !== null) pricedSol = Number(balanceSol) * solPrice.price;
     for (const token of tokens) {
       const price = prices.get(token.mint);
       if (!price) continue;
-      token.name = price.name; token.symbol = price.symbol;
+      token.name = price.name; token.symbol = price.symbol; token.image = price.image; token.priceUsd = price.price;
       const value = Number(token.amount) * price.price;
       if (Number.isFinite(value)) token.usdValue = value;
     }
@@ -167,7 +177,7 @@ export async function runAddressXray(address, env, now, runTokenXray) {
 
   let historyAvailable = false;
   try {
-    const result = await rpc("getSignaturesForAddress", [address, { limit: HISTORY_LIMIT + 1, commitment: "confirmed" }]);
+    const result = await rpc("getSignaturesForAddress", [address, { limit: HISTORY_LIMIT + 1, commitment: "confirmed", ...(before ? { before } : {}) }]);
     if (!Array.isArray(result)) throw new Error("Invalid signatures");
     signatures = result.slice(0, HISTORY_LIMIT);
     hasMore = result.length > HISTORY_LIMIT;
@@ -189,7 +199,7 @@ export async function runAddressXray(address, env, now, runTokenXray) {
     const node = connections.get(peer) || { address: peer, sentLamports: 0n, receivedLamports: 0n, signatures: new Set(), transfers: [] };
     if (transfer.source === address) node.sentLamports += BigInt(transfer.lamports);
     else node.receivedLamports += BigInt(transfer.lamports);
-    node.signatures.add(tx.signature); node.transfers.push(transfer);
+    node.signatures.add(tx.signature); node.transfers.push({ ...transfer, blockTime: tx.blockTime });
     connections.set(peer, node);
   }
   const historyItems = [
@@ -202,7 +212,8 @@ export async function runAddressXray(address, env, now, runTokenXray) {
   return { status: 200, ttl: partial ? 30_000 : 60_000, body: {
     kind: "wallet", address, generatedAt: new Date(now).toISOString(), cacheSeconds: partial ? 30 : 60,
     balanceSol, tokens, tokenDataComplete, transactions,
-    history: { limit: HISTORY_LIMIT, listed: signatures.length, loaded: transactions.length, hasMore, sampleComplete: historyComplete, available: historyAvailable },
+    valuation: { knownUsd: pricedSol !== null || values.length ? knownUsd : null, solUsd: pricedSol, pricedTokens: values.length, unpricedTokens: tokens.length - values.length, complete: allPriced },
+    history: { before, nextCursor: hasMore ? signatures.at(-1)?.signature : null, limit: HISTORY_LIMIT, listed: signatures.length, loaded: transactions.length, hasMore, sampleComplete: historyComplete, available: historyAvailable },
     connections: [...connections.values()].map((node) => ({ address: node.address, sentSol: atomicAmount(node.sentLamports), receivedSol: atomicAmount(node.receivedLamports), signatures: [...node.signatures], transfers: node.transfers })),
     sections: [{ id: "balances", title: "Balances and holdings", items }, { id: "activity", title: "Activity and connections", items: historyItems }],
     usage, note: "Read-only Solana scan. Facts, not a verdict. History and prices may be incomplete.",
