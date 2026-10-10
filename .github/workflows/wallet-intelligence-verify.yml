@@ -93,6 +93,11 @@ jobs:
         run: |
           pnpm exec tsx apps/api/tests/mint-creator-verification.test.ts
           pnpm exec tsx apps/api/tests/token-routes.test.ts
+      - name: Profile ownership and privacy tests
+        run: |
+          pnpm exec tsx apps/api/tests/profiles-routes.test.ts
+          pnpm exec tsx apps/api/tests/profiles-postgres.test.ts
+          node apps/web/tests/profiles-proxy.test.mjs
       - name: TypeScript verification
         run: pnpm typecheck
       - name: Bubble Map data tests
@@ -157,6 +162,8 @@ jobs:
         run: python apps/web/tests/xray-page.test.py
       - name: Token page Sell link (opens Jupiter, no Signal sell transaction)
         run: python apps/web/tests/sell-link.test.py
+      - name: Customizable profiles browser verification
+        run: python apps/web/tests/profile-page.test.py
       - name: Safety boundary
         run: |
           echo "Wallet Intelligence verification completed against isolated CI resources."

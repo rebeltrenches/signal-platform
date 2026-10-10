@@ -19,6 +19,9 @@ import { initializeStorage as initializeAlertStorage } from './alerts/alertStore
 import { initializeStorage as initializeLaunchStorage } from './launches/launchStore.js';
 import { initializeWalletIntelligenceStorage } from './wallets/walletIntelligenceStore.js';
 
+import { getMyProfile, putMyProfile, deleteMyProfile, getPublicProfile } from './routes/profiles.js';
+import { initializeProfileStorage } from './profiles/profileStore.js';
+
 const router = new Router();
 
 // --- real, working ----------------------------------------------------
@@ -57,6 +60,12 @@ router.register('GET', '/api/v1/tokens/:chain/:address', getTokenRoute);
 router.register('GET', '/api/v1/auth/challenge', getAuthChallenge);
 router.register('POST', '/api/v1/auth/session', postAuthSession);
 router.register('GET', '/api/v1/auth/session', getAuthSession);
+
+// Profiles: wallet-owned editing, opt-in public projections.
+router.register('GET', '/api/v1/profiles/me', getMyProfile);
+router.register('PUT', '/api/v1/profiles/me', putMyProfile);
+router.register('DELETE', '/api/v1/profiles/me', deleteMyProfile);
+router.register('GET', '/api/v1/profiles/:username', getPublicProfile);
 
 // --- Watchlist: real, session-authenticated CRUD ----------------------
 router.register('GET', '/api/v1/watchlist', getWatchlist);
@@ -109,6 +118,7 @@ async function startServer() {
   await initializeAlertStorage();
   await initializeLaunchStorage();
   await initializeWalletIntelligenceStorage();
+  await initializeProfileStorage();
 
   createServer().listen(PORT, () => {
     console.log(`api listening on http://localhost:${PORT}`);

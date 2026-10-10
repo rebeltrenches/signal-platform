@@ -91,6 +91,7 @@ model Wallet {
   user        User?    @relation(fields: [userId], references: [id])
   createdAt   DateTime @default(now())
 
+  profile        UserProfile?
   trades         Trade[]
   createdTokens  Token[]        @relation("TokenCreator")
   activity       WalletActivity[]
@@ -505,4 +506,32 @@ model WalletNote {
   createdAt     DateTime       @default(now())
 
   @@index([walletId, createdAt])
+}
+
+// Public identity is opt-in. Watchlists, holdings and alerts are never copied
+// into this model or its public API projection. One profile per signed wallet.
+model UserProfile {
+  id                   String   @id @default(cuid())
+  ownerAddress         String
+  ownerChain           Chain
+  owner                Wallet   @relation(fields: [ownerAddress, ownerChain], references: [address, chain], onDelete: Cascade)
+  username             String   @unique
+  displayName          String
+  bio                  String   @default("")
+  avatar               String   @default("")
+  banner               String   @default("")
+  accent               String   @default("#8b5cf6")
+  theme                String   @default("aurora")
+  roles                String[] @default([])
+  website              String   @default("")
+  twitter              String   @default("")
+  telegram             String   @default("")
+  isPublic             Boolean  @default(false)
+  showWallet           Boolean  @default(false)
+  showProjects         Boolean  @default(false)
+  featuredTokenAddress String   @default("")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([ownerAddress, ownerChain])
 }

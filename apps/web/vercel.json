@@ -11,6 +11,14 @@
     {
       "source": "/token/:mint((?!example(?:/|$))[^/]+)/",
       "destination": "/token/example/index.html"
+    },
+    {
+      "source": "/u/:username",
+      "destination": "/u/example/index.html"
+    },
+    {
+      "source": "/u/:username/",
+      "destination": "/u/example/index.html"
     }
   ],
   "headers": [
@@ -34,6 +42,24 @@
     },
     {
       "source": "/client/portfolio.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/profile(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/u/(.*)",
       "headers": [
         {
           "key": "Cache-Control",

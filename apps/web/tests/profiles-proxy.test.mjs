@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { profileApiProxy } from '../../../functions/api/profiles-proxy.js';
+import { worker } from '../server/vercel-worker.mjs';
+const original = globalThis.fetch;
+let calls = [];
+const env = { SIGNAL_API_ORIGIN: 'https://api.signal.example/base' };
+const request = (path, method = 'GET', body, headers = {}) => new Request('https://preview.example' + path, { method, headers, ...(body ? { body } : {}) });
+try {
+  globalThis.fetch = async (url, options) => { calls.push({ url: String(url), options }); return Response.json({ profile: { username: 'test' } }); };
+  let r = await worker.fetch(request('/api/v1/profiles/test', 'GET', undefined, { authorization: 'Bearer test', cookie: 'private', 'x-signal-edge-secret': 'visitor' }), env);
+  assert.equal(r.status, 200); assert.equal(r.headers.get('cache-control'), 'no-store, max-age=0');
+  assert.equal(calls[0].url, 'https://api.signal.example/api/v1/profiles/test');
+  assert.equal(calls[0].options.headers.get('authorization'), 'Bearer test');
+  assert.equal(calls[0].options.headers.get('cookie'), null);
+  assert.equal(calls[0].options.headers.get('x-signal-edge-secret'), null);
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me', 'PUT', '{}', { 'content-type': 'application/json' }), env });
+  assert.equal(r.status, 200); assert.equal(calls[1].options.method, 'PUT');
+  r = await profileApiProxy({ request: request('/api/v1/profiles/test', 'PUT', '{}'), env }); assert.equal(r.status, 405);
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me', 'PUT', 'x'.repeat(230_001), { 'content-type': 'application/json' }), env }); assert.equal(r.status, 413);
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me', 'PUT', '{}'), env }); assert.equal(r.status, 415);
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me'), env: {} }); assert.equal(r.status, 503);
+  r = await worker.fetch(request('/api/v1/auth/challenge?address=wallet&chain=solana'), env);
+  assert.equal(r.status, 200); assert.ok(calls.at(-1).url.endsWith('?address=wallet&chain=solana'));
+  r = await worker.fetch(request('/api/v1/auth/session', 'POST', '{}', { 'content-type': 'application/json' }), env); assert.equal(r.status, 200);
+  r = await profileApiProxy({ request: request('/api/v1/auth/session', 'POST', 'x'.repeat(5_001), { 'content-type': 'application/json' }), env }); assert.equal(r.status, 413);
+  globalThis.fetch = async () => Response.json({ error: 'NOT_FOUND', path: '/api/v1/profiles/me' }, { status: 404 });
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me'), env }); assert.equal(r.status, 503, 'old backend recognized as unavailable');
+  globalThis.fetch = async () => Response.json({ error: 'NOT_FOUND', message: 'Private profile.' }, { status: 404 });
+  r = await profileApiProxy({ request: request('/api/v1/profiles/test'), env }); assert.equal(r.status, 404);
+  globalThis.fetch = async () => new Response('<html>server error</html>', { status: 500 });
+  r = await profileApiProxy({ request: request('/api/v1/profiles/me'), env }); assert.equal(r.status, 503);
+  let assetUrl;
+  r = await worker.fetch(request('/u/test_user'), { ASSETS: { fetch(req) { assetUrl = req.url; return new Response('Profile shell'); } } });
+  assert.equal(assetUrl, 'https://preview.example/u/example/'); assert.equal(r.headers.get('cache-control'), 'no-store, max-age=0');
+  console.log('Profile proxy method limits, bounded bodies, private headers, unavailable states and profile routing passed.');
+} finally { globalThis.fetch = original; }

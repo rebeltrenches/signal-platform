@@ -47,6 +47,7 @@ export function DashboardPage() {
           <h1>Dashboard</h1>
           <p>Your launches, holdings, and watchlist.</p>
         </div>
+        <a className="btn btn-ghost" href="/profile">My profile</a>
       </div>
 
       <div data-dashboard-state="disconnected">

@@ -81,6 +81,7 @@ export function Header({ currentPath }: { currentPath: string }) {
             {item.label}
           </a>
         ))}
+        <a href="/profile" aria-current={currentPath === '/profile' ? 'page' : undefined}>My profile</a>
         <a href="https://x.com/SignalChainpad" target="_blank" rel="noopener noreferrer">Signal on X ↗</a>
         <a href="https://t.me/+1wKw0JsTmzkwZWE0" target="_blank" rel="noopener noreferrer">Join Telegram ↗</a>
         {currentPath === '/' && <a href="/support">Support · Log a ticket</a>}
