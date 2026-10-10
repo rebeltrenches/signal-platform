@@ -16,17 +16,8 @@
 //    The resulting 24-hour session authenticates messages without a
 //    Phantom approval on every send. No transaction or SOL is involved.
 (function () {
-  // Configurable API origin: when apps/api is hosted separately from
-  // this static frontend (see docs/SECURITY.md and the architecture
-  // notes on why a separate host is the real production path for
-  // this), a build can set window.SIGNAL_API_BASE_URL and every call
-  // below targets that origin instead. Unset (the default, and the
-  // only way this has ever actually run) means today's exact behavior
-  // — a relative path, same-origin request.
-  function apiUrl(path) {
-    const base = window.SIGNAL_API_BASE_URL;
-    return base ? `${base.replace(/\/$/, '')}${path}` : path;
-  }
+  // Use the site's Worker proxy so preview domains do not need API CORS access.
+  function apiUrl(path) { return path; }
 
   const POLL_INTERVAL_MS = 4000;
   const MAX_MESSAGE_LENGTH = 500;

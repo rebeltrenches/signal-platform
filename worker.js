@@ -1,3 +1,4 @@
+import { chatApiProxy } from './functions/api/chat-proxy.js';
 import { profileApiProxy } from './functions/api/profiles-proxy.js';
 import { onRequestPost as portfolio } from "./functions/api/solana/portfolio.js";
 import { onRequestPost as swapQuote } from "./functions/api/solana/swap-quote.js";
@@ -15,6 +16,8 @@ import { onRequestPost as registerToken } from "./functions/api/register-token.j
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname.startsWith('/api/v1/chat/')) return chatApiProxy({ request, env });
 
     if (/^\/api\/v1\/profiles\/(me|[a-zA-Z][a-zA-Z0-9_]{2,23})$/.test(url.pathname) || ["/api/v1/auth/challenge", "/api/v1/auth/session"].includes(url.pathname)) {
       return profileApiProxy({ request, env });
