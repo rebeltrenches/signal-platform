@@ -173,19 +173,56 @@
     return link;
   }
 
+  function addSol(a, b) {
+    const atomic = value => { const parts = String(value).split('.'); return BigInt(parts[0]) * 1000000000n + BigInt((parts[1] || '').padEnd(9, '0').slice(0, 9)); };
+    const value = atomic(a) + atomic(b); const digits = value.toString().padStart(10, '0');
+    return digits.slice(0, -9) + (digits.slice(-9).replace(/0+$/, '') ? '.' + digits.slice(-9).replace(/0+$/, '') : '');
+  }
+
   function renderWallet(root, data, container) {
     const holdings = el('section', 'xray-section');
     holdings.append(el('h4', 'xray-section-title', 'Token holdings'));
     if (!data.tokens?.length) holdings.append(el('p', 'xray-note', data.tokenDataComplete ? 'No non-zero token balances returned.' : 'Token balances are incomplete or unavailable.'));
-    for (const token of data.tokens || []) {
-      const row = el('div', 'xray-wallet-row');
-      row.append(el('strong', '', token.name || token.symbol || 'Token'), addressControl(token.mint));
-      row.append(el('span', '', token.amount + (token.symbol ? ' ' + token.symbol : '') + (token.frozenAccounts ? ' · frozen accounts present' : '')));
-      row.append(el('span', 'xray-note', token.usdValue === null ? 'Price unavailable' : '≈ $' + Number(token.usdValue).toFixed(2)));
-      const scan = el('button', 'btn btn-ghost', 'X-Ray coin');
-      scan.type = 'button'; scan.addEventListener('click', () => load(container, token.mint));
-      row.append(scan); holdings.append(row);
+    const controls = el('div', 'xray-holdings-controls');
+    const search = el('input', 'xray-holdings-search');
+    search.type = 'search'; search.placeholder = 'Search holdings by name, symbol or address';
+    search.setAttribute('aria-label', 'Search holdings');
+    const sort = el('select', 'xray-holdings-sort');
+    sort.setAttribute('aria-label', 'Sort holdings');
+    for (const [value, label] of [['value', 'Highest value first'], ['name', 'Name A–Z']]) {
+      const option = el('option', '', label); option.value = value; sort.append(option);
     }
+    controls.append(search, sort); holdings.append(controls);
+    const list = el('div', 'xray-holdings-list'); holdings.append(list);
+    const money = value => '$' + Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const priced = token => typeof token.usdValue === 'number' && Number.isFinite(token.usdValue);
+    const valuation = data.valuation;
+    if (valuation) holdings.prepend(el('p', 'xray-note', 'Priced assets: ' + (valuation.knownUsd === null ? 'Unavailable' : '≈ ' + money(valuation.knownUsd)) + ' · ' + valuation.pricedTokens + ' priced tokens · ' + valuation.unpricedTokens + ' tokens without prices' + (valuation.complete ? '' : ' · Partial estimate')));
+    function drawHoldings() {
+      list.replaceChildren();
+      const query = search.value.trim().toLowerCase();
+      const tokens = (data.tokens || []).filter(token => [token.name, token.symbol, token.mint].some(value => String(value || '').toLowerCase().includes(query)));
+      tokens.sort((a, b) => sort.value === 'name' ? String(a.name || a.symbol || a.mint).localeCompare(String(b.name || b.symbol || b.mint)) : (priced(b) ? b.usdValue : -1) - (priced(a) ? a.usdValue : -1));
+      const groups = [tokens.filter(t => priced(t) && t.usdValue >= 10), tokens.filter(t => priced(t) && t.usdValue < 10), tokens.filter(t => !priced(t))];
+      groups.forEach((group, index) => {
+        if (!group.length) return;
+        const block = index ? el('details', 'xray-holdings-group') : el('div', 'xray-holdings-main');
+        if (index) block.append(el('summary', '', (index === 1 ? 'Holdings under $10' : 'Price unavailable') + ' (' + group.length + ')'));
+        group.forEach(token => {
+          const row = el('div', 'xray-wallet-row');
+          if (typeof token.image === 'string' && token.image.startsWith('https://')) {
+            const image = el('img', 'xray-token-logo'); image.src = token.image; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; image.addEventListener('error', () => image.remove()); row.append(image);
+          }
+          row.append(el('strong', '', token.name || token.symbol || 'Unknown token'), addressControl(token.mint));
+          row.append(el('span', '', token.amount + (token.symbol ? ' ' + token.symbol : '') + (token.frozenAccounts ? ' · frozen accounts present' : '')));
+          row.append(el('span', 'xray-note', priced(token) ? '≈ ' + money(token.usdValue) : 'Price unavailable'));
+          const scan = el('button', 'btn btn-ghost', 'X-Ray coin'); scan.type = 'button'; scan.addEventListener('click', () => load(container, token.mint)); row.append(scan); block.append(row);
+        });
+        list.append(block);
+      });
+      if (!tokens.length) list.append(el('p', 'xray-note', 'No matching holdings.'));
+    }
+    search.addEventListener('input', drawHoldings); sort.addEventListener('change', drawHoldings); drawHoldings();
     root.append(holdings);
 
     const map = el('section', 'xray-section xray-wallet-map');
@@ -196,7 +233,7 @@
     else {
       const ns = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(ns, 'svg');
-      svg.setAttribute('viewBox', '0 0 600 400'); svg.setAttribute('role', 'img');
+      svg.setAttribute('viewBox', '0 0 600 400'); svg.setAttribute('role', 'group');
       svg.setAttribute('aria-label', 'SOL transfers involving this wallet. Evidence and amounts are listed below.');
       function shape(tag, attrs, label) {
         const node = document.createElementNS(ns, tag);
@@ -204,19 +241,35 @@
         if (label) { const title = document.createElementNS(ns, 'title'); title.textContent = label; node.append(title); }
         svg.append(node); return node;
       }
-      const shown = connections.slice(0, 16);
+      const panel = el('div', 'xray-map-panel'); panel.setAttribute('aria-live', 'polite');
+      panel.append(el('p', 'xray-note', 'Tap a bubble to view its full address and transfers.'));
+      function selectPeer(peer) {
+        panel.replaceChildren(el('p', 'xray-mint', peer.address), addressControl(peer.address));
+        panel.append(el('p', 'xray-note', 'Sent ' + peer.sentSol + ' SOL · received ' + peer.receivedSol + ' SOL · ' + peer.signatures.length + ' transactions in checked sample'));
+        const scan = el('button', 'btn btn-ghost', 'Scan this wallet'); scan.type = 'button'; scan.addEventListener('click', () => load(container, peer.address, true)); panel.append(scan);
+        for (const transfer of peer.transfers || []) {
+          const line = el('p', 'xray-note', (transfer.source === data.address ? 'Sent ' : 'Received ') + transfer.amount + ' SOL · ' + (transfer.blockTime ? new Date(transfer.blockTime * 1000).toLocaleString() : 'Time unavailable') + ' · ');
+          line.append(transactionLink(transfer.signature)); panel.append(line);
+        }
+      }
+      function activate(node, peer) {
+        node.setAttribute('role', 'button'); node.setAttribute('tabindex', '0'); node.setAttribute('aria-label', 'View wallet ' + peer.address);
+        node.addEventListener('click', () => selectPeer(peer));
+        node.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPeer(peer); } });
+      }
+      const shown = [...connections].sort((a, b) => Number(b.sentSol) + Number(b.receivedSol) - Number(a.sentSol) - Number(a.receivedSol)).slice(0, 16);
       for (let i = 0; i < shown.length; i++) {
         const peer = shown[i], angle = i * Math.PI * 2 / shown.length;
         const x = 300 + Math.cos(angle) * 225, y = 200 + Math.sin(angle) * 145;
         shape('line', { x1: 300, y1: 200, x2: x, y2: y, class: 'xray-map-edge' });
         const radius = 15 + Math.min(15, Math.log2(1 + peer.signatures.length) * 4);
-        shape('circle', { cx: x, cy: y, r: radius, class: 'xray-map-peer' }, peer.address + ': sent ' + peer.sentSol + ' SOL; received ' + peer.receivedSol + ' SOL');
-        const text = shape('text', { x, y: y + radius + 16, 'text-anchor': 'middle', class: 'xray-map-label' }); text.textContent = short(peer.address);
+        activate(shape('circle', { cx: x, cy: y, r: radius, class: 'xray-map-peer' }, peer.address + ': sent ' + peer.sentSol + ' SOL; received ' + peer.receivedSol + ' SOL'), peer);
+        const text = shape('text', { x, y: y + radius + 16, 'text-anchor': 'middle', class: 'xray-map-label' }); text.textContent = short(peer.address); activate(text, peer);
       }
-      shape('circle', { cx: 300, cy: 200, r: 34, class: 'xray-map-center' }, data.address);
+      activate(shape('circle', { cx: 300, cy: 200, r: 34, class: 'xray-map-center' }, data.address), { address: data.address, sentSol: connections.reduce((sum, p) => addSol(sum, p.sentSol), '0'), receivedSol: connections.reduce((sum, p) => addSol(sum, p.receivedSol), '0'), signatures: [...new Set(connections.flatMap(p => p.signatures))], transfers: [] });
       const center = shape('text', { x: 300, y: 204, 'text-anchor': 'middle', class: 'xray-map-label' }); center.textContent = 'Wallet';
-      map.append(svg);
-      if (connections.length > shown.length) map.append(el('p', 'xray-note', 'Map shows the first 16 connections; all observed connections are listed below.'));
+      map.append(svg, panel);
+      if (connections.length > shown.length) map.append(el('p', 'xray-note', 'Map shows the 16 largest SOL transfer connections; all observed connections are listed below.'));
       for (const peer of connections) {
         const details = el('details', 'xray-wallet-row');
         details.append(el('summary', '', short(peer.address) + ' · sent ' + peer.sentSol + ' SOL · received ' + peer.receivedSol + ' SOL'));
@@ -225,15 +278,20 @@
         scan.type = 'button'; scan.addEventListener('click', () => load(container, peer.address, true));
         details.append(scan);
         for (const transfer of peer.transfers || []) {
-          const evidence = el('p', 'xray-note', (transfer.source === data.address ? 'Sent ' : 'Received ') + transfer.amount + ' SOL · ');
+          const evidence = el('p', 'xray-note', (transfer.source === data.address ? 'Sent ' : 'Received ') + transfer.amount + ' SOL · ' + (transfer.blockTime ? new Date(transfer.blockTime * 1000).toLocaleString() : 'Time unavailable') + ' · ');
           evidence.append(transactionLink(transfer.signature)); details.append(evidence);
         }
         map.append(details);
       }
     }
+    const sent = connections.reduce((sum, peer) => addSol(sum, peer.sentSol), '0');
+    const received = connections.reduce((sum, peer) => addSol(sum, peer.receivedSol), '0');
+    if (data.history?.available) map.prepend(el('p', 'xray-note', 'Checked sample: sent ' + sent + ' SOL · received ' + received + ' SOL · ' + connections.length + ' counterparties'));
     root.append(map);
     const history = el('section', 'xray-section');
     history.append(el('h4', 'xray-section-title', 'Recent transaction history'));
+    const times = (data.transactions || []).map(tx => tx.blockTime).filter(Number.isFinite);
+    history.append(el('p', 'xray-note', (data.history?.loaded ?? 0) + ' readable transactions from ' + (data.history?.listed ?? 0) + ' checked' + (times.length ? ' · ' + new Date(Math.min(...times) * 1000).toLocaleString() + ' to ' + new Date(Math.max(...times) * 1000).toLocaleString() : '') + (data.history?.hasMore ? ' · Older history exists' : '')));
     history.append(el('p', 'xray-note', 'SOL change includes any network fee paid by this wallet. Balance changes may include swaps, rent or account closures; they are not profit or loss.'));
     if (!data.transactions?.length) history.append(el('p', 'xray-note', data.history?.available ? 'No readable transactions returned.' : 'History unavailable.'));
     for (const tx of data.transactions || []) {
@@ -251,6 +309,33 @@
     const explorer = el('a', 'xray-solscan', 'View more history on Solscan ↗');
     explorer.href = 'https://solscan.io/account/' + encodeURIComponent(data.address) + '#transfers';
     explorer.target = '_blank'; explorer.rel = 'noopener noreferrer'; history.append(explorer);
+    if (data.history?.nextCursor) {
+      const more = el('button', 'btn btn-ghost', 'Load more history'); more.type = 'button';
+      more.addEventListener('click', async () => {
+        more.disabled = true; more.textContent = 'Loading older history…';
+        try {
+          const response = await fetch('/api/xray?address=' + encodeURIComponent(data.address) + '&before=' + encodeURIComponent(data.history.nextCursor), { signal: AbortSignal.timeout(90_000) });
+          const older = await response.json(); if (!response.ok || older.kind !== 'wallet' || !older.history?.available) throw new Error('History unavailable');
+          if (!container.contains(root)) return;
+          const merged = { ...data, history: { ...older.history, listed: data.history.listed + older.history.listed, loaded: data.history.loaded + older.history.loaded }, transactions: [...data.transactions, ...older.transactions].filter((tx, i, all) => all.findIndex(t => t.signature === tx.signature) === i) };
+          const peers = new Map();
+          for (const peer of [...data.connections, ...older.connections]) {
+            const prev = peers.get(peer.address);
+            peers.set(peer.address, prev ? { ...peer, sentSol: addSol(prev.sentSol, peer.sentSol), receivedSol: addSol(prev.receivedSol, peer.receivedSol), signatures: [...new Set([...prev.signatures, ...peer.signatures])], transfers: [...prev.transfers, ...peer.transfers] } : peer);
+          }
+          merged.connections = [...peers.values()];
+          const previousItems = data.sections.find(section => section.id === 'activity')?.items || [];
+          const activity = previousItems.filter(item => !['history-coverage', 'connections', 'observed-funding'].includes(item.id));
+          const fact = (id, label, value, why) => ({ id, label, value, why, status: 'info' });
+          activity.unshift(fact('history-coverage', 'History checked', merged.history.loaded + ' of ' + merged.history.listed + ' transactions in loaded pages' + (merged.history.hasMore ? '; older history exists' : ''), 'Only loaded pages are checked; unreadable transactions and pruned history may leave gaps.'));
+          activity.push(fact('connections', 'SOL transfer connections', String(merged.connections.length) + ' observed accounts', 'Only explicit successful SOL transfers create links. A transfer does not prove shared ownership.'));
+          const inbound = merged.transactions.flatMap(tx => (tx.transfers || []).filter(transfer => transfer.destination === data.address).map(transfer => ({ ...transfer, blockTime: tx.blockTime }))).filter(transfer => Number.isFinite(transfer.blockTime)).sort((a, b) => a.blockTime - b.blockTime)[0];
+          if (inbound) activity.push({ ...fact('observed-funding', 'Earliest SOL sender in checked sample', inbound.source, "This is a transfer observed in loaded history, not necessarily the wallet's original funding source."), addresses: [inbound.source], signature: inbound.signature });
+          merged.sections = [...data.sections.filter(section => section.id !== 'activity'), { id: 'activity', title: 'Activity and connections', items: activity }];
+          render(container, merged);
+        } catch { more.disabled = false; more.textContent = 'Could not load history — tap to retry'; }
+      }); history.append(more);
+    }
     root.append(history);
   }
 

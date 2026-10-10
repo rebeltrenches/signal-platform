@@ -879,7 +879,9 @@ export async function onRequestGet({ request, env, now = Date.now() }) {
   const params = new URL(request.url).searchParams;
   const addressMode = params.has("address");
   const address = (params.get(addressMode ? "address" : "mint") || "").trim();
-  const mint = addressMode ? "address:" + address : address;
+  const before = addressMode ? params.get("before") : null;
+  if (before && !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(before)) return respond(400, { code: "INVALID_CURSOR", error: "Invalid history cursor." }, 0);
+  const mint = addressMode ? "address:v2:" + address + (before ? ":" + before : "") : address;
   if (addressMode && !decodeAddress(address)) return respond(400, { code: "INVALID_ADDRESS", error: "Enter a Solana token mint or wallet address." }, 0);
   if (!addressMode && !decodeAddress(mint)) return respond(400, { code: "INVALID_MINT", error: "Enter a Solana token mint address." }, 0);
 
@@ -903,7 +905,7 @@ export async function onRequestGet({ request, env, now = Date.now() }) {
   }
   let pending = inFlight.get(mint);
   if (!pending) {
-    pending = (addressMode ? runAddressXray(address, env, now, runXray) : runXray(mint, env, now))
+    pending = (addressMode ? runAddressXray(address, env, now, runXray, before) : runXray(mint, env, now))
       .catch(() => ({ status: 502, body: { code: "UPSTREAM_ERROR", error: "Solana data is temporarily unavailable." }, ttl: CACHE_TTL_MS.error }))
       .finally(() => inFlight.delete(mint));
     inFlight.set(mint, pending);
