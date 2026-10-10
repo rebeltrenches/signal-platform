@@ -13,6 +13,7 @@
 // rate-limited per IP (XRAY_RATE_LIMITER binding, else per instance).
 // Each response reports the upstream calls it made (`usage`).
 import { decodeAddress, encodeAddress, findProgramAddress, isMintAccount, decodeBondingCurve, decodeTokenAccount } from "./token-market.js";
+import { runAddressXray } from "./wallet-xray.js";
 
 const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
@@ -875,8 +876,12 @@ export function resetXrayForTests() {
 }
 
 export async function onRequestGet({ request, env, now = Date.now() }) {
-  const mint = (new URL(request.url).searchParams.get("mint") || "").trim();
-  if (!decodeAddress(mint)) return respond(400, { code: "INVALID_MINT", error: "Enter a Solana token mint address." }, 0);
+  const params = new URL(request.url).searchParams;
+  const addressMode = params.has("address");
+  const address = (params.get(addressMode ? "address" : "mint") || "").trim();
+  const mint = addressMode ? "address:" + address : address;
+  if (addressMode && !decodeAddress(address)) return respond(400, { code: "INVALID_ADDRESS", error: "Enter a Solana token mint or wallet address." }, 0);
+  if (!addressMode && !decodeAddress(mint)) return respond(400, { code: "INVALID_MINT", error: "Enter a Solana token mint address." }, 0);
 
   const cached = memoryCache.get(mint);
   if (cached && cached.expires > now) return respond(cached.status, cached.body, cached.expires - now);
@@ -898,7 +903,7 @@ export async function onRequestGet({ request, env, now = Date.now() }) {
   }
   let pending = inFlight.get(mint);
   if (!pending) {
-    pending = runXray(mint, env, now)
+    pending = (addressMode ? runAddressXray(address, env, now, runXray) : runXray(mint, env, now))
       .catch(() => ({ status: 502, body: { code: "UPSTREAM_ERROR", error: "Solana data is temporarily unavailable." }, ttl: CACHE_TTL_MS.error }))
       .finally(() => inFlight.delete(mint));
     inFlight.set(mint, pending);
@@ -910,3 +915,4 @@ export async function onRequestGet({ request, env, now = Date.now() }) {
   if (edgeCache) await edgeCache.put(cacheKey, response.clone()).catch(() => {});
   return response;
 }
+

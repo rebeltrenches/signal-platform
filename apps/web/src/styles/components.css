@@ -672,3 +672,16 @@
   .topbar-home #wallet-connect-root { min-width: 0; margin-left: auto; }
   .topbar-home #wallet-connect-btn { padding-inline: 12px; font-size: 12px; }
 }
+
+
+/* X-Ray wallet results; scoped to the scanner. */
+.xray-wallet-row { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; padding: .85rem 0; border-bottom: 1px solid var(--border, #263041); overflow-wrap: anywhere; }
+details.xray-wallet-row { display: block; }
+.xray-wallet-row summary { cursor: pointer; padding: .35rem 0; }
+.xray-wallet-row > p { margin: .5rem 0; }
+.xray-wallet-row .btn { font-size: .8rem; }
+.xray-wallet-map svg { display: block; width: 100%; max-width: 650px; margin: 1rem auto; }
+.xray-map-edge { stroke: #6b7b92; stroke-width: 1.5; }
+.xray-map-peer { fill: #203a52; stroke: #8bbfef; stroke-width: 2; }
+.xray-map-center { fill: #203f35; stroke: #74ddb0; stroke-width: 2; }
+.xray-map-label { fill: #dce5f2; font-size: 12px; font-family: inherit; }
